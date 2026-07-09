@@ -369,8 +369,10 @@ const currentTitle = computed(() => (route.meta.title as string) || '慧眼AI')
   padding: 0;
   background: transparent;
 }
+/* 业务页原本按整屏 100vh 设计；现嵌入带顶栏的主区，强制填满主区高度即可，
+   避免比可视区高出一个顶栏的高度而产生多余滚动 */
 .portal-main :deep(> *) {
-  min-height: 100%;
+  min-height: 100% !important;
 }
 
 /* 滚动条：细而克制 */
