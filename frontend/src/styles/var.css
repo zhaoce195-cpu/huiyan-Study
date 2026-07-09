@@ -1,9 +1,9 @@
 /* 慧眼医疗云平台 V2.0 — 医疗级 UI 规范 */
 :root {
-  /* 主色（单点强调蓝） */
-  --hy-primary: #2e6bff;
-  --hy-primary-hover: #5687ff;
-  --hy-primary-active: #2556cc;
+  /* 主色（深金，浅底可读；hover 用香槟金） */
+  --hy-primary: #a67c1a;
+  --hy-primary-hover: #c6a15b;
+  --hy-primary-active: #856315;
 
   /* 风险等级 */
   --hy-risk-red: #f53f3f;
@@ -13,12 +13,12 @@
   --hy-risk-green: #00b42a;
   --hy-risk-green-bg: #e8ffea;
 
-  /* 内容页 浅色（纯灰白 / 白卡） */
-  --hy-light-bg: #f7f7f8;
+  /* 内容页 浅色（象牙白 / 白卡 / 墨字） */
+  --hy-light-bg: #fafaf9;
   --hy-light-card: #ffffff;
-  --hy-light-border: rgba(0, 0, 0, 0.08);
-  --hy-light-text: #131316;
-  --hy-light-text-sub: #6b6b73;
+  --hy-light-border: rgba(0, 0, 0, 0.07);
+  --hy-light-text: #1c1917;
+  --hy-light-text-sub: #78716c;
 
   /* 培训端 深色 */
   --hy-dark-bg: #141414;
@@ -33,18 +33,18 @@
     'Helvetica Neue', Helvetica, Arial, sans-serif;
 
   /* ===== Apple 风格设计令牌（深色 · 玻璃拟态） ===== */
-  --ap-accent: #2e6bff; /* 单点强调蓝 */
-  --ap-accent-2: #6d97ff;
-  --ap-accent-soft: rgba(46, 107, 255, 0.16);
-  --ap-bg: #101012; /* 近黑最底层背景 */
+  --ap-accent: #cba35c; /* 香槟金 */
+  --ap-accent-2: #e0c48a;
+  --ap-accent-soft: rgba(203, 163, 92, 0.16);
+  --ap-bg: #0c0a09; /* 墨黑最底层背景 */
   --ap-bg-grad: radial-gradient(
       1100px 620px at 50% -20%,
-      rgba(255, 255, 255, 0.035),
+      rgba(203, 163, 92, 0.06),
       transparent 60%
     ),
-    #101012;
-  --ap-glass: rgba(26, 26, 29, 0.62); /* 毛玻璃面 */
-  --ap-glass-strong: rgba(26, 26, 29, 0.82);
+    #0c0a09;
+  --ap-glass: rgba(28, 25, 23, 0.62); /* 毛玻璃面 #1C1917 */
+  --ap-glass-strong: rgba(28, 25, 23, 0.82);
   --ap-hairline: rgba(255, 255, 255, 0.08); /* 发丝分隔线 */
   --ap-hairline-strong: rgba(255, 255, 255, 0.14);
   --ap-text: #f5f5f7;
@@ -147,11 +147,11 @@ a {
  * ================================================================ */
 :root {
   /* 浅色内容页令牌 */
-  --ap-l-bg: #f7f7f8;
+  --ap-l-bg: #fafaf9;
   --ap-l-card: #ffffff;
-  --ap-l-text: #131316;
-  --ap-l-text-2: #6b6b73;
-  --ap-l-hairline: rgba(0, 0, 0, 0.08);
+  --ap-l-text: #1c1917;
+  --ap-l-text-2: #78716c;
+  --ap-l-hairline: rgba(0, 0, 0, 0.07);
   --ap-l-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 10px 30px rgba(0, 0, 0, 0.06);
 
   /* Element Plus：圆角 */
@@ -160,13 +160,13 @@ a {
   --el-border-radius-round: 999px;
 
   /* Element Plus：主色改为 Apple 蓝（含派生梯度，供 hover/active/浅底使用） */
-  --el-color-primary: #2e6bff;
-  --el-color-primary-light-3: #6d97ff;
-  --el-color-primary-light-5: #96b5ff;
-  --el-color-primary-light-7: #c0d3ff;
-  --el-color-primary-light-8: #d5e1ff;
-  --el-color-primary-light-9: #eaf0ff;
-  --el-color-primary-dark-2: #2556cc;
+  --el-color-primary: #a67c1a;
+  --el-color-primary-light-3: #c0a35f;
+  --el-color-primary-light-5: #d2be8c;
+  --el-color-primary-light-7: #e4d8ba;
+  --el-color-primary-light-8: #eee5d1;
+  --el-color-primary-light-9: #f7f2e8;
+  --el-color-primary-dark-2: #856315;
 
   /* 更柔的组件阴影 */
   --el-box-shadow-light: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
