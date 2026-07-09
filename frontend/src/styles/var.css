@@ -118,14 +118,17 @@ a {
   background: var(--hy-risk-green-bg);
 }
 
-/* 覆盖 element-plus 主色 */
+/* 主按钮：黑底白字（金色仅作点缀，不做大面积填充） */
 .el-button--primary {
-  --el-button-bg-color: var(--hy-primary);
-  --el-button-border-color: var(--hy-primary);
-  --el-button-hover-bg-color: var(--hy-primary-hover);
-  --el-button-hover-border-color: var(--hy-primary-hover);
-  --el-button-active-bg-color: var(--hy-primary-active);
-  --el-button-active-border-color: var(--hy-primary-active);
+  --el-button-bg-color: #1c1917;
+  --el-button-border-color: #1c1917;
+  --el-button-text-color: #ffffff;
+  --el-button-hover-bg-color: #2b2622;
+  --el-button-hover-border-color: #2b2622;
+  --el-button-hover-text-color: #ffffff;
+  --el-button-active-bg-color: #000000;
+  --el-button-active-border-color: #000000;
+  --el-button-active-text-color: #ffffff;
 }
 
 /* 滚动条 */
