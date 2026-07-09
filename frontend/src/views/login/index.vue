@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { reactive, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElLoading, type FormInstance, type FormRules } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
@@ -13,10 +13,24 @@ const userStore = useUserStore()
 const formRef = ref<FormInstance>()
 const loading = ref(false)
 
+/* 登录入口：学生 / 教师（含管理员）——不依赖用户名区分角色 */
+type LoginEntrance = 'student' | 'teacher'
+const loginRole = ref<LoginEntrance>('student')
+const DEMO: Record<LoginEntrance, { username: string; password: string }> = {
+  student: { username: 'student', password: 'Huiyan@123' },
+  teacher: { username: 'teacher', password: 'Huiyan@123' }
+}
+
 const form = reactive<LoginApi.LoginParams>({
-  username: (route.query.username as string) || 'admin',
-  password: route.query.username ? '' : 'Admin@123',
+  username: DEMO.student.username,
+  password: DEMO.student.password,
   remember: false
+})
+
+// 切换入口时填入该入口的演示账号（仅便捷，真正的角色以登录后返回为准）
+watch(loginRole, (r) => {
+  form.username = DEMO[r].username
+  form.password = DEMO[r].password
 })
 
 const goRegister = () => router.push('/register')
@@ -55,6 +69,22 @@ const handleLogin = async () => {
         const u = await LoginApi.getUserInfo()
         if (!u || !u.role) throw new Error('无法获取用户信息')
         userInfo = u
+      }
+
+      // 入口校验：所选入口需与账号角色匹配（不依赖用户名）
+      const role = userInfo.role
+      const entranceOk =
+        loginRole.value === 'student'
+          ? role === 'trainee'
+          : role === 'doctor' || role === 'admin'
+      if (!entranceOk) {
+        userStore.clear()
+        localStorage.removeItem('huiyan_token')
+        throw new Error(
+          loginRole.value === 'student'
+            ? '该账号不是学生账号，请切换到「教师入口」登录'
+            : '该账号不是教师/管理员账号，请切换到「学生入口」登录'
+        )
       }
 
       userStore.setUser(userInfo, {
@@ -127,9 +157,33 @@ const handleLogin = async () => {
 
       <div class="login-right">
         <div class="login-card">
+          <div class="role-tabs">
+            <button
+              type="button"
+              class="role-tab"
+              :class="{ active: loginRole === 'student' }"
+              @click="loginRole = 'student'"
+            >
+              学生入口
+            </button>
+            <button
+              type="button"
+              class="role-tab"
+              :class="{ active: loginRole === 'teacher' }"
+              @click="loginRole = 'teacher'"
+            >
+              教师入口
+            </button>
+          </div>
           <div class="card-header">
-            <h2>欢迎登录</h2>
-            <p>请使用医师工号或管理员账户登录系统</p>
+            <h2>{{ loginRole === 'student' ? '学生登录' : '教师登录' }}</h2>
+            <p>
+              {{
+                loginRole === 'student'
+                  ? '住培医师 / 学员 · 进入阅片训练'
+                  : '带教医师 / 管理员 · 进入教学与管理'
+              }}
+            </p>
           </div>
 
           <el-form
@@ -320,6 +374,31 @@ const handleLogin = async () => {
   border-radius: 16px;
   box-shadow: 0 18px 60px rgba(22, 119, 255, 0.08), 0 2px 8px rgba(0, 0, 0, 0.04);
   border: 1px solid rgba(22, 119, 255, 0.06);
+}
+.role-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  background: #f2f4f8;
+  border-radius: 12px;
+  margin-bottom: 22px;
+}
+.role-tab {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 9px 0;
+  border-radius: 9px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+}
+.role-tab.active {
+  background: #fff;
+  color: var(--hy-primary);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 .card-header h2 {
   margin: 0;
