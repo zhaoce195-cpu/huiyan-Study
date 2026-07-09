@@ -77,9 +77,9 @@ const isStudent = computed(() => userStore.isTrainee)
 
       <el-menu
         class="aside-menu"
-        background-color="#181a20"
-        text-color="#c9cdd4"
-        active-text-color="#4091ff"
+        background-color="transparent"
+        text-color="var(--ap-text-2)"
+        active-text-color="var(--ap-accent)"
         :default-active="activeMenu"
         :collapse="collapsed"
         :collapse-transition="false"
@@ -176,32 +176,33 @@ const isStudent = computed(() => userStore.isTrainee)
 </template>
 
 <style scoped>
-/* ========== 容器：等高 + 整体不滚动 ========== */
+/* ========== 容器：Apple 深色 + 渐变底 ========== */
 .portal {
   height: 100vh;
   overflow: hidden;
-  background: #0f1014;
-  color: #e5e6eb;
+  background: var(--ap-bg-grad);
+  color: var(--ap-text);
 }
 
-/* ========== 侧边栏：等高 + 自身不滚动 ========== */
+/* ========== 侧边栏：毛玻璃 + 发丝线 ========== */
 .portal-aside {
   height: 100vh;
   overflow: hidden;
-  background: #181a20;
-  border-right: 1px solid #2a2a2a;
+  background: var(--ap-glass);
+  backdrop-filter: blur(var(--ap-blur)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--ap-blur)) saturate(180%);
+  border-right: 1px solid var(--ap-hairline);
   display: flex;
   flex-direction: column;
   padding: 0;
-  transition: width 0.2s;
+  transition: width 0.28s var(--ap-ease);
 }
 
 .aside-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 16px 18px;
-  border-bottom: 1px solid #2a2a2a;
+  gap: 11px;
+  padding: 20px 20px 18px;
   flex-shrink: 0;
 }
 .brand-text {
@@ -209,131 +210,120 @@ const isStudent = computed(() => userStore.isTrainee)
   flex-direction: column;
 }
 .brand-name {
-  font-size: 14px;
-  font-weight: 700;
-  color: #fff;
-  letter-spacing: 1px;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--ap-text);
+  letter-spacing: 0.5px;
 }
 .brand-sub {
-  font-size: 11px;
-  color: #4091ff;
-  letter-spacing: 1.5px;
-  margin-top: 2px;
+  font-size: 10px;
+  color: var(--ap-text-3);
+  letter-spacing: 2.5px;
+  margin-top: 3px;
+  font-weight: 500;
 }
 
-.aside-user {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 18px;
-  border-bottom: 1px solid #2a2a2a;
-  flex-shrink: 0;
-}
-.user-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.u-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: #e5e6eb;
-}
-
-/* 菜单区：占据剩余空间，菜单本身在超长时纵向滚动；侧边栏外部容器仍然 overflow:hidden */
+/* 菜单区 */
 .aside-menu {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   border-right: 0;
-  padding-top: 8px;
+  padding: 6px 0 12px;
+  background: transparent;
+}
+/* 分组标题：Apple 分区头 */
+.aside-menu :deep(.el-menu-item-group__title) {
+  padding: 16px 20px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1.4px;
+  color: var(--ap-text-3);
 }
 .aside-menu :deep(.el-menu-item) {
-  margin: 2px 8px;
-  border-radius: 6px;
-  height: 44px;
-  line-height: 44px;
+  margin: 2px 10px;
+  padding-left: 14px !important;
+  border-radius: var(--ap-radius-sm);
+  height: 42px;
+  line-height: 42px;
+  color: var(--ap-text-2);
+  transition: background 0.2s var(--ap-ease), color 0.2s var(--ap-ease);
+}
+.aside-menu :deep(.el-menu-item .el-icon) {
+  color: var(--ap-text-3);
+  transition: color 0.2s var(--ap-ease);
 }
 .aside-menu :deep(.el-menu-item:hover) {
-  background: rgba(64, 145, 255, 0.1);
+  background: var(--ap-fill);
+  color: var(--ap-text);
+}
+.aside-menu :deep(.el-menu-item:hover .el-icon) {
+  color: var(--ap-text);
 }
 .aside-menu :deep(.el-menu-item.is-active) {
-  background: rgba(64, 145, 255, 0.18);
-  color: #4091ff !important;
+  background: var(--ap-accent-soft);
+  color: var(--ap-accent) !important;
   font-weight: 600;
 }
-
-.aside-footer {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 12px;
-  border-top: 1px solid #2a2a2a;
-  flex-shrink: 0;
-}
-.action-btn {
-  justify-content: flex-start;
-}
-.portal.collapsed .action-btn {
-  justify-content: center;
-  padding: 8px 0;
+.aside-menu :deep(.el-menu-item.is-active .el-icon) {
+  color: var(--ap-accent);
 }
 
-/* ========== 右侧区：顶栏 + 主内容，整体等高 ========== */
+/* ========== 右侧区：顶栏 + 主内容 ========== */
 .portal-body {
   height: 100vh;
   overflow: hidden;
 }
 .portal-header {
-  height: 52px;
+  height: 56px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  padding: 0 20px;
-  background: #181a20;
-  border-bottom: 1px solid #2a2a2a;
+  padding: 0 22px;
+  background: var(--ap-glass);
+  backdrop-filter: blur(var(--ap-blur)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--ap-blur)) saturate(180%);
+  border-bottom: 1px solid var(--ap-hairline);
 }
 .header-user {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   cursor: pointer;
   user-select: none;
-  padding: 4px 8px;
-  border-radius: 8px;
-  transition: background 0.2s;
+  padding: 6px 10px;
+  border-radius: 999px;
+  transition: background 0.2s var(--ap-ease);
 }
 .header-user:hover {
-  background: rgba(64, 145, 255, 0.1);
+  background: var(--ap-fill);
 }
 .hu-name {
   font-size: 13px;
   font-weight: 600;
-  color: #e5e6eb;
+  color: var(--ap-text);
 }
 .hu-arrow {
-  color: #86909c;
+  color: var(--ap-text-3);
   font-size: 12px;
 }
 
-/* ========== 主内容区：填充剩余高度 + 独立纵向滚动 ========== */
+/* ========== 主内容区 ========== */
 .portal-main {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 0;
-  background: #0f1014;
+  background: transparent;
 }
-
-/* el-main 的内边距由各业务页自行控制；这里清掉默认 padding 保留外观 */
 .portal-main :deep(> *) {
   min-height: 100%;
 }
 
-/* 主内容区滚动条美化（深色主题） */
+/* 滚动条：细而克制 */
 .portal-main::-webkit-scrollbar,
 .aside-menu::-webkit-scrollbar {
   width: 8px;
@@ -341,12 +331,12 @@ const isStudent = computed(() => userStore.isTrainee)
 }
 .portal-main::-webkit-scrollbar-thumb,
 .aside-menu::-webkit-scrollbar-thumb {
-  background: rgba(64, 145, 255, 0.25);
+  background: rgba(255, 255, 255, 0.12);
   border-radius: 4px;
 }
 .portal-main::-webkit-scrollbar-thumb:hover,
 .aside-menu::-webkit-scrollbar-thumb:hover {
-  background: rgba(64, 145, 255, 0.45);
+  background: rgba(255, 255, 255, 0.22);
 }
 .portal-main::-webkit-scrollbar-track,
 .aside-menu::-webkit-scrollbar-track {
