@@ -2,9 +2,10 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Back, Document } from '@element-plus/icons-vue'
+import { Back, Document, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
 
 import { LoginApi, ReadingApi } from '@/api'
+import { getCaseBrowseList } from '@/api/case-browse'
 import { ensureCornerstone, cornerstone } from '@/utils/cornerstone'
 import { useUserStore } from '@/stores/user'
 
@@ -40,8 +41,36 @@ const caseId = computed(() => Number(route.query.caseId || 0))
 const recordId = computed(() => Number(route.query.recordId || 0))
 
 const missingCaseId = computed(() => !caseId.value && !recordId.value)
-if (missingCaseId.value) {
-  ElMessage.warning('缺少病例参数，请从病例库进入')
+
+/* ========== 病例快速切换 ========== */
+const caseList = ref<{ id: number; caseNo: string; title: string }[]>([])
+const curIdx = computed(() =>
+  caseList.value.findIndex((c) => c.id === caseId.value)
+)
+const loadCaseList = async () => {
+  try {
+    const res: any = await getCaseBrowseList({ page: 1, pageSize: 100 })
+    caseList.value = (res?.list || []).map((c: any) => ({
+      id: c.id,
+      caseNo: c.caseNo || c.case_no || String(c.id),
+      title: c.title || ''
+    }))
+  } catch {
+    caseList.value = []
+  }
+}
+const gotoCaseByIndex = (idx: number) => {
+  if (idx < 0 || idx >= caseList.value.length) return
+  const target = caseList.value[idx]
+  if (!target || target.id === caseId.value) return
+  const q: any = { ...route.query, caseId: target.id }
+  delete q.recordId
+  router.replace({ query: q })
+}
+const onSelectCase = (id: number) => {
+  const q: any = { ...route.query, caseId: id }
+  delete q.recordId
+  router.replace({ query: q })
 }
 
 /* ========== 影像源 ========== */
@@ -357,6 +386,13 @@ const genderText = (g?: string) => {
 
 onMounted(async () => {
   ensureCornerstone()
+  await loadCaseList()
+
+  // 无病例参数进入 → 直接进入第一例
+  if (!caseId.value && !recordId.value && caseList.value.length) {
+    onSelectCase(caseList.value[0].id)
+    return
+  }
 
   if (recordId.value) {
     await fetchExistingRecord()
@@ -478,9 +514,43 @@ void cornerstone
         <div class="divider" />
         <span class="page-title">
           <el-icon><Document /></el-icon>
-          影像阅片工作站
-          <span v-if="source" class="case-no">· {{ source.caseNo }}</span>
+          阅片工作台
         </span>
+        <!-- 病例快速切换 -->
+        <div v-if="caseList.length" class="case-switch">
+          <el-button
+            :icon="ArrowLeft"
+            circle
+            size="small"
+            :disabled="curIdx <= 0"
+            title="上一例"
+            @click="gotoCaseByIndex(curIdx - 1)"
+          />
+          <el-select
+            :model-value="caseId"
+            size="small"
+            class="case-select"
+            filterable
+            placeholder="切换病例"
+            @change="onSelectCase"
+          >
+            <el-option
+              v-for="c in caseList"
+              :key="c.id"
+              :value="c.id"
+              :label="`${c.caseNo}｜${c.title || '未命名'}`"
+            />
+          </el-select>
+          <el-button
+            :icon="ArrowRight"
+            circle
+            size="small"
+            :disabled="curIdx < 0 || curIdx >= caseList.length - 1"
+            title="下一例"
+            @click="gotoCaseByIndex(curIdx + 1)"
+          />
+          <span class="case-count">{{ curIdx >= 0 ? curIdx + 1 : '-' }}/{{ caseList.length }}</span>
+        </div>
       </div>
       <div class="header-right">
         <el-tag size="small" type="info" effect="plain">
@@ -746,6 +816,22 @@ void cornerstone
   font-family: 'Consolas', 'Monaco', monospace;
   color: #4091ff;
   font-weight: 600;
+}
+.case-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 12px;
+}
+.case-select {
+  width: 230px;
+}
+.case-count {
+  font-size: 12px;
+  color: #9aa4b2;
+  font-variant-numeric: tabular-nums;
+  min-width: 44px;
+  text-align: center;
 }
 .header-right {
   display: flex;

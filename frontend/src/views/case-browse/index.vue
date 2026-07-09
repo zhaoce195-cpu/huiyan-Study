@@ -712,7 +712,7 @@ const onShareSubmit = (row: Item) => {
 
 .page-main {
   flex: 1;
-  max-width: 1440px;
+  max-width: none;
   width: 100%;
   margin: 0 auto;
   padding: 20px 24px;

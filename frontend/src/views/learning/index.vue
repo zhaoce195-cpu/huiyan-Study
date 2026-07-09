@@ -526,7 +526,7 @@ const tagListOf = (s: string) =>
 .page-body {
   flex: 1;
   padding: 18px 24px 30px;
-  max-width: 1320px;
+  max-width: none;
   width: 100%;
   margin: 0 auto;
   box-sizing: border-box;

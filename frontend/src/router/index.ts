@@ -66,13 +66,8 @@ const routes: RouteRecordRaw[] = [
         path: 'reading',
         name: 'TrainingReading',
         component: () => import('@/views/reading/index.vue'),
-        meta: { title: '影像阅片工作站' },
-        beforeEnter: (to) => {
-          if (!to.query.caseId) {
-            ElMessage.warning('请从病例库选择病例进入阅片工作台')
-            return { path: '/training/cases' }
-          }
-        }
+        meta: { title: '影像阅片工作站' }
+        // 无 caseId 进入时，页面会自动加载第一例并提供病例快速切换
       },
       {
         path: 'practice',

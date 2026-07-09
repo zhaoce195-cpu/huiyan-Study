@@ -143,7 +143,7 @@ const activeTab = ref('notices')
 .admin-main {
   flex: 1;
   padding: 20px 24px;
-  max-width: 1440px;
+  max-width: none;
   width: 100%;
   margin: 0 auto;
   box-sizing: border-box;
