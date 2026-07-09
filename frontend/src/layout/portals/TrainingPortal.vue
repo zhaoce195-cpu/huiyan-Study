@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   Folder,
-  View,
+  Monitor,
   Aim,
   Reading,
   Setting,
@@ -97,8 +97,8 @@ const currentTitle = computed(() => (route.meta.title as string) || '慧眼AI')
             <template #title>病例库检索</template>
           </el-menu-item>
           <el-menu-item index="/training/reading">
-            <el-icon><view /></el-icon>
-            <template #title>阅片标注工作台</template>
+            <el-icon><Monitor /></el-icon>
+            <template #title>阅片工作台</template>
           </el-menu-item>
         </el-menu-item-group>
 
@@ -158,7 +158,7 @@ const currentTitle = computed(() => (route.meta.title as string) || '慧眼AI')
             <el-avatar
               :size="30"
               :src="userInfo.avatar"
-              style="background:rgba(203,163,92,0.18);color:#cba35c;font-size:13px"
+              style="background:rgba(37,99,235,0.12);color:#2563eb;font-size:13px"
             >
               {{ displayName.charAt(0) }}
             </el-avatar>
@@ -259,13 +259,25 @@ const currentTitle = computed(() => (route.meta.title as string) || '慧眼AI')
   letter-spacing: 1.4px;
   color: var(--ap-text-3);
 }
-/* 收起时隐藏分组标题，避免竖排挤压；并让图标居中 */
+/* 收起时：隐藏分组标题 + 图标水平居中 */
 .aside-menu.el-menu--collapse :deep(.el-menu-item-group__title) {
   display: none;
 }
+.aside-menu.el-menu--collapse :deep(.el-menu-item-group ul) {
+  padding: 0;
+}
 .aside-menu.el-menu--collapse :deep(.el-menu-item) {
-  padding-left: 0 !important;
+  margin: 2px 8px;
+  padding: 0 !important;
   justify-content: center;
+}
+.aside-menu.el-menu--collapse :deep(.el-menu-item .el-icon) {
+  margin: 0 !important;
+}
+/* 收起时品牌 Logo 居中 */
+.portal.collapsed .aside-brand {
+  justify-content: center;
+  padding: 20px 0 18px;
 }
 .aside-menu :deep(.el-menu-item) {
   margin: 2px 10px;
@@ -391,12 +403,12 @@ const currentTitle = computed(() => (route.meta.title as string) || '慧眼AI')
 }
 .portal-main::-webkit-scrollbar-thumb,
 .aside-menu::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(15, 23, 42, 0.15);
   border-radius: 4px;
 }
 .portal-main::-webkit-scrollbar-thumb:hover,
 .aside-menu::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.22);
+  background: rgba(15, 23, 42, 0.28);
 }
 .portal-main::-webkit-scrollbar-track,
 .aside-menu::-webkit-scrollbar-track {
