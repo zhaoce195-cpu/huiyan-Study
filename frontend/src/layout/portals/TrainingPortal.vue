@@ -11,7 +11,8 @@ import {
   Share,
   Promotion,
   User,
-  SwitchButton
+  SwitchButton,
+  ArrowDown
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useLogout } from '@/composables/useLogout'
@@ -69,22 +70,8 @@ const isStudent = computed(() => userStore.isTrainee)
           <circle cx="34" cy="24" r="3" fill="#4091ff" />
         </svg>
         <div v-if="!collapsed" class="brand-text">
-          <div class="brand-name">慧眼云 · 医学培训</div>
-          <div class="brand-sub">TRAINING PORTAL</div>
-        </div>
-      </div>
-
-      <div class="aside-user">
-        <el-avatar
-          :size="collapsed ? 32 : 40"
-          :src="userInfo.avatar"
-          style="background:rgba(64,145,255,0.2);color:#4091ff"
-        >
-          {{ displayName.charAt(0) }}
-        </el-avatar>
-        <div v-if="!collapsed" class="user-meta">
-          <div class="u-name">{{ displayName }}</div>
-          <el-tag size="small" type="primary" effect="dark">{{ roleName }}</el-tag>
+          <div class="brand-name">慧眼AI</div>
+          <div class="brand-sub">HUIYAN AI</div>
         </div>
       </div>
 
@@ -142,36 +129,49 @@ const isStudent = computed(() => userStore.isTrainee)
           </el-menu-item>
         </el-menu-item-group>
 
-        <!-- 管理（仅管理员） -->
-        <el-menu-item-group v-if="isAdmin" title="管理">
-          <el-menu-item index="/training/admin">
-            <el-icon><setting /></el-icon>
-            <template #title>平台管理后台</template>
-          </el-menu-item>
-        </el-menu-item-group>
       </el-menu>
-
-      <div class="aside-footer">
-        <el-button
-          class="action-btn"
-          :icon="SwitchButton"
-          type="danger"
-          plain
-          @click="logout"
-        >
-          <span v-if="!collapsed">退出登录</span>
-        </el-button>
-      </div>
     </el-aside>
 
-    <!-- 主内容区：垂直独立滚动 -->
-    <el-main class="portal-main">
-      <router-view v-slot="{ Component }">
-        <keep-alive :exclude="['Reading', 'PracticeWorkstation']">
-          <component :is="Component" />
-        </keep-alive>
-      </router-view>
-    </el-main>
+    <!-- 右侧：顶栏（用户操作） + 主内容 -->
+    <el-container class="portal-body">
+      <el-header class="portal-header">
+        <el-dropdown trigger="hover">
+          <span class="header-user">
+            <el-avatar
+              :size="30"
+              :src="userInfo.avatar"
+              style="background:rgba(64,145,255,0.2);color:#4091ff;font-size:13px"
+            >
+              {{ displayName.charAt(0) }}
+            </el-avatar>
+            <span class="hu-name">{{ displayName }}</span>
+            <el-tag size="small" type="primary" effect="dark">{{ roleName }}</el-tag>
+            <el-icon class="hu-arrow"><arrow-down /></el-icon>
+          </span>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item @click="router.push('/training/profile')">
+                <el-icon><user /></el-icon>个人中心
+              </el-dropdown-item>
+              <el-dropdown-item v-if="isAdmin" @click="router.push('/training/admin')">
+                <el-icon><setting /></el-icon>平台管理后台
+              </el-dropdown-item>
+              <el-dropdown-item divided @click="logout">
+                <el-icon><switch-button /></el-icon>退出登录
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </el-header>
+
+      <el-main class="portal-main">
+        <router-view v-slot="{ Component }">
+          <keep-alive :exclude="['Reading', 'PracticeWorkstation']">
+            <component :is="Component" />
+          </keep-alive>
+        </router-view>
+      </el-main>
+    </el-container>
   </el-container>
 </template>
 
@@ -280,9 +280,48 @@ const isStudent = computed(() => userStore.isTrainee)
   padding: 8px 0;
 }
 
-/* ========== 主内容区：等高 + 独立纵向滚动 ========== */
-.portal-main {
+/* ========== 右侧区：顶栏 + 主内容，整体等高 ========== */
+.portal-body {
   height: 100vh;
+  overflow: hidden;
+}
+.portal-header {
+  height: 52px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 20px;
+  background: #181a20;
+  border-bottom: 1px solid #2a2a2a;
+}
+.header-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  padding: 4px 8px;
+  border-radius: 8px;
+  transition: background 0.2s;
+}
+.header-user:hover {
+  background: rgba(64, 145, 255, 0.1);
+}
+.hu-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e5e6eb;
+}
+.hu-arrow {
+  color: #86909c;
+  font-size: 12px;
+}
+
+/* ========== 主内容区：填充剩余高度 + 独立纵向滚动 ========== */
+.portal-main {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 0;
