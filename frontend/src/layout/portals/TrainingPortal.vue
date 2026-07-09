@@ -259,6 +259,14 @@ const currentTitle = computed(() => (route.meta.title as string) || '慧眼AI')
   letter-spacing: 1.4px;
   color: var(--ap-text-3);
 }
+/* 收起时隐藏分组标题，避免竖排挤压；并让图标居中 */
+.aside-menu.el-menu--collapse :deep(.el-menu-item-group__title) {
+  display: none;
+}
+.aside-menu.el-menu--collapse :deep(.el-menu-item) {
+  padding-left: 0 !important;
+  justify-content: center;
+}
 .aside-menu :deep(.el-menu-item) {
   margin: 2px 10px;
   padding-left: 14px !important;
