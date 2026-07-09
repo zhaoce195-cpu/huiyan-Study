@@ -3,7 +3,6 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
-  ArrowLeft,
   Folder,
   View,
   Aim,
@@ -57,8 +56,6 @@ const activeMenu = computed(() => {
 
 const isTeacher = computed(() => userStore.isAdmin || userStore.isDoctor)
 const isStudent = computed(() => userStore.isTrainee)
-
-const goHome = () => router.push('/')
 </script>
 
 <template>
@@ -101,50 +98,60 @@ const goHome = () => router.push('/')
         :collapse-transition="false"
         router
       >
-        <el-menu-item index="/training/cases">
-          <el-icon><folder /></el-icon>
-          <template #title>病例浏览检索</template>
-        </el-menu-item>
-        <el-menu-item index="/training/reading">
-          <el-icon><view /></el-icon>
-          <template #title>阅片标注工作台</template>
-        </el-menu-item>
-        <el-menu-item index="/training/practice">
-          <el-icon><aim /></el-icon>
-          <template #title>自主练习与自评</template>
-        </el-menu-item>
-        <el-menu-item index="/training/learning">
-          <el-icon><reading /></el-icon>
-          <template #title>学习资料与笔记</template>
-        </el-menu-item>
-        <el-menu-item v-if="isTeacher" index="/training/teaching-share">
-          <el-icon><share /></el-icon>
-          <template #title>我的教学分享</template>
-        </el-menu-item>
-        <el-menu-item v-if="isStudent" index="/training/student-teaching">
-          <el-icon><promotion /></el-icon>
-          <template #title>教师演示病例</template>
-        </el-menu-item>
-        <el-menu-item index="/training/profile">
-          <el-icon><user /></el-icon>
-          <template #title>个人中心</template>
-        </el-menu-item>
-        <el-menu-item v-if="isAdmin" index="/training/admin">
-          <el-icon><setting /></el-icon>
-          <template #title>平台管理后台</template>
-        </el-menu-item>
+        <!-- 病例与阅片（通用） -->
+        <el-menu-item-group title="病例与阅片">
+          <el-menu-item index="/training/cases">
+            <el-icon><folder /></el-icon>
+            <template #title>病例库检索</template>
+          </el-menu-item>
+          <el-menu-item index="/training/reading">
+            <el-icon><view /></el-icon>
+            <template #title>阅片标注工作台</template>
+          </el-menu-item>
+        </el-menu-item-group>
+
+        <!-- 学生端 · 训练 -->
+        <el-menu-item-group v-if="isStudent" title="学生 · 训练">
+          <el-menu-item index="/training/practice">
+            <el-icon><aim /></el-icon>
+            <template #title>自主练习与自评</template>
+          </el-menu-item>
+          <el-menu-item index="/training/student-teaching">
+            <el-icon><promotion /></el-icon>
+            <template #title>教师演示病例</template>
+          </el-menu-item>
+        </el-menu-item-group>
+
+        <!-- 教师端 · 教学 -->
+        <el-menu-item-group v-if="isTeacher" title="教师 · 教学">
+          <el-menu-item index="/training/teaching-share">
+            <el-icon><share /></el-icon>
+            <template #title>我的教学分享</template>
+          </el-menu-item>
+        </el-menu-item-group>
+
+        <!-- 学习与个人（通用） -->
+        <el-menu-item-group title="学习与个人">
+          <el-menu-item index="/training/learning">
+            <el-icon><reading /></el-icon>
+            <template #title>学习资料与笔记</template>
+          </el-menu-item>
+          <el-menu-item index="/training/profile">
+            <el-icon><user /></el-icon>
+            <template #title>个人中心</template>
+          </el-menu-item>
+        </el-menu-item-group>
+
+        <!-- 管理（仅管理员） -->
+        <el-menu-item-group v-if="isAdmin" title="管理">
+          <el-menu-item index="/training/admin">
+            <el-icon><setting /></el-icon>
+            <template #title>平台管理后台</template>
+          </el-menu-item>
+        </el-menu-item-group>
       </el-menu>
 
       <div class="aside-footer">
-        <el-button
-          v-if="!userStore.isTrainee"
-          class="action-btn"
-          :icon="ArrowLeft"
-          plain
-          @click="goHome"
-        >
-          <span v-if="!collapsed">返回首页</span>
-        </el-button>
         <el-button
           class="action-btn"
           :icon="SwitchButton"

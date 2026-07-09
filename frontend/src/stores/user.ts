@@ -52,8 +52,8 @@ export const useUserStore = defineStore('user', () => {
   const isTrainee = computed(() => role.value === 'trainee')
   const isPatient = computed(() => role.value === 'patient')
 
-  /** 体检筛查端：管理员 / 医师 可见 */
-  const canAccessScreening = computed(() => isAdmin.value || isDoctor.value)
+  /** 体检筛查端：已停用（保留字段，恒为 false） */
+  const canAccessScreening = computed(() => false)
   /** 医学培训端:管理员 / 医师 / 学员 可见（非体检者） */
   const canAccessTraining = computed(
     () => isAdmin.value || isDoctor.value || isTrainee.value
@@ -107,9 +107,8 @@ export const useUserStore = defineStore('user', () => {
   /** 角色对应的默认入口 */
   const homePathForRole = (r: FrontRole | '' = role.value): string => {
     if (r === 'patient') return '/patient/reports'
-    if (r === 'trainee') return '/training'
-    if (r === 'admin' || r === 'doctor') return '/'
-    return '/'
+    // 体检筛查端停用后，所有非体检者统一进入培训端
+    return '/training'
   }
 
   return {

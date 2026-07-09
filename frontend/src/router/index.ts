@@ -15,43 +15,33 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '注册', public: true }
   },
   {
+    // 首页原为「端口选择页」，体检筛查端已停用、只剩培训端 → 直接按角色重定向
     path: '/',
-    name: 'Home',
-    component: () => import('@/layout/index.vue'),
-    meta: { title: '慧眼医疗云平台', deniedRoles: ['patient'] }
+    redirect: () => {
+      try {
+        const u = JSON.parse(localStorage.getItem('huiyan_user') || '{}')
+        return u?.role === 'patient' ? '/patient/reports' : '/training'
+      } catch {
+        return '/training'
+      }
+    }
   },
 
   /* ============================================================
-   * 体检筛查端（浅色主题）— 单端口侧边栏布局
-   * 子页：批量筛查 / 病例检索 / 个人中心
+   * 体检筛查端 —— 已停用（保留全部代码，仅注释掉路由注册）
+   * 需要恢复时取消下面整段注释即可，视图文件均未删除。
    * ============================================================ */
-  {
-    path: '/screening',
-    component: () => import('@/layout/portals/ScreeningPortal.vue'),
-    meta: { scene: 'screening', deniedRoles: ['trainee'] },
-    redirect: '/screening/dashboard',
-    children: [
-      {
-        path: 'dashboard',
-        name: 'ScreeningDashboard',
-        component: () => import('@/layout/portals/ScreeningWorkspace.vue'),
-        props: { section: 'upload' },
-        meta: { title: '批量筛查' }
-      },
-      {
-        path: 'list',
-        name: 'ScreeningList',
-        component: () => import('@/views/screening/case-search.vue'),
-        meta: { title: '病例检索' }
-      },
-      {
-        path: 'profile',
-        name: 'ScreeningProfile',
-        component: () => import('@/views/profile/index.vue'),
-        meta: { title: '个人中心' }
-      }
-    ]
-  },
+  // {
+  //   path: '/screening',
+  //   component: () => import('@/layout/portals/ScreeningPortal.vue'),
+  //   meta: { scene: 'screening', deniedRoles: ['trainee'] },
+  //   redirect: '/screening/dashboard',
+  //   children: [
+  //     { path: 'dashboard', name: 'ScreeningDashboard', component: () => import('@/layout/portals/ScreeningWorkspace.vue'), props: { section: 'upload' }, meta: { title: '批量筛查' } },
+  //     { path: 'list', name: 'ScreeningList', component: () => import('@/views/screening/case-search.vue'), meta: { title: '病例检索' } },
+  //     { path: 'profile', name: 'ScreeningProfile', component: () => import('@/views/profile/index.vue'), meta: { title: '个人中心' } }
+  //   ]
+  // },
 
   /* ============================================================
    * 医学培训端（深色主题）— 单端口侧边栏布局
