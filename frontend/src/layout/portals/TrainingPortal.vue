@@ -12,9 +12,9 @@ import {
   Promotion,
   User,
   SwitchButton,
-  ArrowDown,
   Fold,
-  Expand
+  Expand,
+  MoreFilled
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useLogout } from '@/composables/useLogout'
@@ -59,9 +59,6 @@ const activeMenu = computed(() => {
 
 const isTeacher = computed(() => userStore.isAdmin || userStore.isDoctor)
 const isStudent = computed(() => userStore.isTrainee)
-
-/* 顶栏页面标题：取当前路由 meta.title */
-const currentTitle = computed(() => (route.meta.title as string) || '慧眼AI')
 </script>
 
 <template>
@@ -135,37 +132,24 @@ const currentTitle = computed(() => (route.meta.title as string) || '慧眼AI')
         </el-menu-item-group>
 
       </el-menu>
-    </el-aside>
 
-    <!-- 右侧：顶栏（用户操作） + 主内容 -->
-    <el-container class="portal-body">
-      <el-header class="portal-header">
-        <div class="header-left">
-          <button
-            class="collapse-btn"
-            :title="collapsed ? '展开侧边栏' : '收起侧边栏'"
-            @click="collapsed = !collapsed"
-          >
-            <el-icon :size="18">
-              <expand v-if="collapsed" />
-              <fold v-else />
-            </el-icon>
-          </button>
-          <span class="header-title">{{ currentTitle }}</span>
-        </div>
-        <el-dropdown trigger="hover">
-          <span class="header-user">
+      <!-- 侧边栏底部：用户（系统管理员）+ 收起切换 -->
+      <div class="aside-footer">
+        <el-dropdown trigger="hover" placement="top-start">
+          <div class="aside-user" :class="{ 'is-collapsed': collapsed }">
             <el-avatar
-              :size="30"
+              :size="34"
               :src="userInfo.avatar"
-              style="background:rgba(37,99,235,0.12);color:#2563eb;font-size:13px"
+              style="background:rgba(37,99,235,0.12);color:#2563eb;font-size:14px;flex-shrink:0"
             >
               {{ displayName.charAt(0) }}
             </el-avatar>
-            <span class="hu-name">{{ displayName }}</span>
-            <el-tag size="small" type="primary" effect="dark">{{ roleName }}</el-tag>
-            <el-icon class="hu-arrow"><arrow-down /></el-icon>
-          </span>
+            <div v-if="!collapsed" class="au-meta">
+              <div class="au-name">{{ displayName }}</div>
+              <div class="au-role">{{ roleName }}</div>
+            </div>
+            <el-icon v-if="!collapsed" class="au-more"><more-filled /></el-icon>
+          </div>
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item @click="router.push('/training/profile')">
@@ -180,16 +164,26 @@ const currentTitle = computed(() => (route.meta.title as string) || '慧眼AI')
             </el-dropdown-menu>
           </template>
         </el-dropdown>
-      </el-header>
+        <button
+          class="collapse-btn"
+          :title="collapsed ? '展开侧边栏' : '收起侧边栏'"
+          @click="collapsed = !collapsed"
+        >
+          <el-icon :size="18">
+            <expand v-if="collapsed" />
+            <fold v-else />
+          </el-icon>
+        </button>
+      </div>
+    </el-aside>
 
-      <el-main class="portal-main">
-        <router-view v-slot="{ Component }">
-          <keep-alive :exclude="['Reading', 'PracticeWorkstation']">
-            <component :is="Component" />
-          </keep-alive>
-        </router-view>
-      </el-main>
-    </el-container>
+    <el-main class="portal-main">
+      <router-view v-slot="{ Component }">
+        <keep-alive :exclude="['Reading', 'PracticeWorkstation']">
+          <component :is="Component" />
+        </keep-alive>
+      </router-view>
+    </el-main>
   </el-container>
 </template>
 
@@ -308,28 +302,54 @@ const currentTitle = computed(() => (route.meta.title as string) || '慧眼AI')
   color: var(--ap-accent);
 }
 
-/* ========== 右侧区：顶栏 + 主内容 ========== */
-.portal-body {
-  height: 100vh;
-  overflow: hidden;
-}
-.portal-header {
-  height: 56px;
+/* ========== 侧边栏底部：用户（系统管理员）+ 收起 ========== */
+.aside-footer {
   flex-shrink: 0;
+  border-top: 1px solid var(--ap-hairline);
+  padding: 10px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 18px 0 14px;
-  background: var(--ap-glass);
-  backdrop-filter: blur(var(--ap-blur)) saturate(180%);
-  -webkit-backdrop-filter: blur(var(--ap-blur)) saturate(180%);
-  border-bottom: 1px solid var(--ap-hairline);
+  gap: 6px;
 }
-.header-left {
+.aside-user {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 10px;
+  padding: 6px 8px;
+  border-radius: var(--ap-radius-sm);
+  cursor: pointer;
+  transition: background 0.2s var(--ap-ease);
+}
+.aside-user:hover {
+  background: var(--ap-fill);
+}
+.aside-user.is-collapsed {
+  justify-content: center;
+  padding: 6px 0;
+}
+.au-meta {
+  flex: 1;
   min-width: 0;
+}
+.au-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ap-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.au-role {
+  font-size: 11px;
+  color: var(--ap-text-3);
+  margin-top: 1px;
+}
+.au-more {
+  color: var(--ap-text-3);
+  font-size: 15px;
+  flex-shrink: 0;
 }
 .collapse-btn {
   display: inline-flex;
@@ -337,6 +357,7 @@ const currentTitle = computed(() => (route.meta.title as string) || '慧眼AI')
   justify-content: center;
   width: 34px;
   height: 34px;
+  flex-shrink: 0;
   border: none;
   background: transparent;
   color: var(--ap-text-2);
@@ -348,49 +369,20 @@ const currentTitle = computed(() => (route.meta.title as string) || '慧眼AI')
   background: var(--ap-fill);
   color: var(--ap-text);
 }
-.header-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--ap-text);
-  letter-spacing: 0.3px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.header-user {
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  cursor: pointer;
-  user-select: none;
-  padding: 6px 10px;
-  border-radius: 999px;
-  transition: background 0.2s var(--ap-ease);
-}
-.header-user:hover {
-  background: var(--ap-fill);
-}
-.hu-name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ap-text);
-}
-.hu-arrow {
-  color: var(--ap-text-3);
-  font-size: 12px;
+.portal.collapsed .aside-footer {
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0;
 }
 
-/* ========== 主内容区 ========== */
+/* ========== 主内容区（无顶栏，整屏高度） ========== */
 .portal-main {
-  flex: 1;
-  min-height: 0;
+  height: 100vh;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 0;
   background: transparent;
 }
-/* 业务页原本按整屏 100vh 设计；现嵌入带顶栏的主区，强制填满主区高度即可，
-   避免比可视区高出一个顶栏的高度而产生多余滚动 */
 .portal-main :deep(> *) {
   min-height: 100% !important;
 }
