@@ -1,9 +1,9 @@
 /* 慧眼医疗云平台 V2.0 — 医疗级 UI 规范 */
 :root {
-  /* 主色 */
-  --hy-primary: #1677ff;
-  --hy-primary-hover: #4091ff;
-  --hy-primary-active: #0958d9;
+  /* 主色（Apple 系统蓝） */
+  --hy-primary: #007aff;
+  --hy-primary-hover: #3395ff;
+  --hy-primary-active: #0062cc;
 
   /* 风险等级 */
   --hy-risk-red: #f53f3f;
@@ -13,12 +13,12 @@
   --hy-risk-green: #00b42a;
   --hy-risk-green-bg: #e8ffea;
 
-  /* 体检端 浅色 */
-  --hy-light-bg: #f5f7fa;
+  /* 内容页 浅色（Apple 灰 / 白卡） */
+  --hy-light-bg: #f5f5f7;
   --hy-light-card: #ffffff;
-  --hy-light-border: #e5e6eb;
-  --hy-light-text: #1d2129;
-  --hy-light-text-sub: #86909c;
+  --hy-light-border: rgba(0, 0, 0, 0.08);
+  --hy-light-text: #1d1d1f;
+  --hy-light-text-sub: #6e6e73;
 
   /* 培训端 深色 */
   --hy-dark-bg: #141414;
@@ -140,4 +140,100 @@ a {
 }
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* ================================================================
+ * Apple 风格 · 全局 Element Plus 覆盖（作用于浅色内容页）
+ * 圆角更大、主色 iOS 蓝、阴影更柔、发丝边、对话框毛玻璃遮罩
+ * ================================================================ */
+:root {
+  /* 浅色内容页令牌 */
+  --ap-l-bg: #f5f5f7;
+  --ap-l-card: #ffffff;
+  --ap-l-text: #1d1d1f;
+  --ap-l-text-2: #6e6e73;
+  --ap-l-hairline: rgba(0, 0, 0, 0.08);
+  --ap-l-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 10px 30px rgba(0, 0, 0, 0.06);
+
+  /* Element Plus：圆角 */
+  --el-border-radius-base: 10px;
+  --el-border-radius-small: 8px;
+  --el-border-radius-round: 999px;
+
+  /* Element Plus：主色改为 Apple 蓝（含派生梯度，供 hover/active/浅底使用） */
+  --el-color-primary: #007aff;
+  --el-color-primary-light-3: #4ca2ff;
+  --el-color-primary-light-5: #80bcff;
+  --el-color-primary-light-7: #b2d6ff;
+  --el-color-primary-light-8: #cce3ff;
+  --el-color-primary-light-9: #e6f1ff;
+  --el-color-primary-dark-2: #0062cc;
+
+  /* 更柔的组件阴影 */
+  --el-box-shadow-light: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
+}
+
+/* 卡片：白底、发丝边、柔和阴影、大圆角 */
+.el-card {
+  border-radius: 16px;
+  border: 1px solid var(--ap-l-hairline);
+  box-shadow: var(--ap-l-shadow);
+}
+.el-card.is-always-shadow,
+.el-card.is-hover-shadow:hover {
+  box-shadow: var(--ap-l-shadow);
+}
+
+/* 对话框 / 抽屉：大圆角 + 毛玻璃遮罩 */
+.el-dialog {
+  border-radius: 18px;
+  overflow: hidden;
+}
+.el-drawer {
+  border-radius: 18px 0 0 18px;
+}
+.el-overlay {
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  background-color: rgba(0, 0, 0, 0.28);
+}
+
+/* 输入 / 选择：圆角 + 轻边 */
+.el-input__wrapper,
+.el-textarea__inner,
+.el-select__wrapper {
+  border-radius: 10px;
+}
+
+/* 按钮：略圆、字重适中 */
+.el-button {
+  border-radius: 10px;
+  font-weight: 500;
+}
+.el-button.is-round {
+  border-radius: 999px;
+}
+
+/* 标签 / 分页 / 下拉菜单：统一圆角与柔和 */
+.el-tag {
+  border-radius: 8px;
+}
+.el-dropdown-menu,
+.el-popper {
+  border-radius: 12px;
+}
+.el-menu--popup,
+.el-select-dropdown {
+  border-radius: 12px;
+}
+
+/* 表格：更干净的表头与发丝分隔 */
+.el-table th.el-table__cell {
+  background: #fafafa;
+  font-weight: 600;
+  color: var(--ap-l-text-2);
+}
+.el-table td.el-table__cell,
+.el-table th.el-table__cell.is-leaf {
+  border-bottom: 1px solid var(--ap-l-hairline);
 }
