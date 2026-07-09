@@ -1,0 +1,54 @@
+{
+  "pages": [
+    {
+      "path": "pages/index/index",
+      "style": { "navigationBarTitleText": "慧眼·教学实训" }
+    },
+    {
+      "path": "pages/login/login",
+      "style": { "navigationBarTitleText": "登录", "navigationStyle": "custom" }
+    },
+    {
+      "path": "pages/cases/cases",
+      "style": { "navigationBarTitleText": "病例库" }
+    },
+    {
+      "path": "pages/case-detail/case-detail",
+      "style": { "navigationBarTitleText": "病例详情" }
+    },
+    {
+      "path": "pages/reading/reading",
+      "style": { "navigationBarTitleText": "阅片标注", "navigationBarBackgroundColor": "#111827", "navigationBarTextStyle": "white" }
+    },
+    {
+      "path": "pages/learning/learning",
+      "style": { "navigationBarTitleText": "学习资料" }
+    },
+    {
+      "path": "pages/resource-detail/resource-detail",
+      "style": { "navigationBarTitleText": "资料详情" }
+    },
+    {
+      "path": "pages/profile/profile",
+      "style": { "navigationBarTitleText": "个人中心" }
+    }
+  ],
+  "tabBar": {
+    "color": "#9ca3af",
+    "selectedColor": "#0d9488",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      { "pagePath": "pages/index/index", "text": "首页" },
+      { "pagePath": "pages/cases/cases", "text": "病例库" },
+      { "pagePath": "pages/learning/learning", "text": "学习" },
+      { "pagePath": "pages/profile/profile", "text": "我的" }
+    ]
+  },
+  "globalStyle": {
+    "navigationBarTextStyle": "white",
+    "navigationBarBackgroundColor": "#0d9488",
+    "navigationBarTitleText": "慧眼·教学实训",
+    "backgroundColor": "#f4f7f6"
+  }
+}

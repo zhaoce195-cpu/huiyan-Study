@@ -1,0 +1,30 @@
+{
+  "name": "慧眼辅助诊断",
+  "appid": "",
+  "description": "慧眼眼底 AI 辅助诊断小程序",
+  "versionName": "1.0.0",
+  "versionCode": "100",
+  "transformPx": false,
+  "app-plus": {
+    "usingComponents": true,
+    "nvueStyleCompiler": "uni-app",
+    "compilerVersion": 3
+  },
+  "quickapp": {},
+  "mp-weixin": {
+    "appid": "",
+    "setting": {
+      "urlCheck": false,
+      "es6": true,
+      "postcss": true,
+      "minified": true
+    },
+    "usingComponents": true,
+    "permission": {
+      "scope.userInfo": {
+        "desc": "用于完善医生个人资料"
+      }
+    }
+  },
+  "vueVersion": "3"
+}

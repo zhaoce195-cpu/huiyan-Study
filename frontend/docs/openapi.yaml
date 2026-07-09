@@ -1,0 +1,1447 @@
+openapi: 3.0.3
+info:
+  title: 慧眼医疗云平台 V2.0 API
+  description: |
+    糖尿病视网膜病变 AI 辅助筛查 + 眼科医学影像培训考核
+
+    **后端框架推荐**：FastAPI / Spring Boot / NestJS
+    **协议**：REST + JSON · UTF-8
+    **认证**：`Authorization: Bearer <token>`
+
+    ## 统一响应结构
+
+    所有接口（除文件下载、图片流外）统一返回：
+
+    ```json
+    {
+      "code": 0,
+      "msg": "success",
+      "data": {}
+    }
+    ```
+
+    - `code === 0` 或 `200` 表示成功
+    - `code === 401` 或 `40101` 表示会话失效，前端自动跳登录
+    - 其它非零 `code` 表示业务失败，前端使用 `msg` 弹错误提示
+
+    ## 错误状态码
+
+    | HTTP | 含义 |
+    |---|---|
+    | 400 | 请求参数错误 |
+    | 401 | 未登录 / 会话失效 |
+    | 403 | 无权限 |
+    | 404 | 资源不存在 |
+    | 413 | 上传文件过大 |
+    | 500 | 服务器错误 |
+    | 502/503/504 | 网关/服务不可用 |
+  version: 2.0.0
+  contact:
+    name: 慧眼医疗 · 前端工程组
+  license:
+    name: Proprietary
+
+servers:
+  - url: http://127.0.0.1:8000
+    description: 本地开发
+  - url: https://huiyan.example.com/api
+    description: 生产（Nginx 反向代理）
+
+tags:
+  - name: Auth · 认证
+    description: 登录 / 登出 / 用户信息 / 验证码 / 改密
+  - name: Screening · 体检筛查
+    description: 眼底图上传 / 任务队列 / 报告 / 导出 / 转诊
+  - name: Training · 医学培训
+    description: 病例 / 标注 / IoU 评分 / 热力图 / 金标准 / 虚拟导师
+  - name: Common · 通用
+    description: 字典 / 医院 / 科室 / 通知 / 操作日志 / 系统配置
+
+# ============================================================
+#                     全局安全方案
+# ============================================================
+security:
+  - bearerAuth: []
+
+paths:
+  # ============================================================
+  #                     Auth · 认证
+  # ============================================================
+  /auth/login:
+    post:
+      tags: [Auth · 认证]
+      summary: 用户登录
+      description: 使用账号 + 密码登录，返回 token 与用户信息
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginParams'
+            examples:
+              admin:
+                summary: 管理员
+                value:
+                  username: admin
+                  password: '123456'
+              doctor:
+                summary: 主治医师
+                value:
+                  username: doctor
+                  password: '123456'
+                  remember: true
+              trainee:
+                summary: 住培学员
+                value:
+                  username: trainee
+                  password: '123456'
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/LoginResult'
+
+  /auth/logout:
+    post:
+      tags: [Auth · 认证]
+      summary: 用户登出
+      responses:
+        '200':
+          $ref: '#/components/responses/EmptySuccess'
+
+  /auth/userinfo:
+    get:
+      tags: [Auth · 认证]
+      summary: 获取当前登录用户信息
+      responses:
+        '200':
+          description: 当前用户信息
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/UserInfo'
+
+  /auth/refresh:
+    post:
+      tags: [Auth · 认证]
+      summary: 刷新访问令牌
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '200':
+          description: 新 token
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/LoginResult'
+
+  /auth/captcha:
+    get:
+      tags: [Auth · 认证]
+      summary: 获取图形验证码
+      security: []
+      responses:
+        '200':
+          description: 验证码会话与 Base64 图片
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/CaptchaResult'
+
+  /auth/password:
+    post:
+      tags: [Auth · 认证]
+      summary: 修改密码
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordParams'
+      responses:
+        '200':
+          $ref: '#/components/responses/EmptySuccess'
+
+  # ============================================================
+  #                  Screening · 体检筛查
+  # ============================================================
+  /screening/upload:
+    post:
+      tags: [Screening · 体检筛查]
+      summary: 单张眼底图上传
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: 眼底图（JPG/PNG/BMP，≤ 20MB）
+                patientId: { type: string, example: P2026001 }
+                patientName: { type: string, example: 王建国 }
+                gender: { type: string, enum: ['男', '女'] }
+                age: { type: integer, example: 64 }
+                eye: { type: string, enum: [OD, OS, OU] }
+                hospital: { type: string }
+                doctor: { type: string }
+                remark: { type: string }
+      responses:
+        '200':
+          description: 上传成功，返回任务 ID
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/UploadFundusResult'
+
+  /screening/upload/batch:
+    post:
+      tags: [Screening · 体检筛查]
+      summary: 批量上传眼底图（支持文件夹）
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [files]
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                hospital: { type: string }
+                doctor: { type: string }
+      responses:
+        '200':
+          description: 批量上传结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/BatchUploadResult'
+
+  /screening/tasks:
+    get:
+      tags: [Screening · 体检筛查]
+      summary: 获取筛查任务分页列表
+      parameters:
+        - { name: keyword, in: query, schema: { type: string }, description: 关键词（患者ID/姓名/文件名） }
+        - { name: risk, in: query, schema: { $ref: '#/components/schemas/RiskLevel' } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/ScreeningStatus' } }
+        - { name: startTime, in: query, schema: { type: string, example: '2026-05-01 00:00:00' } }
+        - { name: endTime, in: query, schema: { type: string, example: '2026-05-21 23:59:59' } }
+        - { name: hospital, in: query, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, default: 50 } }
+        - { name: sortBy, in: query, schema: { type: string, enum: [risk, createdAt, confidence] } }
+        - { name: sortOrder, in: query, schema: { type: string, enum: [asc, desc] } }
+      responses:
+        '200':
+          description: 任务分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/PageResult'
+                          - properties:
+                              list:
+                                type: array
+                                items: { $ref: '#/components/schemas/ScreeningTask' }
+
+  /screening/tasks/{taskId}:
+    get:
+      tags: [Screening · 体检筛查]
+      summary: 获取单个筛查任务详情
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: 任务详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ScreeningTask'
+    delete:
+      tags: [Screening · 体检筛查]
+      summary: 移除筛查任务
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          $ref: '#/components/responses/EmptySuccess'
+
+  /screening/tasks/reanalyze:
+    post:
+      tags: [Screening · 体检筛查]
+      summary: 重新分析任务
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [taskId]
+              properties:
+                taskId: { type: string }
+                force: { type: boolean, default: false, description: 忽略缓存 }
+      responses:
+        '200':
+          description: 已重新加入分析队列
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ScreeningTask'
+
+  /screening/stats:
+    get:
+      tags: [Screening · 体检筛查]
+      summary: 获取风险/状态统计
+      responses:
+        '200':
+          description: 统计数据
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ScreeningStats'
+
+  /screening/reports/{taskId}:
+    get:
+      tags: [Screening · 体检筛查]
+      summary: 获取筛查报告详情
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: 报告详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/ScreeningReport'
+
+  /screening/reports/{taskId}/pdf:
+    get:
+      tags: [Screening · 体检筛查]
+      summary: 导出单份筛查报告 PDF
+      parameters:
+        - { name: taskId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: PDF 文件流
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+
+  /screening/reports/summary/pdf:
+    get:
+      tags: [Screening · 体检筛查]
+      summary: 导出汇总报告 PDF（按筛选条件）
+      parameters:
+        - { name: keyword, in: query, schema: { type: string } }
+        - { name: risk, in: query, schema: { $ref: '#/components/schemas/RiskLevel' } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/ScreeningStatus' } }
+      responses:
+        '200':
+          description: PDF 文件流
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+
+  /screening/tasks/export:
+    get:
+      tags: [Screening · 体检筛查]
+      summary: 导出筛查任务 Excel
+      parameters:
+        - { name: keyword, in: query, schema: { type: string } }
+        - { name: risk, in: query, schema: { $ref: '#/components/schemas/RiskLevel' } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/ScreeningStatus' } }
+      responses:
+        '200':
+          description: Excel 文件流
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+
+  /screening/refer:
+    post:
+      tags: [Screening · 体检筛查]
+      summary: 高危病例一键转诊
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [taskId, targetHospital]
+              properties:
+                taskId: { type: string }
+                targetHospital: { type: string, example: 北京同仁医院眼科 }
+                note: { type: string }
+      responses:
+        '200':
+          $ref: '#/components/responses/EmptySuccess'
+
+  # ============================================================
+  #                  Training · 医学培训
+  # ============================================================
+  /training/cases:
+    get:
+      tags: [Training · 医学培训]
+      summary: 获取病例分页列表
+      parameters:
+        - { name: keyword, in: query, schema: { type: string } }
+        - { name: drLevel, in: query, schema: { type: integer, enum: [0, 1, 2, 3, 4] } }
+        - { name: difficulty, in: query, schema: { $ref: '#/components/schemas/Difficulty' } }
+        - { name: done, in: query, schema: { type: boolean } }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, default: 100 } }
+      responses:
+        '200':
+          description: 病例分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/PageResult'
+                          - properties:
+                              list:
+                                type: array
+                                items: { $ref: '#/components/schemas/TrainingCase' }
+
+  /training/cases/{caseId}:
+    get:
+      tags: [Training · 医学培训]
+      summary: 获取病例详情
+      parameters:
+        - { name: caseId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: 病例详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/TrainingCase'
+
+  /training/cases/{caseId}/heatmap:
+    get:
+      tags: [Training · 医学培训]
+      summary: 获取 AI 热力图（GradCAM）
+      parameters:
+        - { name: caseId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: 热力图 URL + 热点坐标
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/HeatmapResult'
+
+  /training/cases/{caseId}/gold:
+    get:
+      tags: [Training · 医学培训]
+      summary: 获取金标准标注
+      parameters:
+        - { name: caseId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: 金标准标注列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/GoldStandardResult'
+
+  /training/cases/{caseId}/iou-history:
+    get:
+      tags: [Training · 医学培训]
+      summary: 获取病例历史 IoU 评分
+      parameters:
+        - { name: caseId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: 历史评分列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/IoUResult' }
+
+  /training/cases/{caseId}/done:
+    put:
+      tags: [Training · 医学培训]
+      summary: 标记病例为已完成
+      parameters:
+        - { name: caseId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          $ref: '#/components/responses/EmptySuccess'
+
+  /training/annotations/submit:
+    post:
+      tags: [Training · 医学培训]
+      summary: 提交标注（计算 IoU）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitAnnotationParams'
+      responses:
+        '200':
+          description: IoU 评分结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/IoUResult'
+
+  /training/iou/calculate:
+    post:
+      tags: [Training · 医学培训]
+      summary: 试算 IoU（不入库）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitAnnotationParams'
+      responses:
+        '200':
+          description: IoU 评分（仅试算）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/IoUResult'
+
+  /training/tutor/ask:
+    post:
+      tags: [Training · 医学培训]
+      summary: 虚拟导师问答
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TutorAskParams'
+      responses:
+        '200':
+          description: AI 回复
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/TutorAnswer'
+
+  /training/tutor/sessions:
+    post:
+      tags: [Training · 医学培训]
+      summary: 重置 / 创建虚拟导师会话
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                caseId: { type: string }
+      responses:
+        '200':
+          description: 新会话 ID
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        type: object
+                        properties:
+                          sessionId: { type: string }
+
+  /training/tutor/sessions/{sessionId}:
+    get:
+      tags: [Training · 医学培训]
+      summary: 获取会话历史
+      parameters:
+        - { name: sessionId, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: 会话消息列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/TutorMessage' }
+
+  /training/stats:
+    get:
+      tags: [Training · 医学培训]
+      summary: 获取个人培训统计
+      responses:
+        '200':
+          description: 培训统计
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/TrainingStats'
+
+  # ============================================================
+  #                       Common · 通用
+  # ============================================================
+  /common/system/config:
+    get:
+      tags: [Common · 通用]
+      summary: 获取系统配置
+      security: []
+      responses:
+        '200':
+          description: 系统配置
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/SystemConfig'
+
+  /common/ping:
+    get:
+      tags: [Common · 通用]
+      summary: 服务健康检查
+      security: []
+      responses:
+        '200':
+          description: 健康信息
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        type: object
+                        properties:
+                          status: { type: string, example: ok }
+                          time: { type: string, example: '2026-05-21 09:00:00' }
+
+  /common/upload:
+    post:
+      tags: [Common · 通用]
+      summary: 通用单文件上传
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+                biz: { type: string, description: 业务标识，如 avatar / report-attach }
+      responses:
+        '200':
+          description: 上传成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        $ref: '#/components/schemas/UploadFileResult'
+
+  /common/dict/{type}:
+    get:
+      tags: [Common · 通用]
+      summary: 根据字典类型获取字典
+      parameters:
+        - { name: type, in: path, required: true, schema: { type: string }, example: dr_level }
+      responses:
+        '200':
+          description: 字典项
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/DictItem' }
+
+  /common/dict/batch:
+    post:
+      tags: [Common · 通用]
+      summary: 批量获取字典
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [types]
+              properties:
+                types:
+                  type: array
+                  items: { type: string }
+                  example: [dr_level, lesion_type, eye_side]
+      responses:
+        '200':
+          description: 多组字典
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        type: object
+                        additionalProperties:
+                          type: array
+                          items: { $ref: '#/components/schemas/DictItem' }
+
+  /common/hospitals:
+    get:
+      tags: [Common · 通用]
+      summary: 获取医院列表
+      parameters:
+        - { name: keyword, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: 医院列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Hospital' }
+
+  /common/departments:
+    get:
+      tags: [Common · 通用]
+      summary: 获取科室列表
+      parameters:
+        - { name: hospitalId, in: query, schema: { oneOf: [{ type: integer }, { type: string }] } }
+      responses:
+        '200':
+          description: 科室列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/Department' }
+
+  /common/notifications:
+    get:
+      tags: [Common · 通用]
+      summary: 获取我的通知
+      parameters:
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          description: 通知分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        type: object
+                        properties:
+                          total: { type: integer }
+                          unread: { type: integer }
+                          list:
+                            type: array
+                            items: { $ref: '#/components/schemas/NotificationItem' }
+
+  /common/notifications/read:
+    post:
+      tags: [Common · 通用]
+      summary: 标记通知已读
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  items:
+                    oneOf: [{ type: string }, { type: integer }]
+      responses:
+        '200':
+          $ref: '#/components/responses/EmptySuccess'
+
+  /common/notifications/read-all:
+    post:
+      tags: [Common · 通用]
+      summary: 全部标记已读
+      responses:
+        '200':
+          $ref: '#/components/responses/EmptySuccess'
+
+  /common/logs/operation:
+    get:
+      tags: [Common · 通用]
+      summary: 操作日志查询
+      parameters:
+        - { name: module, in: query, schema: { type: string } }
+        - { name: startTime, in: query, schema: { type: string } }
+        - { name: endTime, in: query, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: pageSize, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          description: 操作日志分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        type: object
+                        properties:
+                          total: { type: integer }
+                          list:
+                            type: array
+                            items: { $ref: '#/components/schemas/OperationLog' }
+
+  /common/time:
+    get:
+      tags: [Common · 通用]
+      summary: 获取服务器当前时间
+      responses:
+        '200':
+          description: 服务器时间
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResult'
+                  - properties:
+                      data:
+                        type: object
+                        properties:
+                          time: { type: string }
+                          timezone: { type: string, example: Asia/Shanghai }
+
+# ============================================================
+#                       Components
+# ============================================================
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 在 `Authorization` 头中以 `Bearer <token>` 形式提交
+
+  responses:
+    EmptySuccess:
+      description: 操作成功
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResult'
+
+  schemas:
+    # ===================== 通用基础结构 =====================
+    ApiResult:
+      type: object
+      required: [code, msg]
+      properties:
+        code:
+          type: integer
+          example: 0
+          description: 业务码（0/200=成功，401=未登录，其它=失败）
+        msg:
+          type: string
+          example: success
+        data:
+          description: 业务数据，按各接口具体字段
+          nullable: true
+
+    PageResult:
+      type: object
+      required: [total, page, pageSize, list]
+      properties:
+        total: { type: integer, example: 128 }
+        page: { type: integer, example: 1 }
+        pageSize: { type: integer, example: 20 }
+        list:
+          type: array
+          items: { type: object }
+
+    # ===================== 枚举 =====================
+    RiskLevel:
+      type: string
+      enum: [red, yellow, green]
+      description: 风险等级 — red 高危转诊 / yellow 中危随访 / green 正常
+
+    ScreeningStatus:
+      type: string
+      enum: [queued, analyzing, done, failed]
+      description: 任务状态
+
+    EyeSide:
+      type: string
+      enum: [OD, OS, OU]
+      description: OD=右眼 / OS=左眼 / OU=双眼
+
+    Gender:
+      type: string
+      enum: ['男', '女']
+
+    Difficulty:
+      type: string
+      enum: ['入门', '初级', '中级', '高级']
+
+    LesionType:
+      type: string
+      enum: ['出血', '渗出', '微动脉瘤', '棉绒斑', '新生血管']
+
+    AnnotationType:
+      type: string
+      enum: [rect, polygon, pen]
+
+    DRLevel:
+      type: integer
+      enum: [0, 1, 2, 3, 4]
+      description: |
+        0 = 无 DR
+        1 = 轻度 NPDR
+        2 = 中度 NPDR
+        3 = 重度 NPDR
+        4 = PDR（增殖性）
+
+    # ===================== 认证 =====================
+    LoginParams:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, example: admin }
+        password: { type: string, format: password, example: '123456' }
+        captcha: { type: string }
+        captchaId: { type: string }
+        remember: { type: boolean, default: false }
+
+    LoginResult:
+      type: object
+      required: [token, userInfo]
+      properties:
+        token: { type: string, example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' }
+        refreshToken: { type: string }
+        expiresIn: { type: integer, example: 7200, description: 过期秒数 }
+        userInfo: { $ref: '#/components/schemas/UserInfo' }
+
+    UserInfo:
+      type: object
+      required: [id, username, name, role]
+      properties:
+        id:
+          oneOf: [{ type: integer }, { type: string }]
+          example: 1
+        username: { type: string, example: admin }
+        name: { type: string, example: 系统管理员 }
+        avatar: { type: string, format: uri }
+        role:
+          type: string
+          enum: [admin, doctor, trainee, inspector]
+        roleName: { type: string, example: 管理员 }
+        hospital: { type: string, example: 北京同仁医院 }
+        department: { type: string, example: 眼科 }
+        licenseNo: { type: string, example: '110108198501010001' }
+        email: { type: string, format: email }
+        phone: { type: string }
+        permissions:
+          type: array
+          items: { type: string }
+          example: [screening:view, training:view]
+        lastLoginAt: { type: string, example: '2026-05-21 08:30:00' }
+
+    CaptchaResult:
+      type: object
+      required: [captchaId, image]
+      properties:
+        captchaId: { type: string }
+        image: { type: string, description: Base64 编码的 PNG 图片 }
+
+    ChangePasswordParams:
+      type: object
+      required: [oldPassword, newPassword]
+      properties:
+        oldPassword: { type: string, format: password }
+        newPassword: { type: string, format: password, minLength: 6 }
+
+    # ===================== 体检筛查 =====================
+    UploadFundusResult:
+      type: object
+      required: [taskId, fileUrl, fileName, fileSize, queued]
+      properties:
+        taskId: { type: string, example: T2026001 }
+        fileUrl: { type: string, format: uri }
+        fileName: { type: string, example: P2026001_OD.jpg }
+        fileSize: { type: integer, example: 2154321, description: 字节数 }
+        queued: { type: boolean }
+
+    BatchUploadResult:
+      type: object
+      required: [total, success, failed, items]
+      properties:
+        total: { type: integer }
+        success: { type: integer }
+        failed: { type: integer }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/UploadFundusResult' }
+
+    ScreeningTask:
+      type: object
+      required: [id, patientId, patientName, eye, age, gender, status, dr, confidence, createdAt, fileName, hospital, doctor, remark]
+      properties:
+        id: { type: string, example: T2026001 }
+        patientId: { type: string, example: P2026001 }
+        patientName: { type: string, example: 王建国 }
+        eye: { $ref: '#/components/schemas/EyeSide' }
+        age: { type: integer, example: 64 }
+        gender: { $ref: '#/components/schemas/Gender' }
+        status: { $ref: '#/components/schemas/ScreeningStatus' }
+        risk:
+          allOf: [{ $ref: '#/components/schemas/RiskLevel' }]
+          nullable: true
+        dr: { type: string, example: '4 级 PDR（增殖性）' }
+        confidence:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          example: 0.974
+        createdAt: { type: string, example: '2026-05-21 08:42:15' }
+        fileName: { type: string, example: P2026001_OU.jpg }
+        fileUrl: { type: string, format: uri }
+        thumbUrl: { type: string, format: uri }
+        hospital: { type: string }
+        doctor: { type: string }
+        remark: { type: string }
+
+    ScreeningStats:
+      type: object
+      required: [total, red, yellow, green, pending, failed]
+      properties:
+        total: { type: integer }
+        red: { type: integer }
+        yellow: { type: integer }
+        green: { type: integer }
+        pending: { type: integer }
+        failed: { type: integer }
+        todayCount: { type: integer }
+        weekCount: { type: integer }
+
+    ScreeningReport:
+      type: object
+      required: [taskId, patientId, patientName, gender, age, eye, hospital, doctor, examTime, reportTime, reportNo, risk, dr, confidence, conclusion, suggestion, lesions, imageUrls]
+      properties:
+        taskId: { type: string }
+        patientId: { type: string }
+        patientName: { type: string }
+        gender: { $ref: '#/components/schemas/Gender' }
+        age: { type: integer }
+        eye: { $ref: '#/components/schemas/EyeSide' }
+        hospital: { type: string }
+        doctor: { type: string }
+        examTime: { type: string }
+        reportTime: { type: string }
+        reportNo: { type: string, example: HY-2026-05-21-0001 }
+        risk: { $ref: '#/components/schemas/RiskLevel' }
+        dr: { type: string }
+        confidence: { type: number, format: float }
+        conclusion: { type: string }
+        suggestion: { type: string }
+        lesions:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: string }
+              count: { type: integer }
+              location: { type: string }
+        imageUrls:
+          type: object
+          properties:
+            origin: { type: string, format: uri }
+            heatmap: { type: string, format: uri }
+        reviewer: { type: string }
+        reviewedAt: { type: string }
+
+    # ===================== 医学培训 =====================
+    Lesion:
+      type: object
+      required: [type, count]
+      properties:
+        type: { $ref: '#/components/schemas/LesionType' }
+        count: { type: integer }
+        location: { type: string, example: 黄斑区上方 }
+
+    TrainingCase:
+      type: object
+      required: [id, name, age, gender, eye, drGrade, drLevel, difficulty, done, diabetesYears, hospital, lesions]
+      properties:
+        id: { type: string, example: CASE001 }
+        name: { type: string, example: 王建国 }
+        age: { type: integer }
+        gender: { $ref: '#/components/schemas/Gender' }
+        eye: { $ref: '#/components/schemas/EyeSide' }
+        drGrade: { type: string, example: '4 级 PDR（增殖性）' }
+        drLevel: { $ref: '#/components/schemas/DRLevel' }
+        difficulty: { $ref: '#/components/schemas/Difficulty' }
+        done: { type: boolean }
+        thumbUrl: { type: string }
+        imageUrl: { type: string, format: uri, description: 原图（眼底彩照） URL }
+        diabetesYears: { type: integer }
+        hospital: { type: string }
+        bestIou:
+          type: number
+          format: float
+          nullable: true
+        lesions:
+          type: array
+          items: { $ref: '#/components/schemas/Lesion' }
+        createdAt: { type: string }
+
+    AnnotationPoint:
+      type: object
+      required: [x, y]
+      properties:
+        x: { type: number, example: 512.3 }
+        y: { type: number, example: 480.7 }
+
+    Annotation:
+      type: object
+      required: [id, type, points, label]
+      properties:
+        id: { type: string, example: A1716250000000 }
+        serverId: { type: string }
+        type: { $ref: '#/components/schemas/AnnotationType' }
+        points:
+          type: array
+          items: { $ref: '#/components/schemas/AnnotationPoint' }
+        label: { $ref: '#/components/schemas/LesionType' }
+        color: { type: string, example: '#f53f3f' }
+        remark: { type: string }
+
+    SubmitAnnotationParams:
+      type: object
+      required: [caseId, canvasWidth, canvasHeight, annotations]
+      properties:
+        caseId: { type: string, example: CASE001 }
+        canvasWidth: { type: integer, example: 1024, description: 原图像素宽 }
+        canvasHeight: { type: integer, example: 1024, description: 原图像素高 }
+        annotations:
+          type: array
+          items: { $ref: '#/components/schemas/Annotation' }
+        durationSec: { type: integer, example: 142, description: 标注耗时（秒） }
+
+    IoUDetail:
+      type: object
+      required: [label, iou, recall, missed, falsePositive]
+      properties:
+        label: { $ref: '#/components/schemas/LesionType' }
+        iou: { type: number, format: float, example: 0.91 }
+        recall: { type: integer }
+        missed: { type: integer }
+        falsePositive: { type: integer }
+
+    IoUResult:
+      type: object
+      required: [caseId, iou, details, grade, comment, submittedAt]
+      properties:
+        caseId: { type: string }
+        iou:
+          type: number
+          format: float
+          example: 0.892
+        details:
+          type: array
+          items: { $ref: '#/components/schemas/IoUDetail' }
+        grade:
+          type: string
+          enum: [A+, A, B, C]
+        comment: { type: string }
+        submittedAt: { type: string }
+
+    HeatmapResult:
+      type: object
+      required: [caseId, heatmapUrl, hotspots]
+      properties:
+        caseId: { type: string }
+        heatmapUrl: { type: string, format: uri }
+        hotspots:
+          type: array
+          items:
+            type: object
+            properties:
+              x: { type: number }
+              y: { type: number }
+              radius: { type: number }
+              score: { type: number }
+              label: { $ref: '#/components/schemas/LesionType' }
+
+    GoldStandardResult:
+      type: object
+      required: [caseId, annotations]
+      properties:
+        caseId: { type: string }
+        annotations:
+          type: array
+          items: { $ref: '#/components/schemas/Annotation' }
+
+    TutorAskParams:
+      type: object
+      required: [question]
+      properties:
+        caseId: { type: string }
+        question: { type: string, example: 什么是微动脉瘤？ }
+        sessionId: { type: string }
+        contextAnnotations:
+          type: array
+          items: { $ref: '#/components/schemas/Annotation' }
+
+    TutorAnswer:
+      type: object
+      required: [sessionId, answer, repliedAt]
+      properties:
+        sessionId: { type: string }
+        answer: { type: string, description: 支持 Markdown }
+        references:
+          type: array
+          items:
+            type: object
+            properties:
+              title: { type: string }
+              url: { type: string, format: uri }
+        followUps:
+          type: array
+          items: { type: string }
+        repliedAt: { type: string }
+
+    TutorMessage:
+      type: object
+      required: [role, content, time]
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+        content: { type: string }
+        time: { type: string, example: '09:30' }
+
+    TrainingStats:
+      type: object
+      required: [totalCases, doneCases, avgIoU, bestIoU, totalAnnotations, totalDuration]
+      properties:
+        totalCases: { type: integer }
+        doneCases: { type: integer }
+        avgIoU: { type: number, format: float }
+        bestIoU: { type: number, format: float }
+        totalAnnotations: { type: integer }
+        totalDuration: { type: integer, description: 总耗时（秒） }
+
+    # ===================== 通用 =====================
+    DictItem:
+      type: object
+      required: [code, label]
+      properties:
+        code: { type: string }
+        label: { type: string }
+        sort: { type: integer }
+        remark: { type: string }
+        children:
+          type: array
+          items: { $ref: '#/components/schemas/DictItem' }
+
+    Hospital:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          oneOf: [{ type: integer }, { type: string }]
+        name: { type: string, example: 北京同仁医院 }
+        level: { type: string, example: 三级甲等 }
+        province: { type: string }
+        city: { type: string }
+
+    Department:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          oneOf: [{ type: integer }, { type: string }]
+        name: { type: string, example: 眼科 }
+        hospitalId:
+          oneOf: [{ type: integer }, { type: string }]
+
+    SystemConfig:
+      type: object
+      required: [appName, version, uploadMaxMb, acceptImageTypes]
+      properties:
+        appName: { type: string, example: 慧眼医疗云平台 }
+        version: { type: string, example: 2.0.0 }
+        recordNo: { type: string, example: 国械注准 2024-XXXXX }
+        termsUrl: { type: string, format: uri }
+        privacyUrl: { type: string, format: uri }
+        uploadMaxMb: { type: integer, example: 20 }
+        acceptImageTypes:
+          type: array
+          items: { type: string }
+          example: [image/jpeg, image/png, image/bmp]
+
+    UploadFileResult:
+      type: object
+      required: [url, fullUrl, fileName, fileSize, mimeType]
+      properties:
+        url: { type: string, example: /uploads/2026/05/21/abc.jpg }
+        fullUrl: { type: string, format: uri }
+        fileName: { type: string }
+        fileSize: { type: integer }
+        mimeType: { type: string }
+
+    NotificationItem:
+      type: object
+      required: [id, type, title, content, read, createdAt]
+      properties:
+        id:
+          oneOf: [{ type: integer }, { type: string }]
+        type:
+          type: string
+          enum: [system, screening, training, refer]
+        title: { type: string }
+        content: { type: string }
+        read: { type: boolean }
+        createdAt: { type: string }
+
+    OperationLog:
+      type: object
+      required: [id, userId, username, module, action, createdAt]
+      properties:
+        id:
+          oneOf: [{ type: integer }, { type: string }]
+        userId:
+          oneOf: [{ type: integer }, { type: string }]
+        username: { type: string }
+        module: { type: string, example: screening }
+        action: { type: string, example: export-pdf }
+        detail: { type: string }
+        ip: { type: string }
+        createdAt: { type: string }

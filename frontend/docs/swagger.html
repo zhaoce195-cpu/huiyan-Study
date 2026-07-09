@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>慧眼医疗云平台 V2.0 — API 文档（Swagger UI）</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui.css"
+    />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0OCA0OCI+PGNpcmNsZSBjeD0iMjQiIGN5PSIyNCIgcj0iMjIiIGZpbGw9IiMxNjc3ZmYiIG9wYWNpdHk9Ii4xNCIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMjQiIHI9IjE0IiBmaWxsPSJub25lIiBzdHJva2U9IiMxNjc3ZmYiIHN0cm9rZS13aWR0aD0iMi41Ii8+PGNpcmNsZSBjeD0iMjQiIGN5PSIyNCIgcj0iNiIgZmlsbD0iIzE2NzdmZiIvPjxjaXJjbGUgY3g9IjI0IiBjeT0iMjQiIHI9IjIuNSIgZmlsbD0iI2ZmZiIvPjwvc3ZnPg==" />
+    <style>
+      :root {
+        --hy-primary: #1677ff;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #f5f7fa;
+        font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC',
+          'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      }
+      .topbar {
+        height: 56px;
+        background: linear-gradient(90deg, #1677ff 0%, #4091ff 100%);
+        color: #fff;
+        padding: 0 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        box-shadow: 0 2px 12px rgba(22, 119, 255, 0.25);
+      }
+      .topbar .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 16px;
+        font-weight: 600;
+        letter-spacing: 1px;
+      }
+      .topbar .brand svg {
+        width: 28px;
+        height: 28px;
+      }
+      .topbar .meta {
+        font-size: 12px;
+        opacity: 0.85;
+        letter-spacing: 0.5px;
+      }
+      .topbar .meta .pill {
+        display: inline-block;
+        padding: 2px 10px;
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 10px;
+        margin-left: 8px;
+      }
+      #swagger-ui {
+        background: #fff;
+        max-width: 1280px;
+        margin: 16px auto 32px;
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.04);
+      }
+      .swagger-ui .topbar {
+        display: none;
+      }
+      .swagger-ui .info {
+        margin: 24px 0;
+      }
+      .swagger-ui .info .title {
+        color: #1d2129;
+      }
+      #loading {
+        text-align: center;
+        padding: 60px 0;
+        color: #86909c;
+        font-size: 14px;
+      }
+      .err {
+        max-width: 720px;
+        margin: 60px auto;
+        padding: 24px;
+        background: #fff;
+        border: 1px solid #ffe0e0;
+        border-radius: 10px;
+        color: #f53f3f;
+      }
+      .err h3 { margin-top: 0; }
+      .err code {
+        background: #fff7e8;
+        padding: 2px 6px;
+        border-radius: 3px;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="24" cy="24" r="22" fill="#fff" opacity="0.18" />
+          <circle cx="24" cy="24" r="14" fill="none" stroke="#fff" stroke-width="2.5" />
+          <circle cx="24" cy="24" r="6" fill="#fff" />
+          <circle cx="24" cy="24" r="2.5" fill="#1677ff" />
+        </svg>
+        <span>慧眼医疗云平台 V2.0 · API 文档</span>
+      </div>
+      <div class="meta">
+        <span>OpenAPI 3.0.3</span>
+        <span class="pill">v2.0.0</span>
+      </div>
+    </header>
+
+    <div id="swagger-ui">
+      <div id="loading">正在加载 OpenAPI 规范文件…</div>
+    </div>
+
+    <script src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-bundle.js" charset="UTF-8"></script>
+    <script src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-standalone-preset.js" charset="UTF-8"></script>
+    <script>
+      window.addEventListener('load', () => {
+        const params = new URLSearchParams(location.search)
+        const specUrl = params.get('spec') || './openapi.yaml'
+        try {
+          const ui = SwaggerUIBundle({
+            url: specUrl,
+            dom_id: '#swagger-ui',
+            deepLinking: true,
+            docExpansion: 'list',
+            defaultModelsExpandDepth: 1,
+            defaultModelExpandDepth: 2,
+            filter: true,
+            persistAuthorization: true,
+            tryItOutEnabled: true,
+            presets: [
+              SwaggerUIBundle.presets.apis,
+              SwaggerUIStandalonePreset
+            ],
+            plugins: [SwaggerUIBundle.plugins.DownloadUrl],
+            layout: 'StandaloneLayout',
+            requestInterceptor: (req) => {
+              // 演示请求时附带 demo token；正式联调可改为读取登录态
+              if (!req.headers.Authorization && !req.headers.authorization) {
+                const t = localStorage.getItem('huiyan_token')
+                if (t) req.headers.Authorization = 'Bearer ' + t
+              }
+              return req
+            },
+            onComplete: () => {
+              const el = document.getElementById('loading')
+              if (el) el.remove()
+            }
+          })
+          window.ui = ui
+        } catch (e) {
+          document.getElementById('swagger-ui').innerHTML =
+            '<div class="err"><h3>无法加载 OpenAPI 规范</h3>' +
+            '<p>请确认与本页面同目录存在 <code>openapi.yaml</code>，并通过 HTTP 服务访问（不能用 file:// 直接打开）。</p>' +
+            '<p>推荐启动方式：</p>' +
+            '<pre>cd docs\nnpx serve .\n# 或：python -m http.server 8080</pre>' +
+            '<p>错误信息：' + (e && e.message) + '</p></div>'
+        }
+      })
+    </script>
+  </body>
+</html>

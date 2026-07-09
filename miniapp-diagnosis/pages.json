@@ -1,0 +1,64 @@
+{
+  "pages": [
+    {
+      "path": "pages/index/index",
+      "style": {
+        "navigationBarTitleText": "慧眼·辅助诊断"
+      }
+    },
+    {
+      "path": "pages/login/login",
+      "style": {
+        "navigationBarTitleText": "登录",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/diagnose/diagnose",
+      "style": {
+        "navigationBarTitleText": "智能诊断"
+      }
+    },
+    {
+      "path": "pages/result/result",
+      "style": {
+        "navigationBarTitleText": "诊断结果"
+      }
+    },
+    {
+      "path": "pages/cases/cases",
+      "style": {
+        "navigationBarTitleText": "病例检索"
+      }
+    },
+    {
+      "path": "pages/case-detail/case-detail",
+      "style": {
+        "navigationBarTitleText": "病例详情"
+      }
+    },
+    {
+      "path": "pages/profile/profile",
+      "style": {
+        "navigationBarTitleText": "个人中心"
+      }
+    }
+  ],
+  "tabBar": {
+    "color": "#9ca3af",
+    "selectedColor": "#1677ff",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      { "pagePath": "pages/index/index", "text": "首页" },
+      { "pagePath": "pages/cases/cases", "text": "病例" },
+      { "pagePath": "pages/profile/profile", "text": "我的" }
+    ]
+  },
+  "globalStyle": {
+    "navigationBarTextStyle": "white",
+    "navigationBarBackgroundColor": "#1677ff",
+    "navigationBarTitleText": "慧眼·辅助诊断",
+    "backgroundColor": "#f5f7fa"
+  }
+}

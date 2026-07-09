@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# 虚拟环境
+venv/
+.venv/
+env/
+.env
+
+# IDE
+.idea/
+.vscode/
+
+# 日志
+logs/
+*.log
+
+# 静态资源（用户上传内容）
+app/static/avatars/*
+!app/static/avatars/.gitkeep
+
+# 数据库迁移历史保留代码，但不留缓存
+alembic/__pycache__/

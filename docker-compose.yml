@@ -1,0 +1,62 @@
+# =================================================================
+# 慧眼医疗云平台 · Docker Compose 部署
+#
+#   backend   FastAPI + uvicorn（SQLite，零外部数据库依赖）
+#   frontend  Nginx 托管 Vue 构建产物，反代 /api、/static 到 backend
+#
+# 用法：
+#   docker compose up -d --build      # 构建并后台启动
+#   docker compose logs -f            # 查看日志
+#   docker compose down               # 停止并移除容器
+#
+# 访问：http://localhost:${FRONTEND_PORT:-8080}
+#   默认账号：admin / Admin@123，teacher|student / Huiyan@123
+# =================================================================
+
+services:
+  backend:
+    build:
+      context: ./backend
+    image: huiyan-backend:latest
+    container_name: huiyan-backend
+    restart: unless-stopped
+    environment:
+      # ---- 数据库：SQLite，文件落在 /app/edu_eye.db（已挂载到宿主）----
+      DB_TYPE: sqlite
+      SQLITE_PATH: edu_eye.db
+      # ---- 首启自动建表 + 写入演示账号（幂等）----
+      DEBUG: "True"
+      # ---- JWT：生产请改成随机串（openssl rand -hex 32）----
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production-1234567890abcdef1234567890abcdef}
+      ACCESS_TOKEN_EXPIRE_MINUTES: "720"
+      # ---- 同源经 nginx 反代，CORS 留空即放行（代码内回退为 *）----
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+    volumes:
+      # SQLite 数据库文件持久化（沿用现有数据）
+      - ./backend/edu_eye.db:/app/edu_eye.db
+      # 上传内容持久化（头像 / 眼底图 / 报告 PDF）
+      - ./backend/app/static:/app/app/static
+    expose:
+      - "8000"
+    # 如需宿主直连后端调试，取消下一行注释（注意别和本机已占用的 8000 冲突）
+    # ports:
+    #   - "8000:8000"
+    networks:
+      - huiyan-net
+
+  frontend:
+    build:
+      context: ./frontend
+    image: huiyan-frontend:latest
+    container_name: huiyan-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    networks:
+      - huiyan-net
+
+networks:
+  huiyan-net:
+    driver: bridge

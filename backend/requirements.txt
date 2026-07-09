@@ -1,0 +1,35 @@
+# =================================================================
+# 慧眼教学云 · 账号身份登录 + 个人中心后端服务
+# 依赖清单（建议使用 Python 3.10+）
+# 安装：pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
+# =================================================================
+
+# ----------- Web 框架 -----------
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+python-multipart==0.0.20      # FastAPI 表单/文件上传依赖
+
+# ----------- 数据校验 -----------
+pydantic==2.10.3
+pydantic-settings==2.7.0       # 加载 .env 配置
+email-validator==2.2.0         # EmailStr 校验依赖
+
+# ----------- 数据库 -----------
+SQLAlchemy==2.0.36
+PyMySQL==1.1.1                 # MySQL 驱动（纯 Python，无需 C 编译）
+cryptography==44.0.0           # PyMySQL caching_sha2_password 加密支持
+alembic==1.14.0                # 数据库迁移工具
+
+# ----------- 安全 -----------
+passlib[bcrypt]==1.7.4         # 密码哈希
+bcrypt==4.0.1                  # 兼容 passlib 的版本
+PyJWT==2.10.1                  # JWT 签发与解密
+
+# ----------- 工具 -----------
+python-dotenv==1.0.1           # .env 加载
+loguru==0.7.3                  # 日志
+Pillow==11.0.0                 # 头像缩略图处理
+reportlab==4.2.5               # 筛查报告 PDF 导出
+openpyxl==3.1.5                # 筛查列表 Excel 导出
+requests==2.32.3               # DRGCNN / CSU-EYES 外部 AI 接口调用
+numpy==2.2.1                   # IDRiD 数据集导入时的图像处理

@@ -1,0 +1,29 @@
+{
+  "name": "huiyan-miniapp-teaching",
+  "version": "1.0.0",
+  "description": "慧眼教学实训 · 微信小程序（uni-app Vue3）",
+  "private": true,
+  "scripts": {
+    "dev:mp-weixin": "cross-env UNI_INPUT_DIR=. uni -p mp-weixin",
+    "build:mp-weixin": "cross-env UNI_INPUT_DIR=. uni build -p mp-weixin",
+    "dev:h5": "cross-env UNI_INPUT_DIR=. uni",
+    "build:h5": "cross-env UNI_INPUT_DIR=. uni build"
+  },
+  "dependencies": {
+    "@dcloudio/uni-app": "3.0.0-5000720260410001",
+    "@dcloudio/uni-components": "3.0.0-5000720260410001",
+    "@dcloudio/uni-mp-weixin": "3.0.0-5000720260410001",
+    "pinia": "^2.1.7",
+    "vue": "^3.4.21"
+  },
+  "devDependencies": {
+    "@dcloudio/types": "^3.4.8",
+    "@dcloudio/uni-automator": "3.0.0-5000720260410001",
+    "@dcloudio/uni-cli-shared": "3.0.0-5000720260410001",
+    "@dcloudio/uni-stacktracey": "3.0.0-5000720260410001",
+    "@dcloudio/vite-plugin-uni": "3.0.0-5000720260410001",
+    "cross-env": "^7.0.3",
+    "vite": "^5.2.8"
+  },
+  "//note": "推荐用 HBuilderX 直接打开本目录运行（无需 npm）。CLI 编译已固定到稳定版（vite5 + node>=16），UNI_INPUT_DIR=. 由 cross-env 注入；勿改回 vue3 dist-tag（其指向需 vite7 的 alpha）。"
+}

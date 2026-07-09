@@ -1,0 +1,666 @@
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { ArrowLeft } from '@element-plus/icons-vue'
+import { PracticeApi } from '@/api'
+import { useUserStore } from '@/stores/user'
+
+const router = useRouter()
+const userStore = useUserStore()
+
+type TabName = 'pick' | 'history' | 'stats'
+
+const userInfo = computed(() => userStore.userInfo)
+const role = computed(() => userStore.role)
+const isStudent = computed(() => userStore.isTrainee)
+const isTeacher = computed(() => userStore.isDoctor || userStore.isAdmin)
+
+const activeTab = ref<TabName>('pick')
+
+/* ========== 随机/自选 ========== */
+
+const filterForm = ref({
+  category: '',
+  difficulty: '',
+  drLevel: undefined as number | undefined,
+  excludeDone: true
+})
+
+const randomCase = ref<PracticeApi.CaseBriefForPractice | null>(null)
+const randomLoading = ref(false)
+const fetchRandom = async () => {
+  randomLoading.value = true
+  try {
+    randomCase.value = await PracticeApi.getRandomCase({
+      category: filterForm.value.category || undefined,
+      difficulty: filterForm.value.difficulty || undefined,
+      drLevel: filterForm.value.drLevel,
+      excludeDone: filterForm.value.excludeDone
+    })
+  } catch (err: any) {
+    randomCase.value = null
+    if (err?.code !== 1000) ElMessage.warning('暂未匹配到合适病例，请调整筛选')
+  } finally {
+    randomLoading.value = false
+  }
+}
+
+const startPractice = async (mode: PracticeApi.PracticeMode, caseId: number) => {
+  try {
+    const rec = await PracticeApi.startPractice({ caseId, mode })
+    router.push({
+      path: '/practice/workstation',
+      query: { sessionId: String(rec.id), caseId: String(caseId) }
+    })
+  } catch {
+    /* ignore */
+  }
+}
+
+/* ========== 自选病例 — 通过病例浏览页跳转 ========== */
+const goSelectFromBrowse = () => {
+  router.push({ path: '/case-browse', query: { mode: 'practice' } })
+}
+
+/* ========== 历史台账 ========== */
+
+const listLoading = ref(false)
+const listQuery = ref<PracticeApi.PracticeListQuery>({
+  page: 1,
+  pageSize: 20,
+  status: '',
+  isPassed: undefined
+})
+const listData = ref<PracticeApi.PracticeRecord[]>([])
+const listTotal = ref(0)
+
+const fetchList = async () => {
+  listLoading.value = true
+  try {
+    const res = await PracticeApi.getPracticeList({
+      ...listQuery.value,
+      status: (listQuery.value.status || undefined) as any
+    })
+    listData.value = res.list || []
+    listTotal.value = res.total || 0
+  } catch {
+    listData.value = []
+    listTotal.value = 0
+  } finally {
+    listLoading.value = false
+  }
+}
+
+const onPageChange = (p: number) => {
+  listQuery.value.page = p
+  fetchList()
+}
+const onSizeChange = (s: number) => {
+  listQuery.value.pageSize = s
+  listQuery.value.page = 1
+  fetchList()
+}
+
+const continueDraft = (rec: PracticeApi.PracticeRecord) => {
+  router.push({
+    path: '/practice/workstation',
+    query: { sessionId: String(rec.id), caseId: String(rec.caseId) }
+  })
+}
+
+const viewReport = (rec: PracticeApi.PracticeRecord) => {
+  router.push({
+    path: '/practice/workstation',
+    query: { sessionId: String(rec.id), caseId: String(rec.caseId), view: 'report' }
+  })
+}
+
+const removeRecord = async (rec: PracticeApi.PracticeRecord) => {
+  try {
+    await ElMessageBox.confirm(`确认删除这条练习记录？(${rec.caseNo})`, '提示', {
+      type: 'warning'
+    })
+  } catch {
+    return
+  }
+  await PracticeApi.deletePractice(rec.id)
+  fetchList()
+}
+
+const statusTagType = (s: PracticeApi.PracticeStatus) => {
+  if (s === 'DRAFT') return 'info'
+  if (s === 'SUBMITTED') return 'warning'
+  return 'success'
+}
+const statusText = (s: PracticeApi.PracticeStatus) =>
+  s === 'DRAFT' ? '草稿' : s === 'SUBMITTED' ? '已提交' : '已点评'
+
+/* ========== 统计 ========== */
+
+const statsLoading = ref(false)
+const stats = ref<PracticeApi.PracticeStats | null>(null)
+
+const fetchStats = async (target: 'me' | 'all' = 'me') => {
+  statsLoading.value = true
+  try {
+    if (target === 'all') {
+      stats.value = await PracticeApi.getAllStats()
+    } else {
+      stats.value = await PracticeApi.getMyStats()
+    }
+  } catch {
+    stats.value = null
+  } finally {
+    statsLoading.value = false
+  }
+}
+
+/* ========== 初始化 ========== */
+onMounted(async () => {
+  await fetchRandom()
+  fetchList()
+  fetchStats(isTeacher.value ? 'all' : 'me')
+})
+
+const goBack = () => router.push('/')
+</script>
+
+<template>
+  <div class="practice-page">
+    <header class="page-header">
+      <div class="left">
+        <el-button text @click="goBack">
+          <el-icon><arrow-left /></el-icon>
+          返回首页
+        </el-button>
+        <span class="title">自主练习与自评学习</span>
+        <el-tag size="small" effect="plain" type="primary" style="margin-left: 8px">
+          STUDENT / TEACHER / ADMIN
+        </el-tag>
+      </div>
+      <div class="right">
+        <span class="user-mini">
+          {{ userInfo.name || userInfo.username || '医师' }}
+        </span>
+      </div>
+    </header>
+
+    <main class="page-body">
+      <el-tabs v-model="activeTab" class="practice-tabs">
+        <!-- 选病例 -->
+        <el-tab-pane label="开始练习" name="pick">
+          <div class="pick-section">
+            <el-card class="filter-card" shadow="never">
+              <template #header>
+                <span class="card-title">随机抽取一份病例</span>
+              </template>
+              <el-form :inline="true" :model="filterForm" size="default" label-width="72px">
+                <el-form-item label="病种">
+                  <el-select
+                    v-model="filterForm.category"
+                    placeholder="全部病种"
+                    clearable
+                    style="width: 180px"
+                  >
+                    <el-option
+                      v-for="o in PracticeApi.CATEGORY_FILTERS"
+                      :key="o.value"
+                      :label="o.label"
+                      :value="o.value"
+                    />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="难度">
+                  <el-select
+                    v-model="filterForm.difficulty"
+                    placeholder="全部难度"
+                    clearable
+                    style="width: 140px"
+                  >
+                    <el-option
+                      v-for="o in PracticeApi.DIFFICULTY_FILTERS"
+                      :key="o.value"
+                      :label="o.label"
+                      :value="o.value"
+                    />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="DR 级">
+                  <el-select
+                    v-model="filterForm.drLevel"
+                    placeholder="全部"
+                    clearable
+                    style="width: 160px"
+                  >
+                    <el-option
+                      v-for="o in PracticeApi.DR_GRADE_OPTIONS"
+                      :key="o.value"
+                      :label="o.label"
+                      :value="Number(o.value)"
+                    />
+                  </el-select>
+                </el-form-item>
+                <el-form-item>
+                  <el-checkbox v-model="filterForm.excludeDone">
+                    排除已通过病例
+                  </el-checkbox>
+                </el-form-item>
+                <el-form-item>
+                  <el-button type="primary" :loading="randomLoading" @click="fetchRandom">
+                    换一份
+                  </el-button>
+                  <el-button @click="goSelectFromBrowse">
+                    去病例库自选
+                  </el-button>
+                </el-form-item>
+              </el-form>
+            </el-card>
+
+            <el-card v-if="randomCase" class="case-card" shadow="never">
+              <div class="case-card-body">
+                <div class="case-thumbs">
+                  <el-image
+                    v-for="(img, i) in randomCase.images.slice(0, 3)"
+                    :key="i"
+                    :src="img"
+                    fit="cover"
+                    class="thumb"
+                  >
+                    <template #error>
+                      <div class="thumb-error">影像加载失败</div>
+                    </template>
+                  </el-image>
+                </div>
+                <div class="case-info">
+                  <h2>{{ randomCase.title || randomCase.caseNo }}</h2>
+                  <div class="case-meta">
+                    <el-tag size="small">{{ randomCase.caseNo }}</el-tag>
+                    <el-tag size="small" type="info">{{ randomCase.categoryText }}</el-tag>
+                    <el-tag size="small" type="warning">{{ randomCase.difficultyText }}</el-tag>
+                    <el-tag size="small" type="success">{{ randomCase.drGradeText }}</el-tag>
+                    <el-tag size="small" effect="plain">
+                      共 {{ randomCase.imageCount }} 张影像
+                    </el-tag>
+                  </div>
+                  <div class="pass-line">
+                    通过分数线：<strong>{{ randomCase.passScore }}</strong> 分
+                  </div>
+                  <div class="case-actions">
+                    <el-button
+                      type="primary"
+                      size="large"
+                      @click="startPractice('RANDOM', randomCase.caseId)"
+                    >
+                      开始练习
+                    </el-button>
+                    <el-button size="large" @click="fetchRandom">换一份</el-button>
+                  </div>
+                </div>
+              </div>
+            </el-card>
+
+            <el-empty v-else-if="!randomLoading" description="暂未匹配到合适病例，请调整筛选条件" />
+          </div>
+        </el-tab-pane>
+
+        <!-- 历史台账 -->
+        <el-tab-pane label="练习台账" name="history">
+          <div class="history-section">
+            <el-card class="filter-card" shadow="never">
+              <el-form :inline="true" :model="listQuery" size="default" label-width="64px">
+                <el-form-item label="状态">
+                  <el-select
+                    v-model="listQuery.status"
+                    placeholder="全部"
+                    clearable
+                    style="width: 140px"
+                  >
+                    <el-option label="草稿" value="DRAFT" />
+                    <el-option label="已提交" value="SUBMITTED" />
+                    <el-option label="已点评" value="REVIEWED" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="是否通过">
+                  <el-select
+                    v-model="listQuery.isPassed"
+                    placeholder="全部"
+                    clearable
+                    style="width: 120px"
+                  >
+                    <el-option label="通过" :value="true" />
+                    <el-option label="未通过" :value="false" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item>
+                  <el-button type="primary" @click="fetchList">查询</el-button>
+                </el-form-item>
+              </el-form>
+            </el-card>
+
+            <el-table
+              v-loading="listLoading"
+              :data="listData"
+              border
+              stripe
+              size="default"
+              style="width: 100%; margin-top: 12px"
+            >
+              <el-table-column prop="caseNo" label="病例编号" min-width="120" />
+              <el-table-column prop="caseTitle" label="病例" min-width="160" />
+              <el-table-column prop="caseDifficulty" label="难度" width="80" />
+              <el-table-column label="状态" width="90">
+                <template #default="{ row }">
+                  <el-tag size="small" :type="statusTagType(row.status)">
+                    {{ statusText(row.status) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="得分" width="100">
+                <template #default="{ row }">
+                  <strong v-if="row.status !== 'DRAFT'">
+                    {{ Number(row.scoreTotal || 0).toFixed(1) }}
+                  </strong>
+                  <span v-else style="color: #c9cdd4">—</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="是否通过" width="90">
+                <template #default="{ row }">
+                  <el-tag
+                    v-if="row.status !== 'DRAFT'"
+                    :type="row.isPassed ? 'success' : 'danger'"
+                    size="small"
+                  >
+                    {{ row.isPassed ? '通过' : '未通过' }}
+                  </el-tag>
+                  <span v-else style="color: #c9cdd4">—</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="耗时" width="90">
+                <template #default="{ row }">
+                  {{ row.durationSeconds ? Math.round(row.durationSeconds / 60) + '分' : '—' }}
+                </template>
+              </el-table-column>
+              <el-table-column prop="submittedAt" label="提交时间" width="170" />
+              <el-table-column label="操作" width="200" fixed="right">
+                <template #default="{ row }">
+                  <el-button
+                    v-if="row.status === 'DRAFT'"
+                    size="small"
+                    type="primary"
+                    @click="continueDraft(row)"
+                  >
+                    继续
+                  </el-button>
+                  <el-button
+                    v-else
+                    size="small"
+                    type="primary"
+                    @click="viewReport(row)"
+                  >
+                    查看报告
+                  </el-button>
+                  <el-button
+                    v-if="row.status === 'DRAFT' || isTeacher"
+                    size="small"
+                    type="danger"
+                    plain
+                    @click="removeRecord(row)"
+                  >
+                    删除
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+
+            <el-pagination
+              :current-page="listQuery.page"
+              :page-size="listQuery.pageSize"
+              :total="listTotal"
+              :page-sizes="[10, 20, 50]"
+              layout="total, sizes, prev, pager, next, jumper"
+              style="margin-top: 14px; justify-content: flex-end; display: flex"
+              @current-change="onPageChange"
+              @size-change="onSizeChange"
+            />
+          </div>
+        </el-tab-pane>
+
+        <!-- 统计 -->
+        <el-tab-pane label="数据统计" name="stats">
+          <div class="stats-section" v-loading="statsLoading">
+            <div class="stats-toolbar">
+              <span class="muted">{{ isTeacher ? '全班级统计' : '我的练习统计' }}</span>
+              <div class="actions">
+                <el-button v-if="isTeacher" size="small" @click="fetchStats('me')">
+                  我的
+                </el-button>
+                <el-button v-if="isTeacher" size="small" type="primary" @click="fetchStats('all')">
+                  全班级
+                </el-button>
+                <el-button v-if="isStudent" size="small" type="primary" @click="fetchStats('me')">
+                  刷新
+                </el-button>
+              </div>
+            </div>
+
+            <div v-if="stats" class="stats-grid">
+              <div class="stat-card">
+                <div class="stat-label">练习总数</div>
+                <div class="stat-value">{{ stats.totalSessions }}</div>
+                <div class="stat-sub">已提交 {{ stats.submittedSessions }}</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">通过率</div>
+                <div class="stat-value">
+                  {{ (stats.passRate * 100).toFixed(1) }}<small>%</small>
+                </div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">平均得分</div>
+                <div class="stat-value">{{ stats.avgScore.toFixed(1) }}</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">平均 IoU</div>
+                <div class="stat-value">{{ stats.avgIou.toFixed(2) }}</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">总练习时长</div>
+                <div class="stat-value">
+                  {{ Math.round(stats.totalDuration / 60) }}<small>分钟</small>
+                </div>
+              </div>
+            </div>
+
+            <el-card v-if="stats?.weakLabels?.length" shadow="never" class="weak-card">
+              <template #header>
+                <span class="card-title">薄弱标签 Top {{ stats.weakLabels.length }}</span>
+              </template>
+              <el-table :data="stats.weakLabels" border size="small">
+                <el-table-column prop="label" label="病灶标签" />
+                <el-table-column prop="missed" label="漏标次数" width="100" />
+                <el-table-column prop="falsePositive" label="误标次数" width="100" />
+                <el-table-column label="平均 IoU" width="120">
+                  <template #default="{ row }">
+                    {{ row.avgIou.toFixed(2) }}
+                  </template>
+                </el-table-column>
+              </el-table>
+            </el-card>
+
+            <el-empty v-else-if="!stats" description="暂无统计数据" />
+          </div>
+        </el-tab-pane>
+      </el-tabs>
+    </main>
+  </div>
+</template>
+
+<style scoped>
+.practice-page {
+  min-height: 100vh;
+  background: #f5f7fa;
+  display: flex;
+  flex-direction: column;
+}
+.page-header {
+  height: 56px;
+  background: #fff;
+  border-bottom: 1px solid #e5e6eb;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+}
+.page-header .left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.page-header .title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #1d2129;
+}
+.user-mini {
+  color: #4e5969;
+  font-size: 13px;
+}
+.page-body {
+  flex: 1;
+  padding: 18px 24px 30px;
+  max-width: 1320px;
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+.practice-tabs :deep(.el-tabs__nav-wrap)::after {
+  height: 1px;
+}
+.card-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+.filter-card {
+  border-radius: 8px;
+}
+
+.case-card {
+  margin-top: 14px;
+  border-radius: 8px;
+}
+.case-card-body {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+.case-thumbs {
+  display: grid;
+  grid-template-columns: 220px;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.thumb {
+  width: 220px;
+  height: 160px;
+  border-radius: 6px;
+  background: #000;
+}
+.thumb-error {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #c9cdd4;
+  font-size: 12px;
+  background: #1d2129;
+}
+.case-info {
+  flex: 1;
+}
+.case-info h2 {
+  margin: 0 0 12px;
+  font-size: 22px;
+  color: #1d2129;
+}
+.case-meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.pass-line {
+  font-size: 13px;
+  color: #4e5969;
+  margin-bottom: 16px;
+}
+.pass-line strong {
+  color: #f53f3f;
+  font-size: 16px;
+}
+.case-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.history-section,
+.stats-section {
+  display: flex;
+  flex-direction: column;
+}
+.stats-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.muted {
+  color: #86909c;
+  font-size: 13px;
+}
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.stat-card {
+  background: #fff;
+  border: 1px solid #e5e6eb;
+  border-radius: 8px;
+  padding: 18px 20px;
+}
+.stat-label {
+  font-size: 13px;
+  color: #86909c;
+}
+.stat-value {
+  font-size: 26px;
+  font-weight: 700;
+  color: #1d2129;
+  margin-top: 6px;
+}
+.stat-value small {
+  font-size: 13px;
+  color: #86909c;
+  margin-left: 4px;
+  font-weight: 500;
+}
+.stat-sub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #86909c;
+}
+.weak-card {
+  border-radius: 8px;
+}
+@media (max-width: 1080px) {
+  .stats-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .case-card-body {
+    flex-direction: column;
+  }
+}
+</style>
