@@ -168,24 +168,6 @@ const goBack = () => router.push('/')
 
 <template>
   <div class="practice-page">
-    <header class="page-header">
-      <div class="left">
-        <el-button text @click="goBack">
-          <el-icon><arrow-left /></el-icon>
-          返回首页
-        </el-button>
-        <span class="title">自主练习与自评学习</span>
-        <el-tag size="small" effect="plain" type="primary" style="margin-left: 8px">
-          STUDENT / TEACHER / ADMIN
-        </el-tag>
-      </div>
-      <div class="right">
-        <span class="user-mini">
-          {{ userInfo.name || userInfo.username || '医师' }}
-        </span>
-      </div>
-    </header>
-
     <main class="page-body">
       <el-tabs v-model="activeTab" class="practice-tabs">
         <!-- 选病例 -->

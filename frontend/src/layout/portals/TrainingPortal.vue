@@ -12,7 +12,9 @@ import {
   Promotion,
   User,
   SwitchButton,
-  ArrowDown
+  ArrowDown,
+  Fold,
+  Expand
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useLogout } from '@/composables/useLogout'
@@ -57,6 +59,9 @@ const activeMenu = computed(() => {
 
 const isTeacher = computed(() => userStore.isAdmin || userStore.isDoctor)
 const isStudent = computed(() => userStore.isTrainee)
+
+/* 顶栏页面标题：取当前路由 meta.title */
+const currentTitle = computed(() => (route.meta.title as string) || '慧眼AI')
 </script>
 
 <template>
@@ -135,12 +140,25 @@ const isStudent = computed(() => userStore.isTrainee)
     <!-- 右侧：顶栏（用户操作） + 主内容 -->
     <el-container class="portal-body">
       <el-header class="portal-header">
+        <div class="header-left">
+          <button
+            class="collapse-btn"
+            :title="collapsed ? '展开侧边栏' : '收起侧边栏'"
+            @click="collapsed = !collapsed"
+          >
+            <el-icon :size="18">
+              <expand v-if="collapsed" />
+              <fold v-else />
+            </el-icon>
+          </button>
+          <span class="header-title">{{ currentTitle }}</span>
+        </div>
         <el-dropdown trigger="hover">
           <span class="header-user">
             <el-avatar
               :size="30"
               :src="userInfo.avatar"
-              style="background:rgba(64,145,255,0.2);color:#4091ff;font-size:13px"
+              style="background:rgba(203,163,92,0.18);color:#cba35c;font-size:13px"
             >
               {{ displayName.charAt(0) }}
             </el-avatar>
@@ -280,12 +298,44 @@ const isStudent = computed(() => userStore.isTrainee)
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  padding: 0 22px;
+  justify-content: space-between;
+  padding: 0 18px 0 14px;
   background: var(--ap-glass);
   backdrop-filter: blur(var(--ap-blur)) saturate(180%);
   -webkit-backdrop-filter: blur(var(--ap-blur)) saturate(180%);
   border-bottom: 1px solid var(--ap-hairline);
+}
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: none;
+  background: transparent;
+  color: var(--ap-text-2);
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background 0.2s var(--ap-ease), color 0.2s var(--ap-ease);
+}
+.collapse-btn:hover {
+  background: var(--ap-fill);
+  color: var(--ap-text);
+}
+.header-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ap-text);
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .header-user {
   display: inline-flex;

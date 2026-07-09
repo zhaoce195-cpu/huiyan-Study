@@ -387,20 +387,6 @@ const onShareSubmit = (row: Item) => {
 
 <template>
   <div class="case-browse-page">
-    <header class="page-header">
-      <div class="header-left">
-        <el-button :icon="Back" text @click="goBack">返回首页</el-button>
-        <div class="divider" />
-        <span class="page-title">
-          <el-icon><Document /></el-icon>
-          病例浏览 · 通用检索
-        </span>
-      </div>
-      <div class="header-right">
-        <span class="muted">共 {{ total }} 条结果</span>
-      </div>
-    </header>
-
     <main class="page-main">
       <!-- 筛选区 -->
       <section class="card filter-card">

@@ -252,14 +252,6 @@ onMounted(() => {
 
 <template>
   <div class="profile-page">
-    <header class="profile-header">
-      <div class="header-left">
-        <el-button :icon="Back" text @click="goBack">返回首页</el-button>
-        <div class="divider" />
-        <span class="page-title">个人中心</span>
-      </div>
-    </header>
-
     <main class="profile-main">
       <!-- 顶部用户信息卡 -->
       <div class="user-card" v-loading="userLoading">

@@ -263,22 +263,6 @@ const tagListOf = (s: string) =>
 
 <template>
   <div class="learning-page">
-    <header class="page-header">
-      <div class="left">
-        <el-button text @click="goBack">
-          <el-icon><arrow-left /></el-icon>返回首页
-        </el-button>
-        <span class="title">学习资料 & 我的笔记</span>
-      </div>
-      <div class="right">
-        <span class="user-mini">
-          {{ userInfo.name || userInfo.username || '医师' }}
-          ·
-          {{ isAdmin ? '管理员' : isTeacher ? '医师' : isStudent ? '住培医师' : '使用者' }}
-        </span>
-      </div>
-    </header>
-
     <main class="page-body">
       <el-tabs v-model="activeTab" class="learning-tabs" @tab-change="onTabChange">
         <!-- 公共学习资料 -->

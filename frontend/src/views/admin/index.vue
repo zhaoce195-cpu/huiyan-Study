@@ -33,20 +33,6 @@ const activeTab = ref('notices')
 
 <template>
   <div class="admin-page">
-    <header class="admin-header">
-      <div class="header-left">
-        <el-button :icon="Back" text @click="goBack">返回首页</el-button>
-        <div class="divider" />
-        <span class="page-title">平台管理后台</span>
-      </div>
-      <div class="header-right">
-        <el-tag type="warning" effect="plain" size="small">{{ currentUserName }}</el-tag>
-        <el-tag :type="isAdmin ? 'danger' : 'primary'" effect="plain" size="small">
-          {{ isAdmin ? '管理员' : isTeacher ? '带教医师' : '访客' }}
-        </el-tag>
-      </div>
-    </header>
-
     <main class="admin-main">
       <el-tabs v-model="activeTab" type="card" class="admin-tabs">
         <el-tab-pane name="notices">
