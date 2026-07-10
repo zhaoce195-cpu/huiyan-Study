@@ -30,7 +30,7 @@ from app.common.utils import (
 )
 from app.core.config import settings
 from app.db.models import TrainingAiResult, TrainingCase, User
-from app.schemas.training_ai import AiCaseDraftOut, AiDiagnosisOut, AiEyeResult
+from app.schemas.training_ai import AiCaseDraftOut, AiDiagnosisOut, AiEyeResult, AiProb
 from app.services import csu_eyes_client
 from app.services.training_service import DR_GRADE_TEXT
 
@@ -139,6 +139,13 @@ def _to_out(
         gold_diag = (getattr(case, "gold_diagnosis", "") or "").strip()
         agree = (("青光眼" in gold_diag) == (pred >= 1)) if gold_diag else None
 
+        _GLC_LABELS = {"normal": "正常", "glaucoma": "青光眼疑似", "glaucoma_suspect": "青光眼疑似"}
+        probs_raw = (res or {}).get("probabilities") or {}
+        probs: list = []
+        if isinstance(probs_raw, dict):
+            probs = [AiProb(label=_GLC_LABELS.get(k, k), value=float(v)) for k, v in probs_raw.items()]
+            probs.sort(key=lambda x: x.value, reverse=True)
+
         def _eye(url: str, heat: str) -> AiEyeResult:
             return AiEyeResult(
                 grade=pred, grade_text=pname, label=pname,
@@ -148,6 +155,7 @@ def _to_out(
         return AiDiagnosisOut(
             case_id=case.case_no,
             category="GLAUCOMA",
+            probs=probs,
             overall_grade=pred,
             overall_grade_text=pname,
             overall_label=pname,

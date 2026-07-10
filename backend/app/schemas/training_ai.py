@@ -27,10 +27,17 @@ class AiEyeResult(_CamelModel):
     heatmap_url: str = Field("", description="GradCAM 热力图 URL")
 
 
+class AiProb(_CamelModel):
+    """分类任务的类别概率（如青光眼：青光眼疑似 / 正常）"""
+    label: str = Field("", description="类别中文名")
+    value: float = Field(0.0, description="概率 0~1")
+
+
 class AiDiagnosisOut(_CamelModel):
     """实训病例 AI 辅助诊断结果"""
     case_id: str = Field(..., description="病例编号 case_no")
     category: str = Field("DR", description="诊断病种：DR / GLAUCOMA / MA ...")
+    probs: list[AiProb] = Field(default_factory=list, description="各类别概率（分类任务用，如青光眼）")
     overall_grade: int = Field(0, description="分级/分类编号（DR 0~4；青光眼 0/1）")
     overall_grade_text: str = Field("", description="综合分级中文描述")
     overall_label: str = Field("", description="综合结论展示文本（病种无关，前端优先用它）")
@@ -57,4 +64,4 @@ class AiCaseDraftOut(_CamelModel):
     ai: AiDiagnosisOut = Field(..., description="AI 诊断结果")
 
 
-__all__ = ["AiEyeResult", "AiDiagnosisOut", "AiCaseDraftOut"]
+__all__ = ["AiEyeResult", "AiProb", "AiDiagnosisOut", "AiCaseDraftOut"]

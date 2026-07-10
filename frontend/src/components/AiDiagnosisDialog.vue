@@ -126,7 +126,16 @@ const close = () => emit('update:visible', false)
           <el-tag :type="gradeTag(result.overallGrade)" size="large" effect="dark">
             {{ result.overallLabel || ('DR ' + result.overallGrade + ' 级') }}
           </el-tag>
-          <div class="gc-sub">{{ result.overallGradeText }}</div>
+          <div v-if="result.probs && result.probs.length" class="gc-probs">
+            <div v-for="pb in result.probs" :key="pb.label" class="gc-prob">
+              <span class="gp-name">{{ pb.label }}</span>
+              <div class="gp-bar">
+                <div class="gp-fill" :style="{ width: (pb.value * 100).toFixed(1) + '%' }" />
+              </div>
+              <span class="gp-val">{{ (pb.value * 100).toFixed(1) }}%</span>
+            </div>
+          </div>
+          <div v-else class="gc-sub">{{ result.overallGradeText }}</div>
         </div>
         <div v-if="result.goldGrade !== null || result.goldLabel" class="gc-cell">
           <div class="gc-label">金标准</div>
@@ -260,6 +269,48 @@ const close = () => emit('update:visible', false)
   margin-top: 6px;
   font-size: 12px;
   color: var(--el-text-color-secondary);
+}
+
+/* 分类概率（青光眼等） */
+.gc-probs {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 240px;
+}
+.gc-prob {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--el-text-color-regular);
+}
+.gp-name {
+  min-width: 60px;
+  text-align: right;
+  white-space: nowrap;
+}
+.gp-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--el-fill-color-light);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.gp-fill {
+  height: 100%;
+  background: var(--el-color-primary);
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+.gp-val {
+  min-width: 46px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
 }
 
 .eye-grid {

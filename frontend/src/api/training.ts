@@ -159,6 +159,8 @@ export interface AiDiagnosisResult {
   caseId: string
   /** 诊断病种：DR / GLAUCOMA / MA ... */
   category?: string
+  /** 各类别概率（分类任务，如青光眼：青光眼疑似 / 正常） */
+  probs?: { label: string; value: number }[]
   /** 分级/分类编号（DR 0~4；青光眼 0/1） */
   overallGrade: number
   overallGradeText: string
