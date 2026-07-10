@@ -140,6 +140,56 @@ export interface GoldStandardResult {
   annotations: Annotation[]
 }
 
+/* ========== AI 辅助诊断（真实算法服务 CSU-EYES） ========== */
+
+export interface AiEyeResult {
+  /** 分级/分类编号（DR 0~4；青光眼 0/1） */
+  grade: number
+  /** 分级中文描述 */
+  gradeText: string
+  /** 展示用文本（病种无关，如 DR 2 级 / 青光眼疑似） */
+  label?: string
+  /** 送检原图 URL */
+  imageUrl: string
+  /** GradCAM 热力图 URL */
+  heatmapUrl: string
+}
+
+export interface AiDiagnosisResult {
+  caseId: string
+  /** 诊断病种：DR / GLAUCOMA / MA ... */
+  category?: string
+  /** 分级/分类编号（DR 0~4；青光眼 0/1） */
+  overallGrade: number
+  overallGradeText: string
+  /** 综合结论展示文本（病种无关，前端优先用它） */
+  overallLabel?: string
+  /** 左眼 OS */
+  left: AiEyeResult
+  /** 右眼 OD */
+  right: AiEyeResult
+  /** 单图病例（左右眼同一张图） */
+  singleEye: boolean
+  /** 金标准 DR 分级（青光眼为空） */
+  goldGrade: number | null
+  /** 金标准展示文本（病种无关） */
+  goldLabel?: string
+  /** AI 是否与金标准一致 */
+  agreeWithGold: boolean | null
+  modelName: string
+  inferDurationMs: number
+  /** 是否命中缓存 */
+  cached: boolean
+  inferredAt: string
+}
+
+export interface AiCaseDraft {
+  caseId: string
+  title: string
+  isPublished: boolean
+  ai: AiDiagnosisResult
+}
+
 export interface TrainingStats {
   totalCases: number
   doneCases: number
@@ -183,6 +233,39 @@ export const calculateIoU = (params: SubmitAnnotationParams) =>
 
 /** 获取个人培训统计 */
 export const getTrainingStats = () => http.get<TrainingStats>('/training/stats')
+
+
+/** 获取 AI 辅助诊断缓存结果（不触发推理，无结果返回 null） */
+export const getAiDiagnosis = (caseId: string | number) =>
+  http.get<AiDiagnosisResult | null>(`/training/cases/${caseId}/ai-diagnosis`)
+
+/** 执行 AI 辅助诊断（调用 CSU-EYES 算法服务，约 5~30s） */
+export const runAiDiagnosis = (caseId: string | number, force = false) =>
+  http.post<AiDiagnosisResult>(
+    `/training/cases/${caseId}/ai-diagnosis?force=${force}`,
+    null,
+    { showError: true },
+    { timeout: 180_000 }
+  )
+
+/** AI 智能建案（教师/管理员）：上传左右眼底图，生成实训病例草稿 */
+export const createAiCase = (
+  leftEye: File,
+  rightEye: File,
+  opts: { title?: string; difficulty?: 'EASY' | 'MEDIUM' | 'HARD' } = {}
+) => {
+  const fd = new FormData()
+  fd.append('left_eye', leftEye)
+  fd.append('right_eye', rightEye)
+  if (opts.title) fd.append('title', opts.title)
+  if (opts.difficulty) fd.append('difficulty', opts.difficulty)
+  return http.upload<AiCaseDraft>(
+    '/training/ai-cases',
+    fd,
+    { showError: true },
+    { timeout: 180_000 }
+  )
+}
 
 /** 标记病例完成 */
 export const markCaseDone = (caseId: string) =>

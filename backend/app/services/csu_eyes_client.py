@@ -285,6 +285,33 @@ async def grade_dr(
     return await _post_form(_api("/inference/dr-grading"), files=files, data=data)
 
 
+async def detect_glaucoma(
+    *,
+    image_path: Path,
+    model_id: Optional[int] = None,
+) -> dict:
+    """
+    青光眼筛查（单图分类）。
+    返回示例：{
+      "record_id": 76,
+      "model": {"name": "青光眼筛查", "task_type": "glaucoma_screening", ...},
+      "result": {"prediction": 1, "prediction_name": "青光眼疑似",
+                 "prediction_en": "glaucoma_suspect",
+                 "probabilities": {"normal": 0.x, "glaucoma": 0.y}}
+    }
+    """
+    if not image_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"待诊断影像不存在：{image_path.name}",
+        )
+    files = {"image": _file_tuple(image_path)}
+    data: Dict[str, str] = {}
+    if model_id is not None:
+        data["model_id"] = str(model_id)
+    return await _post_form(_api("/inference/glaucoma-screening"), files=files, data=data)
+
+
 async def comprehensive(
     *,
     image_path: Path,
@@ -313,4 +340,4 @@ async def comprehensive(
     return await _post_form(_api("/inference/comprehensive"), files=files, data=data)
 
 
-__all__ = ["detect_ma", "grade_dr", "comprehensive"]
+__all__ = ["detect_ma", "grade_dr", "detect_glaucoma", "comprehensive"]

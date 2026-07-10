@@ -14,11 +14,14 @@
     POST /training/annotations/submit           提交标注（入库 + IoU）
     POST /training/iou/calculate                试算 IoU（不入库）
     GET  /training/stats                        个人培训统计
+    GET  /training/cases/{caseId}/ai-diagnosis  AI 辅助诊断（读缓存）
+    POST /training/cases/{caseId}/ai-diagnosis  AI 辅助诊断（执行推理）
+    POST /training/ai-cases                     AI 智能建案（教师/管理员）
 """
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, File, Form, Path, Query, UploadFile
 
 from app.common.response import success
 from app.core.dependencies import CurrentUser, DbSession, require_roles
@@ -28,6 +31,7 @@ from app.schemas.training import (
     SubmitAnnotationParams,
 )
 from app.services.training_service import TrainingService
+from app.services.training_ai_service import TrainingAiService
 
 router = APIRouter(
     prefix="/training",
@@ -182,7 +186,68 @@ def calculate_iou(
     return success(data=data.model_dump(by_alias=True))
 
 
-# ====================== 9. 个人培训统计 ======================
+# ====================== 9. AI 辅助诊断（真实算法服务） ======================
+
+@router.get(
+    "/cases/{caseId}/ai-diagnosis",
+    summary="获取 AI 辅助诊断结果（仅读缓存，不触发推理）",
+    response_model=None,
+)
+def get_ai_diagnosis(
+    current_user: CurrentUser,
+    db: DbSession,
+    caseId: str = Path(..., description="病例编号 case_no 或数字 ID"),
+):
+    data = TrainingAiService.get_cached(db=db, case_id=caseId)
+    return success(data=data.model_dump(by_alias=True) if data else None)
+
+
+@router.post(
+    "/cases/{caseId}/ai-diagnosis",
+    summary="执行 AI 辅助诊断（调用 CSU-EYES 算法服务，结果缓存）",
+    response_model=None,
+)
+async def run_ai_diagnosis(
+    current_user: CurrentUser,
+    db: DbSession,
+    caseId: str = Path(..., description="病例编号 case_no 或数字 ID"),
+    force: bool = Query(False, description="True 时忽略缓存重新推理"),
+):
+    data = await TrainingAiService.diagnose(db=db, case_id=caseId, force=force)
+    return success(
+        data=data.model_dump(by_alias=True),
+        msg="命中缓存" if data.cached else f"AI 诊断完成：{data.overall_label or ('综合 DR ' + str(data.overall_grade) + ' 级')}",
+    )
+
+
+# ====================== 10. AI 智能建案（教师/管理员） ======================
+
+@router.post(
+    "/ai-cases",
+    summary="AI 智能建案：上传左右眼底图，自动分级生成实训病例草稿",
+    response_model=None,
+    dependencies=[Depends(require_roles(RoleEnum.TEACHER, RoleEnum.ADMIN))],
+)
+async def create_ai_case(
+    current_user: CurrentUser,
+    db: DbSession,
+    left_eye: UploadFile = File(..., description="左眼眼底图（OS）"),
+    right_eye: UploadFile = File(..., description="右眼眼底图（OD）"),
+    title: str = Form("", description="病例标题（缺省自动生成）"),
+    difficulty: str = Form("EASY", description="难度 EASY/MEDIUM/HARD"),
+):
+    data = await TrainingAiService.create_ai_case(
+        db=db, user=current_user,
+        left_eye=left_eye, right_eye=right_eye,
+        title=title, difficulty=difficulty,
+    )
+    return success(
+        data=data.model_dump(by_alias=True),
+        msg=f"建案成功：{data.case_id}（AI 综合 DR {data.ai.overall_grade} 级，草稿待复核）",
+    )
+
+
+# ====================== 11. 个人培训统计 ======================
 
 @router.get(
     "/stats",
