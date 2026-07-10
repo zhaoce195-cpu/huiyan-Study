@@ -111,8 +111,10 @@ class Settings(BaseSettings):
 
     # ---------- CSU-EYES 眼科 AI 平台 ----------
     # 提供：MA 检测 / DR 分级 / 综合诊断
-    # 公网 API 域：http://113.219.243.122:9050/api/v1
-    # 注意：9080 是静态门户站点（GET 方便浏览，POST 会 405），API 必须用 9050
+    # 公网 API 域（默认，经 SSH 隧道）：http://113.219.243.122:9050/api/v1
+    # 内网直连（后端与算法机同网段时更快）：http://192.168.2.103:5000
+    #   —— 由 .env 里的 CSU_EYES_BASE_URL 覆盖本默认值；公网部署保持 9050 不变
+    # 注意：9080 是静态门户站点（GET 方便浏览，POST 会 405），API 必须用 9050/5000
     CSU_EYES_BASE_URL: str = "http://113.219.243.122:9050"
     CSU_EYES_TIMEOUT_SEC: int = 90
     # 推理结果中的 base64 图（heatmap/overlay）落盘到 /static/csu/
