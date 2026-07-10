@@ -134,25 +134,25 @@ const handleLogin = async () => {
             </svg>
           </div>
           <div class="brand-text">
-            <h1>慧眼医疗云平台</h1>
-            <p>Huiyan Medical Cloud · V2.0</p>
+            <h1>慧眼教学系统</h1>
+            <p>Huiyan Teaching System · 眼科阅片培训与考核</p>
           </div>
         </div>
         <div class="features">
           <div class="feature-item">
             <span class="dot dot-blue"></span>
-            糖尿病视网膜病变 AI 辅助筛查
+            小而稀疏病灶 · 漏检训练与能力评估
           </div>
           <div class="feature-item">
             <span class="dot dot-green"></span>
-            眼科医学影像培训 · 标准化考核
+            尺寸分层金标准 · 病灶级判读评分
           </div>
           <div class="feature-item">
             <span class="dot dot-orange"></span>
-            DR 五级分级 · 三甲质控标准
+            阅片标注训练 · 成长曲线与能力认证
           </div>
         </div>
-        <div class="footer-tip">© 慧眼医疗 · 国家三类医疗器械软件备案</div>
+        <div class="footer-tip">© 慧眼 · 医学教育与能力评估平台</div>
       </div>
 
       <div class="login-right">
