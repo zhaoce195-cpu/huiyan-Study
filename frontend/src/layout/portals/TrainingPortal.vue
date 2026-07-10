@@ -14,7 +14,9 @@ import {
   SwitchButton,
   Fold,
   Expand,
-  MoreFilled
+  MoreFilled,
+  MagicStick,
+  DataAnalysis
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useLogout } from '@/composables/useLogout'
@@ -54,11 +56,20 @@ const activeMenu = computed(() => {
   if (route.path.startsWith('/training/profile')) return '/training/profile'
   if (route.path.startsWith('/training/teaching-share')) return '/training/teaching-share'
   if (route.path.startsWith('/training/student-teaching')) return '/training/student-teaching'
+  if (route.path.startsWith('/training/ai-builder')) return '/training/ai-builder'
   return route.path
 })
 
 const isTeacher = computed(() => userStore.isAdmin || userStore.isDoctor)
 const isStudent = computed(() => userStore.isTrainee)
+
+/* ========== 角色徽标（老师/学生一眼可辨） ========== */
+const roleBadge = computed(() => {
+  if (userStore.isAdmin) return { text: '管理员', cls: 'badge-admin' }
+  if (userStore.isDoctor) return { text: '教师', cls: 'badge-teacher' }
+  if (userStore.isTrainee) return { text: '学生', cls: 'badge-student' }
+  return { text: roleName.value || '用户', cls: 'badge-student' }
+})
 </script>
 
 <template>
@@ -67,13 +78,17 @@ const isStudent = computed(() => userStore.isTrainee)
     <el-aside class="portal-aside" :width="collapsed ? '64px' : '240px'">
       <div class="aside-brand">
         <svg viewBox="0 0 48 48" width="32" height="32">
-          <rect x="4" y="10" width="40" height="28" rx="4" fill="none" stroke="#4091ff" stroke-width="2.5" />
-          <path d="M10 28 L20 22 L26 30 L34 24 L40 32" stroke="#4091ff" stroke-width="2" fill="none" />
-          <circle cx="34" cy="24" r="3" fill="#4091ff" />
+          <circle cx="24" cy="24" r="22" fill="#2563eb" opacity="0.12" />
+          <circle cx="24" cy="24" r="14" fill="none" stroke="#2563eb" stroke-width="2.5" />
+          <circle cx="24" cy="24" r="6" fill="#2563eb" />
+          <circle cx="24" cy="24" r="2.5" fill="#fff" />
         </svg>
         <div v-if="!collapsed" class="brand-text">
-          <div class="brand-name">慧眼AI</div>
-          <div class="brand-sub">HUIYAN AI</div>
+          <div class="brand-name">
+            慧眼教学系统
+            <span class="role-badge" :class="roleBadge.cls">{{ roleBadge.text }}</span>
+          </div>
+          <div class="brand-sub">HUIYAN TEACHING</div>
         </div>
       </div>
 
@@ -116,6 +131,22 @@ const isStudent = computed(() => userStore.isTrainee)
           <el-menu-item index="/training/teaching-share">
             <el-icon><share /></el-icon>
             <template #title>我的教学分享</template>
+          </el-menu-item>
+          <el-menu-item index="/training/ai-builder">
+            <el-icon><magic-stick /></el-icon>
+            <template #title>AI 智能建案</template>
+          </el-menu-item>
+          <el-menu-item index="/screening">
+            <el-icon><data-analysis /></el-icon>
+            <template #title>AI 批量筛查端</template>
+          </el-menu-item>
+        </el-menu-item-group>
+
+        <!-- 管理员 · 平台管理 -->
+        <el-menu-item-group v-if="isAdmin" title="管理员">
+          <el-menu-item index="/training/admin">
+            <el-icon><setting /></el-icon>
+            <template #title>平台管理后台</template>
           </el-menu-item>
         </el-menu-item-group>
 
@@ -213,19 +244,50 @@ const isStudent = computed(() => userStore.isTrainee)
 .aside-brand {
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 20px 20px 18px;
+  gap: 10px;
+  padding: 18px 16px;
   flex-shrink: 0;
 }
 .brand-text {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 .brand-name {
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--ap-text);
-  letter-spacing: 0.5px;
+  letter-spacing: 0;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 角色徽标：教师琥珀 / 学生蓝 / 管理员紫，一眼区分当前身份 */
+.role-badge {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.badge-teacher {
+  color: #f59e0b;
+  background: rgba(245, 158, 11, 0.14);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+.badge-student {
+  color: #4091ff;
+  background: rgba(64, 145, 255, 0.14);
+  border: 1px solid rgba(64, 145, 255, 0.35);
+}
+.badge-admin {
+  color: #a78bfa;
+  background: rgba(167, 139, 250, 0.14);
+  border: 1px solid rgba(167, 139, 250, 0.35);
 }
 .brand-sub {
   font-size: 10px;

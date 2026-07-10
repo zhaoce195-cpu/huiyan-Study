@@ -127,9 +127,9 @@ const handleLogin = async () => {
         <div class="brand">
           <div class="logo">
             <svg viewBox="0 0 48 48" width="48" height="48">
-              <circle cx="24" cy="24" r="22" fill="#1677ff" opacity="0.12" />
-              <circle cx="24" cy="24" r="14" fill="none" stroke="#1677ff" stroke-width="2.5" />
-              <circle cx="24" cy="24" r="6" fill="#1677ff" />
+              <circle cx="24" cy="24" r="22" fill="#2563eb" opacity="0.12" />
+              <circle cx="24" cy="24" r="14" fill="none" stroke="#2563eb" stroke-width="2.5" />
+              <circle cx="24" cy="24" r="6" fill="#2563eb" />
               <circle cx="24" cy="24" r="2.5" fill="#fff" />
             </svg>
           </div>
