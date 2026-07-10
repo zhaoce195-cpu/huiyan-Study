@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Back, Document, ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
+import { Back, Document, ArrowLeft, ArrowRight, MagicStick } from '@element-plus/icons-vue'
 
 import { LoginApi, ReadingApi } from '@/api'
 import { getCaseBrowseList } from '@/api/case-browse'
@@ -14,6 +14,7 @@ import CoreRetinaStation from '@/components/CoreRetinaStation.vue'
 import ReadingSidePanel from './components/ReadingSidePanel.vue'
 import ReadingSubmitDialog from './components/ReadingSubmitDialog.vue'
 import NoteEditDialog from '@/views/learning/components/NoteEditDialog.vue'
+import AiDiagnosisDialog from '@/components/AiDiagnosisDialog.vue'
 import type {
   ToolName,
   CanvasState,
@@ -485,6 +486,17 @@ const reloadCurrent = () => {
   }, 0)
 }
 
+/* ========== AI 辅助诊断（CSU-EYES 真实算法） ========== */
+const aiVisible = ref(false)
+const aiCaseKey = computed(() => source.value?.caseNo || String(caseId.value || ''))
+const openAiDiagnosis = () => {
+  if (!aiCaseKey.value) {
+    ElMessage.warning('当前未加载任何病例，无法执行 AI 诊断')
+    return
+  }
+  aiVisible.value = true
+}
+
 /* ========== 笔记联动 ========== */
 const noteVisible = ref(false)
 const noteBind = computed(() => ({
@@ -584,6 +596,16 @@ void cornerstone
           @click="submitVisible = true"
         >
           保存 / 提交
+        </el-button>
+        <el-button
+          size="small"
+          type="success"
+          plain
+          :icon="MagicStick"
+          :disabled="!source || sourceLoading"
+          @click="openAiDiagnosis"
+        >
+          AI 辅助判读
         </el-button>
         <el-button
           size="small"
@@ -771,6 +793,12 @@ void cornerstone
       v-model:visible="noteVisible"
       :note="null"
       :bind="noteBind"
+    />
+
+    <!-- AI 辅助诊断弹窗（CSU-EYES 真实算法服务） -->
+    <AiDiagnosisDialog
+      v-model:visible="aiVisible"
+      :case-id="aiCaseKey"
     />
   </div>
 </template>

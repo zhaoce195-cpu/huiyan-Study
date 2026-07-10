@@ -88,7 +88,7 @@ const close = () => emit('update:visible', false)
 <template>
   <el-dialog
     :model-value="visible"
-    title="AI 辅助诊断 · CSU-EYES"
+    title="AI 辅助判读 · CSU-EYES"
     width="760px"
     class="ai-diag-dialog"
     append-to-body

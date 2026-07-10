@@ -2,13 +2,14 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Back } from '@element-plus/icons-vue'
+import { Back, MagicStick } from '@element-plus/icons-vue'
 
 import { PracticeApi, ReadingApi } from '@/api'
 import { ensureCornerstone } from '@/utils/cornerstone'
 
 import ReadingToolbar from '@/views/reading/components/ReadingToolbar.vue'
 import ReadingCanvas from '@/views/reading/components/ReadingCanvas.vue'
+import AiDiagnosisDialog from '@/components/AiDiagnosisDialog.vue'
 import type { ToolName, AnnotationItem, CanvasState } from '@/views/reading/types'
 
 const route = useRoute()
@@ -235,6 +236,10 @@ const retryPractice = async () => {
   }
 }
 
+/* ========== AI 参考诊断（CSU-EYES 真实算法） ========== */
+const aiVisible = ref(false)
+const aiCaseKey = computed(() => record.value?.caseNo || String(caseId.value || ''))
+
 /* ========== 生命周期 ========== */
 onMounted(async () => {
   ensureCornerstone()
@@ -419,6 +424,22 @@ watch(currentImageIndex, () => {
             </el-checkbox>
           </div>
 
+          <!-- AI 参考：学生 vs AI vs 金标准 三方对比 -->
+          <div class="ai-ref">
+            <el-button
+              type="success"
+              plain
+              :icon="MagicStick"
+              style="width: 100%"
+              @click="aiVisible = true"
+            >
+              查看 AI 参考判读（对比热力图）
+            </el-button>
+            <p class="ai-ref-tip">
+              由 CSU-EYES 算法服务实时推理，展示 AI 分级与 GradCAM 关注区域
+            </p>
+          </div>
+
           <div class="report-actions">
             <el-button type="primary" @click="retryPractice">再练一次</el-button>
             <el-button @click="router.push('/practice')">返回列表</el-button>
@@ -426,6 +447,13 @@ watch(currentImageIndex, () => {
         </div>
       </aside>
     </div>
+
+    <!-- AI 参考诊断弹窗 -->
+    <AiDiagnosisDialog
+      v-model:visible="aiVisible"
+      :case-id="aiCaseKey"
+      :student-grade="record?.studentDrGrade"
+    />
   </div>
 </template>
 
@@ -591,6 +619,16 @@ watch(currentImageIndex, () => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.ai-ref {
+  margin-top: 16px;
+}
+.ai-ref-tip {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: #86909c;
+  line-height: 1.5;
 }
 
 .report-actions {
