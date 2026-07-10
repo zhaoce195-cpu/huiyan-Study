@@ -132,10 +132,12 @@ const epText = (t: PracticeApi.ErrorPointType) => {
 
 /* ========== 数据加载 ========== */
 const fetchSource = async () => {
-  if (!caseId.value) return
+  // 以会话记录里的病例为准（防止 URL 里的 caseId 与实际会话病例不一致导致图文错配）
+  const cid = record.value?.caseId || caseId.value
+  if (!cid) return
   sourceLoading.value = true
   try {
-    source.value = await ReadingApi.getImageSource(caseId.value)
+    source.value = await ReadingApi.getImageSource(cid)
   } catch {
     source.value = null
   } finally {
@@ -160,10 +162,11 @@ const loadRecord = async () => {
 }
 
 const loadGoldStandard = async () => {
-  if (!caseId.value) return
+  const cid = record.value?.caseId || caseId.value
+  if (!cid) return
   if (record.value?.status === 'DRAFT') return
   try {
-    goldData.value = await PracticeApi.getGoldStandard(caseId.value)
+    goldData.value = await PracticeApi.getGoldStandard(cid)
     canvasState.layers.gold = true
   } catch {
     goldData.value = null
@@ -247,7 +250,9 @@ onMounted(async () => {
     ElMessage.warning('缺少 sessionId / caseId 参数')
     return
   }
-  await Promise.all([fetchSource(), loadRecord()])
+  // 先取会话（拿到权威 caseId），再按会话病例拉影像，保证图文一致
+  await loadRecord()
+  await fetchSource()
   if (record.value && record.value.status !== 'DRAFT') {
     await loadGoldStandard()
   }
