@@ -33,24 +33,25 @@
     'Helvetica Neue', Helvetica, Arial, sans-serif;
 
   /* ===== Apple 风格设计令牌（深色 · 玻璃拟态） ===== */
-  --ap-accent: #2563eb; /* 主蓝 */
+  /* 左侧导航（外壳）用深色，与阅片工作台的深色画面相配；内容页仍走浅色令牌 --ap-l-* */
+  --ap-accent: #3b82f6; /* 深色栏强调蓝 */
   --ap-accent-2: #60a5fa;
-  --ap-accent-soft: rgba(37, 99, 235, 0.1);
-  --ap-bg: #eef2f9; /* 浅蓝灰最底层背景 */
+  --ap-accent-soft: rgba(59, 130, 246, 0.18);
+  --ap-bg: #0f1116; /* 深色最底层背景 */
   --ap-bg-grad: radial-gradient(
       1100px 620px at 50% -20%,
-      rgba(37, 99, 235, 0.06),
+      rgba(59, 130, 246, 0.08),
       transparent 60%
     ),
-    #eef2f9;
-  --ap-glass: rgba(255, 255, 255, 0.72); /* 浅色毛玻璃 */
-  --ap-glass-strong: rgba(255, 255, 255, 0.9);
-  --ap-hairline: rgba(15, 23, 42, 0.08); /* 发丝分隔线 */
-  --ap-hairline-strong: rgba(15, 23, 42, 0.14);
-  --ap-text: #1e293b;
-  --ap-text-2: #64748b; /* 次级文字 */
-  --ap-text-3: #94a3b8; /* 三级/占位 */
-  --ap-fill: rgba(37, 99, 235, 0.07); /* 悬停填充 */
+    #0f1116;
+  --ap-glass: rgba(22, 24, 30, 0.72); /* 深色毛玻璃 */
+  --ap-glass-strong: rgba(22, 24, 30, 0.9);
+  --ap-hairline: rgba(255, 255, 255, 0.08); /* 发丝分隔线 */
+  --ap-hairline-strong: rgba(255, 255, 255, 0.14);
+  --ap-text: #e8eaed; /* 深底上的浅色文字 */
+  --ap-text-2: #9aa0a6; /* 次级文字 */
+  --ap-text-3: #6b7078; /* 三级/占位 */
+  --ap-fill: rgba(255, 255, 255, 0.06); /* 悬停填充 */
   --ap-radius: 14px;
   --ap-radius-sm: 10px;
   --ap-blur: 22px;

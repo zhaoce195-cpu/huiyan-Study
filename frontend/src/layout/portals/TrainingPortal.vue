@@ -443,7 +443,8 @@ const roleBadge = computed(() => {
   overflow-y: auto;
   overflow-x: hidden;
   padding: 0;
-  background: transparent;
+  /* 内容区浅色（深色侧边栏 + 浅色内容 的搭配）；具体页面自带背景覆盖 */
+  background: var(--ap-l-bg);
 }
 .portal-main :deep(> *) {
   min-height: 100% !important;
@@ -455,14 +456,21 @@ const roleBadge = computed(() => {
   width: 8px;
   height: 8px;
 }
-.portal-main::-webkit-scrollbar-thumb,
-.aside-menu::-webkit-scrollbar-thumb {
+/* 内容区（浅色）：深色滚动条 */
+.portal-main::-webkit-scrollbar-thumb {
   background: rgba(15, 23, 42, 0.15);
   border-radius: 4px;
 }
-.portal-main::-webkit-scrollbar-thumb:hover,
-.aside-menu::-webkit-scrollbar-thumb:hover {
+.portal-main::-webkit-scrollbar-thumb:hover {
   background: rgba(15, 23, 42, 0.28);
+}
+/* 侧边栏（深色）：浅色滚动条 */
+.aside-menu::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 4px;
+}
+.aside-menu::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.26);
 }
 .portal-main::-webkit-scrollbar-track,
 .aside-menu::-webkit-scrollbar-track {
