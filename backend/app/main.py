@@ -273,6 +273,9 @@ async def add_process_time_header(request: Request, call_next):
             },
         )
     response.headers["X-Process-Time"] = f"{(time.perf_counter() - start) * 1000:.2f}ms"
+    # /static 影像/文件禁用强缓存：每次用 ETag 校验，避免切换病例时残留旧图
+    if request.url.path.startswith(settings.STATIC_URL):
+        response.headers["Cache-Control"] = "no-cache"
     return response
 
 
