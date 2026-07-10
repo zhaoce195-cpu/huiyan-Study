@@ -134,8 +134,8 @@ const handleLogin = async () => {
             </svg>
           </div>
           <div class="brand-text">
-            <h1>慧眼教学系统</h1>
-            <p>Huiyan Teaching System · 眼科阅片培训与考核</p>
+            <h1>慧眼 AI 教学实训平台</h1>
+            <p>Huiyan AI · 眼科阅片教学实训平台</p>
           </div>
         </div>
         <div class="features">

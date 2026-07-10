@@ -28,20 +28,20 @@ const routes: RouteRecordRaw[] = [
   },
 
   /* ============================================================
-   * 体检筛查端 —— 已停用（保留全部代码，仅注释掉路由注册）
-   * 需要恢复时取消下面整段注释即可，视图文件均未删除。
+   * 体检筛查端 —— 已恢复启用（教师/管理员专用，学员/患者不可见）
+   * DiagnosisUpload 已对接 CSU-EYES 真实算法（MA检测 / DR分级 / 综合诊断）
    * ============================================================ */
-  // {
-  //   path: '/screening',
-  //   component: () => import('@/layout/portals/ScreeningPortal.vue'),
-  //   meta: { scene: 'screening', deniedRoles: ['trainee'] },
-  //   redirect: '/screening/dashboard',
-  //   children: [
-  //     { path: 'dashboard', name: 'ScreeningDashboard', component: () => import('@/layout/portals/ScreeningWorkspace.vue'), props: { section: 'upload' }, meta: { title: '批量筛查' } },
-  //     { path: 'list', name: 'ScreeningList', component: () => import('@/views/screening/case-search.vue'), meta: { title: '病例检索' } },
-  //     { path: 'profile', name: 'ScreeningProfile', component: () => import('@/views/profile/index.vue'), meta: { title: '个人中心' } }
-  //   ]
-  // },
+  {
+    path: '/screening',
+    component: () => import('@/layout/portals/ScreeningPortal.vue'),
+    meta: { scene: 'screening', deniedRoles: ['trainee', 'patient'] },
+    redirect: '/screening/dashboard',
+    children: [
+      { path: 'dashboard', name: 'ScreeningDashboard', component: () => import('@/layout/portals/ScreeningWorkspace.vue'), props: { section: 'upload' }, meta: { title: '批量筛查' } },
+      { path: 'list', name: 'ScreeningList', component: () => import('@/views/screening/case-search.vue'), meta: { title: '病例检索' } },
+      { path: 'profile', name: 'ScreeningProfile', component: () => import('@/views/profile/index.vue'), meta: { title: '个人中心' } }
+    ]
+  },
 
   /* ============================================================
    * 医学培训端（深色主题）— 单端口侧边栏布局
@@ -92,6 +92,12 @@ const routes: RouteRecordRaw[] = [
         name: 'TeachingShare',
         component: () => import('@/views/training/teaching-share.vue'),
         meta: { title: '我的教学分享', allowedRoles: ['admin', 'doctor'] }
+      },
+      {
+        path: 'ai-builder',
+        name: 'AiCaseBuilder',
+        component: () => import('@/views/training/ai-case-builder.vue'),
+        meta: { title: 'AI 智能建案', allowedRoles: ['admin', 'doctor'] }
       },
       {
         path: 'student-teaching',
@@ -204,7 +210,7 @@ const homePathForRole = (role: string): string => {
 router.beforeEach((to, _from, next) => {
   const token = localStorage.getItem(TOKEN_KEY)
   if (to.meta.title) {
-    document.title = `${to.meta.title} · 慧眼医疗云平台 V2.0`
+    document.title = `${to.meta.title} · 慧眼 AI 教学实训平台`
   }
   if (to.meta.public) {
     next()

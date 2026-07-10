@@ -85,10 +85,10 @@ const roleBadge = computed(() => {
         </svg>
         <div v-if="!collapsed" class="brand-text">
           <div class="brand-name">
-            慧眼教学系统
+            慧眼 AI
             <span class="role-badge" :class="roleBadge.cls">{{ roleBadge.text }}</span>
           </div>
-          <div class="brand-sub">HUIYAN TEACHING</div>
+          <div class="brand-sub">教学实训平台</div>
         </div>
       </div>
 
