@@ -95,6 +95,13 @@ class ReadingAnnotation(Base, TimestampMixin):
         Text, nullable=False, default="", comment="阅片备注",
     )
 
+    # 提交幂等键。草稿保存本身是 upsert，天然幂等；但提交会把记录
+    # 置为 SUBMITTED，此时断网重试就找不到草稿了，会新建一条重新提交，
+    # 同一份阅片凭空变成两条。同键重试回放原记录。
+    submit_request_id: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True, index=True, comment="提交幂等键",
+    )
+
     review_comment: Mapped[str] = mapped_column(
         Text, nullable=False, default="", comment="教师审核意见",
     )

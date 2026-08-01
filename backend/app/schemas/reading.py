@@ -121,6 +121,11 @@ class ReadingSaveParams(_CamelModel):
     )
     note: str = ""
     submit: bool = Field(False, description="True 表示提交（SUBMITTED），否则保留为 DRAFT")
+    request_id: str = Field(
+        "",
+        max_length=64,
+        description="提交幂等键：断网重试时原样带回，同键回放原记录而非新建一条",
+    )
 
 
 class ReadingReviewParams(_CamelModel):

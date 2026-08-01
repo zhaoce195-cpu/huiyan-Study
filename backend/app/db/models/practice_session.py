@@ -72,6 +72,14 @@ class PracticeSession(Base, TimestampMixin):
         comment="评分口径：keyword / structured",
     )
 
+    # 提交幂等键：客户端一次提交动作生成一个，重试时原样带回。
+    # 真正要防的不是「多出一条记录」（状态机已经拦住了），而是
+    # 「提交成功但响应丢包 → 学员重试收到报错 → 以为白做了」。
+    # 同键重试返回原结果，异键才算重复提交。
+    submit_request_id: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True, index=True, comment="提交幂等键",
+    )
+
     student_annotations: Mapped[Optional[list]] = mapped_column(
         JSON, nullable=True,
         comment="学员标注列表 [{id,tool,points,label,...}]",

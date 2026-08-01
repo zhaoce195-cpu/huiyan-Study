@@ -26,6 +26,7 @@ from app.db.models import (
 )
 from app.common.dr_grade import grade_level, grade_text, is_applicable
 from app.core.content_policy import Scene, redact, resolve_mode
+from app.services.op_log_service import OpLogService
 from app.schemas.practice import (
     CaseBriefForPractice,
     ErrorPoint,
@@ -372,6 +373,8 @@ def _to_out(record: PracticeSession) -> PracticeOut:
         status=record.status,  # type: ignore[arg-type]
         student_dr_grade=record.student_dr_grade or "",
         student_diagnosis=record.student_diagnosis or "",
+        student_diagnosis_form=record.student_diagnosis_form or {},
+        scoring_mode=record.scoring_mode or "keyword",
         student_annotations=record.student_annotations or [],
         student_measurements=record.student_measurements or [],
         viewport=record.viewport_snapshot,
@@ -457,6 +460,25 @@ def _to_brief(case: TrainingCase, *, user: Optional[User] = None,
 def _is_teacher_or_admin(user: User) -> bool:
     code = user.role.code if user.role else None
     return code in (RoleEnum.TEACHER.value, RoleEnum.ADMIN.value)
+
+
+def _replay_or_reject(record: PracticeSession, request_id: str) -> PracticeOut:
+    """
+    会话已不是草稿时，判断这是「同一次提交的重试」还是「另一次提交」。
+
+    断网重试是正常操作：请求到了服务端、成绩已落库，只是响应没回来。
+    此时再报「已提交，无法重复提交」，学员看到的是一个失败提示，
+    会以为答卷丢了——而实际上早就判完分了。所以同键必须回放原结果。
+
+    异键才是真的重复提交（比如从两个标签页各答一遍），仍然拒绝：
+    成绩已经产生，不允许覆盖。
+    """
+    if request_id and record.submit_request_id == request_id:
+        return _to_out(record)
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="该练习会话已提交，无法重复提交",
+    )
 
 
 def _ensure_case_visible(case: TrainingCase, user: User) -> None:
@@ -658,10 +680,7 @@ class PracticeService:
                 detail="无权操作他人练习会话",
             )
         if record.status != PracticeStatusEnum.DRAFT.value:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="该练习会话已提交，无法重复提交",
-            )
+            return _replay_or_reject(record, params.request_id)
 
         case = record.case
         if not case:
@@ -678,6 +697,26 @@ class PracticeService:
             student_anns=params.annotations,
             structured=params.diagnosis or None,
         )
+
+        # 抢占式置为已提交：WHERE status='DRAFT' 由数据库保证只有一个请求成功。
+        # 防的是双击/重试同时在途——两个请求都读到 DRAFT 时，后者不能也写一遍。
+        claimed = (
+            db.query(PracticeSession)
+            .filter(
+                PracticeSession.id == record.id,
+                PracticeSession.status == PracticeStatusEnum.DRAFT.value,
+            )
+            .update(
+                {
+                    PracticeSession.status: PracticeStatusEnum.SUBMITTED.value,
+                    PracticeSession.submit_request_id: params.request_id or None,
+                },
+                synchronize_session=False,
+            )
+        )
+        if not claimed:
+            db.expire(record)
+            return _replay_or_reject(record, params.request_id)
 
         # 落库
         record.student_dr_grade = params.student_dr_grade or ""
@@ -707,6 +746,21 @@ class PracticeService:
 
         db.commit()
         db.refresh(record)
+
+        # 审计：谁、什么时候、提交了哪份答卷、按哪套口径判的多少分。
+        # 成绩有争议时要能回溯，写在业务表之外，避免被后续操作覆盖。
+        OpLogService.record(
+            db,
+            user=user,
+            module="practice",
+            action="submit",
+            detail=(
+                f"练习会话 #{record.id} 病例 {record.case_id} "
+                f"总分 {record.score_total} 口径 {record.scoring_mode} "
+                f"{'通过' if record.is_passed else '未通过'} "
+                f"用时 {record.duration_seconds}s"
+            ),
+        )
         return _to_out(record)
 
     # ---------- 教师点评 ----------
@@ -744,6 +798,17 @@ class PracticeService:
         record.updated_at = datetime.now()
         db.commit()
         db.refresh(record)
+
+        OpLogService.record(
+            db,
+            user=user,
+            module="practice",
+            action="review",
+            detail=(
+                f"点评练习会话 #{record.id} 学员 {record.user_id} "
+                f"总分 {record.score_total}"
+            ),
+        )
         return _to_out(record)
 
     # ---------- 列表与详情 ----------

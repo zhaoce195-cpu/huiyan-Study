@@ -86,6 +86,11 @@ class PracticeSubmitParams(_CamelModel):
     measurements: List[PracticeAnnotation] = Field(default_factory=list)
     viewport: Optional[Dict[str, Any]] = None
     duration_seconds: int = 0
+    request_id: str = Field(
+        "",
+        max_length=64,
+        description="提交幂等键：断网重试时原样带回，同键返回原结果而非报错",
+    )
 
 
 class PracticeReviewParams(_CamelModel):
@@ -162,6 +167,12 @@ class PracticeOut(_CamelModel):
 
     student_dr_grade: str = ""
     student_diagnosis: str = ""
+    # 结构化作答要回传：报告页得把学员填的每一项摊开对照，
+    # 只给一个总分，学员看不出自己错在哪一条
+    student_diagnosis_form: Dict[str, Any] = Field(default_factory=dict)
+    # 这份成绩按哪套口径判的。存量记录是 keyword，新记录是 structured，
+    # 分数不可直接横向比较，界面上要说清楚
+    scoring_mode: str = "keyword"
     student_annotations: List[Dict[str, Any]] = Field(default_factory=list)
     student_measurements: List[Dict[str, Any]] = Field(default_factory=list)
     viewport: Optional[Dict[str, Any]] = None

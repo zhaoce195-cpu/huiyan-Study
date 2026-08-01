@@ -28,6 +28,7 @@ from app.common.image_safety import (
     build_image_meta,
     summarize_safety,
 )
+from app.services.op_log_service import OpLogService
 from app.schemas.reading import (
     ImageSource,
     ReadingListQuery,
@@ -267,6 +268,24 @@ class ReadingService:
                     },
                 )
 
+        # 断网重试：上一次提交其实成功了，只是响应没回来。
+        # 此时该记录已是 SUBMITTED，下面的草稿查询会落空并新建一条，
+        # 同一份阅片就变成两条。同键先回放，不再重复落库。
+        if params.submit and params.request_id:
+            replay = (
+                db.query(ReadingAnnotation)
+                .filter(
+                    ReadingAnnotation.user_id == user.id,
+                    ReadingAnnotation.case_id == case.id,
+                    ReadingAnnotation.image_index == params.image_index,
+                    ReadingAnnotation.submit_request_id == params.request_id,
+                )
+                .order_by(desc(ReadingAnnotation.id))
+                .first()
+            )
+            if replay is not None:
+                return _to_out(replay)
+
         # 复用同一用户 + 同一病例 + 同一影像 的最近一条草稿；否则新建
         record: Optional[ReadingAnnotation] = (
             db.query(ReadingAnnotation)
@@ -301,10 +320,22 @@ class ReadingService:
 
         if params.submit:
             record.status = ReadingStatusEnum.SUBMITTED.value
+            record.submit_request_id = params.request_id or None
 
         record.updated_at = datetime.now()
         db.commit()
         db.refresh(record)
+
+        if params.submit:
+            OpLogService.record(
+                db,
+                user=user,
+                module="reading",
+                action="submit",
+                detail=(
+                    f"提交阅片 #{record.id} 病例 {case.id} 第 {record.image_index + 1} 张"
+                ),
+            )
         return _to_out(record)
 
     # ---------- 查询 ----------

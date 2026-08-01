@@ -6,6 +6,12 @@ import { Back, MagicStick } from '@element-plus/icons-vue'
 
 import { ReadingApi, PracticeApi } from '@/api'
 import { ensureCornerstone } from '@/utils/cornerstone'
+import {
+  buildAnswerSummary,
+  newRequestId,
+  submitWithRetry,
+  summaryHtml
+} from '@/utils/submit-guard'
 
 import ReadingToolbar from '@/views/reading/components/ReadingToolbar.vue'
 import ReadingCanvas from '@/views/reading/components/ReadingCanvas.vue'
@@ -63,6 +69,8 @@ const diagForm = ref({
   diagnosis: ''
 })
 const submitting = ref(false)
+// 幂等键：跨重试保持不变，提交成功后才清空
+const submitRequestId = ref('')
 const startTime = ref(Date.now())
 
 /* ========== 工具操作 ========== */
@@ -167,6 +175,8 @@ const loadRecord = async () => {
     if (record.value) {
       diagForm.value.drGrade = record.value.studentDrGrade || ''
       diagForm.value.diagnosis = record.value.studentDiagnosis || ''
+      // 结构化作答回填：不回填的话，学员刷新页面后填过的内容会凭空消失
+      structuredAnswer.value = { ...(record.value.studentDiagnosisForm || {}) }
       canvasState.annotations = (record.value.studentAnnotations || []) as AnnotationItem[]
       canvasState.measurements = (record.value.studentMeasurements || []) as AnnotationItem[]
       if (record.value.viewport) canvasState.viewport = record.value.viewport as any
@@ -202,18 +212,35 @@ const handleSubmit = async () => {
     ElMessage.warning('请选择 DR 分级')
     return
   }
+  // 最终摘要：把即将提交的结论摊开给学员核对。
+  // 只问一句「确认提交吗」提供不了任何信息，学员只能盲点确定。
+  const rows = buildAnswerSummary(diagnosisForm.value, structuredAnswer.value)
+  const marks = canvasState.annotations.length
   try {
     await ElMessageBox.confirm(
-      '提交后将自动评分，且无法再修改本次作答，确认提交？',
-      '提交确认',
-      { type: 'warning' }
+      summaryHtml(
+        rows,
+        `另有标注 ${marks} 处、测量 ${canvasState.measurements.length} 处。` +
+          '提交后将自动评分，无法再修改本次作答。'
+      ),
+      '请核对本次作答',
+      {
+        type: 'warning',
+        dangerouslyUseHTMLString: true,
+        confirmButtonText: '确认提交',
+        cancelButtonText: '再看看'
+      }
     )
   } catch { return }
+
+  // 幂等键在这一次提交动作里固定不变：重试必须带同一个键，
+  // 每次换新键等于每次都是一次新提交，幂等就白做了
+  if (!submitRequestId.value) submitRequestId.value = newRequestId()
 
   submitting.value = true
   try {
     const duration = Math.floor((Date.now() - startTime.value) / 1000)
-    const out = await PracticeApi.submitPractice({
+    const payload = {
       sessionId: record.value.id,
       // 分级仍单独上送：它是评分的独立一项（占 30%），
       // 结构化表单里的 dr_grade 与之保持同一取值
@@ -224,13 +251,24 @@ const handleSubmit = async () => {
       annotations: canvasState.annotations,
       measurements: canvasState.measurements,
       viewport: canvasState.viewport,
-      durationSeconds: duration
-    })
+      durationSeconds: duration,
+      requestId: submitRequestId.value
+    }
+    const out = await submitWithRetry(
+      () => PracticeApi.submitPractice(payload),
+      {
+        onRetry: (n) =>
+          ElMessage.warning(`网络异常，正在第 ${n} 次重试提交，请勿关闭页面`)
+      }
+    )
     record.value = out
+    submitRequestId.value = ''
     await loadGoldStandard()
     ElMessage.success(out.isPassed ? '恭喜，您已通过本次练习' : '提交完成，请查看错题分析')
   } catch {
-    /* error already shown */
+    // 重试用完仍失败：保留幂等键，学员再点提交仍是同一次动作。
+    // 若那几次里其实有一次到达了服务端，重试会拿回原成绩而不是报重复提交。
+    ElMessage.error('提交未成功，作答仍在本页面，可稍后再次点击提交')
   } finally {
     submitting.value = false
   }
@@ -399,7 +437,13 @@ watch(currentImageIndex, () => {
 
         <!-- 报告模式 -->
         <div v-if="viewMode || (record && record.status !== 'DRAFT')" class="panel-section report">
-          <h3>评分报告</h3>
+          <h3>
+            评分报告
+            <!-- 两套口径的分数不可直接横向比较，界面上必须说清是哪一套 -->
+            <el-tag size="small" :type="record?.scoringMode === 'structured' ? 'success' : 'info'">
+              {{ record?.scoringMode === 'structured' ? '结构化评分' : '关键词评分（旧口径）' }}
+            </el-tag>
+          </h3>
           <div class="score-grid">
             <div class="score-item">
               <span class="label">总分</span>

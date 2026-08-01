@@ -67,6 +67,10 @@ export interface PracticeRecord {
 
   studentDrGrade: string
   studentDiagnosis: string
+  /** 结构化作答，报告页据此逐条对照 */
+  studentDiagnosisForm?: Record<string, any>
+  /** 这份成绩按哪套口径判的：keyword 旧自由文本 / structured 结构化 */
+  scoringMode?: 'keyword' | 'structured'
   studentAnnotations: PracticeAnnotation[]
   studentMeasurements: PracticeAnnotation[]
   viewport: Record<string, any> | null
@@ -117,6 +121,8 @@ export interface PracticeSubmitParams {
   durationSeconds: number
   /** 结构化诊断作答；提供时按结构化口径评分 */
   diagnosis?: Record<string, any>
+  /** 提交幂等键：断网重试时原样带回，服务端同键回放原成绩而非报错 */
+  requestId?: string
 }
 
 export interface PracticeListQuery {

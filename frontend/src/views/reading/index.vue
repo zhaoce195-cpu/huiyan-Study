@@ -7,6 +7,12 @@ import { Back, Document, ArrowLeft, ArrowRight, MagicStick } from '@element-plus
 import { LoginApi, ReadingApi } from '@/api'
 import { getCaseBrowseList } from '@/api/case-browse'
 import { ensureCornerstone, cornerstone } from '@/utils/cornerstone'
+import {
+  buildAnswerSummary,
+  newRequestId,
+  submitWithRetry,
+  summaryHtml
+} from '@/utils/submit-guard'
 import { useUserStore } from '@/stores/user'
 
 import ReadingToolbar from './components/ReadingToolbar.vue'
@@ -331,6 +337,8 @@ const fetchExistingRecord = async () => {
 
 const submitVisible = ref(false)
 const saving = ref(false)
+// 提交幂等键：跨重试保持不变，提交成功后才清空
+const submitRequestId = ref('')
 
 const diagnosisForm = ref<any>(null)
 const submitProblems = ref<string[]>([])
@@ -352,6 +360,30 @@ const onSave = async (
 ) => {
   if (!source.value) return
   const { note, diagnosis } = payload
+
+  // 提交前把结论摊开核对。草稿不打扰：存草稿本来就是随手的动作。
+  if (submit) {
+    const rows = buildAnswerSummary(diagnosisForm.value, diagnosis)
+    try {
+      await ElMessageBox.confirm(
+        summaryHtml(
+          rows,
+          `另有标注 ${canvasState.annotations.length} 处、` +
+            `测量 ${canvasState.measurements.length} 处。提交后进入教师审核。`
+        ),
+        '请核对阅片结论',
+        {
+          type: 'warning',
+          dangerouslyUseHTMLString: true,
+          confirmButtonText: '确认提交',
+          cancelButtonText: '再看看'
+        }
+      )
+    } catch { return }
+    // 幂等键跨重试保持不变；提交成功后清空
+    if (!submitRequestId.value) submitRequestId.value = newRequestId()
+  }
+
   saving.value = true
   submitProblems.value = []
   try {
@@ -365,16 +397,25 @@ const onSave = async (
       layers: canvasState.layers,
       note,
       diagnosis,
-      submit
+      submit,
+      requestId: submit ? submitRequestId.value : undefined
     }
-    const out = await ReadingApi.saveReading(params)
+    const out = await submitWithRetry(() => ReadingApi.saveReading(params), {
+      // 草稿失败不重试：学员还在页面上，下一次自动保存会补上
+      attempts: submit ? 3 : 1,
+      onRetry: (n) =>
+        ElMessage.warning(`网络异常，正在第 ${n} 次重试提交，请勿关闭页面`)
+    })
     existingRecord.value = out
     submitVisible.value = false
     if (submit) {
+      submitRequestId.value = ''
       router.push('/case-browse')
     }
   } catch {
-    /* 已弹错误 */
+    // 保留幂等键：学员再点提交仍算同一次动作。
+    // 若失败的那几次里其实有一次到达了服务端，重试会拿回原记录，
+    // 不会变成两条重复的待审阅片。
   } finally {
     saving.value = false
   }

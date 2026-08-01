@@ -165,6 +165,8 @@ export interface ReadingSaveParams {
   diagnosis?: Record<string, any>
   note?: string
   submit?: boolean
+  /** 提交幂等键：断网重试时原样带回，同键回放原记录而非新建一条 */
+  requestId?: string
 }
 
 export interface ReadingReviewParams {
