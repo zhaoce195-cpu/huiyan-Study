@@ -35,7 +35,12 @@ export default defineConfig(({ mode, command }) => {
 
     resolve: {
       alias: {
-        '@': fileURLToPath(new URL('./src', import.meta.url))
+        '@': fileURLToPath(new URL('./src', import.meta.url)),
+        // Cornerstone3D core 继承自 Node 内建 events 的 EventEmitter。
+        // Vite 会把 Node 内建模块外部化，导致 EventEmitter 解析为 undefined，
+        // 运行时报 "Class extends value undefined is not a constructor or null"。
+        // 显式指向 npm 的 events 包（浏览器实现）即可解决。
+        events: 'events'
       }
     },
 
@@ -69,6 +74,27 @@ export default defineConfig(({ mode, command }) => {
           changeOrigin: true
         }
       }
+    },
+
+    // ---- Cornerstone3D 依赖处理 ----
+    // 让 Vite 预打包这些包：dicom-image-loader 的 wasm 编解码器是 CJS，
+    // 若把它排除在预打包之外，浏览器会直接以 ESM 加载 CJS 文件，
+    // 报 "does not provide an export named 'default'"。
+    optimizeDeps: {
+      include: [
+        'dicom-parser',
+        'events',
+        '@cornerstonejs/dicom-image-loader',
+        '@cornerstonejs/codec-charls',
+        '@cornerstonejs/codec-libjpeg-turbo-8bit',
+        '@cornerstonejs/codec-openjpeg',
+        '@cornerstonejs/codec-openjph',
+      ],
+    },
+
+    // 编解码器以 ES module worker 形式加载
+    worker: {
+      format: 'es',
     },
 
     build: {

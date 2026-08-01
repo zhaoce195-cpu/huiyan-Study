@@ -15,6 +15,20 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '注册', public: true }
   },
   {
+    // OIDC 授权码回调：Keycloak 登录完成后跳回本页换取令牌
+    path: '/oidc/callback',
+    name: 'OidcCallback',
+    component: () => import('@/views/login/oidc-callback.vue'),
+    meta: { title: '登录中', public: true }
+  },
+
+  {
+    // Cornerstone3D 技术验证页（替换阅片内核前的最小验证，非正式功能）
+    path: '/spike/cornerstone',
+    name: 'CornerstoneSpike',
+    component: () => import('@/views/spike/cornerstone-spike.vue'),
+    meta: { title: 'Cornerstone3D 验证' }
+  },  {
     // 首页原为「端口选择页」，体检筛查端已停用、只剩培训端 → 直接按角色重定向
     path: '/',
     redirect: () => {
