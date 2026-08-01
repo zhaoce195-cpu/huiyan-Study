@@ -1,0 +1,77 @@
+{
+  "//": "慧眼医疗云平台 · Orthanc 配置",
+  "//": "对应方案决策三「全量 DICOM 化」：以 Orthanc 承载患者-检查-序列-实例层级，",
+  "//": "前端经 DICOMweb（QIDO-RS / WADO-RS / STOW-RS）访问，不再拼接静态文件路径。",
+
+  "Name": "HuiyanPACS",
+  "StorageDirectory": "/var/lib/orthanc/db",
+  "IndexDirectory": "/var/lib/orthanc/db",
+
+  "//": "===== DICOM 网络 =====",
+  "DicomAet": "HUIYAN",
+  "DicomPort": 4242,
+  "DicomServerEnabled": true,
+
+  "//": "===== HTTP =====",
+  "HttpPort": 8042,
+  "HttpServerEnabled": true,
+
+  "//": "===== 认证：Keycloak =====",
+  "//": "PACS 不再自行维护口令。Authorization 插件把每次访问的准入决定",
+  "//": "回调给后端 /api/v1/orthanc-auth/v1/authorization，由后端校验",
+  "//": "Keycloak 签发的 JWT 并判定角色，从而与平台共用同一套身份体系。",
+  "//": "报告 P0（强制改密 / 限流 / 会话超时 / 失败审计）由 Keycloak 统一承担。",
+
+  "//": "必须为 false：Authorization 插件与 Orthanc 内置认证互斥，",
+  "//": "同时开启会导致插件加载失败、Orthanc 直接退出。",
+  "//": "关闭后所有访问一律经插件回调后端校验 Keycloak 令牌，",
+  "//": "系统中不再存在任何静态 PACS 口令。",
+  "AuthenticationEnabled": false,
+
+  "Authorization": {
+    "//": "huiyan-host 由 compose 的 extra_hosts 指向宿主机（见 docker-compose.orthanc.yml）；",
+    "//": "后端也容器化后改为服务名（如 http://huiyan-backend:8000/...）。",
+    "WebServiceRootUrl": "http://huiyan-host:8000/api/v1/orthanc-auth/",
+
+    "//": "把浏览器带来的 Bearer 令牌透传给授权服务",
+    "TokenHttpHeaders": ["Authorization"],
+
+    "//": "在 study 层做准入判定",
+    "CheckedLevel": "studies",
+
+    "//": "Orthanc Explorer 自身的静态资源不参与鉴权，否则打不开管理界面",
+    "UncheckedFolders": ["/app/", "/ui/"],
+    "UncheckedResources": ["/system", "/statistics"]
+  },
+
+  "//": "跨域：开发期前端从 vite dev server 访问需要放行；",
+  "//": "生产走同源反代（Caddy），届时应收紧为具体域名。",
+  "HttpHeaders": {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type,Authorization,Accept"
+  },
+
+  "//": "===== 行为 =====",
+  "//": "眼底照为有损 JPEG 内嵌，不要让 Orthanc 再做转码",
+  "StorageCompression": false,
+  "OverwriteInstances": true,
+
+  "//": "允许通过 REST 删除，便于迁移期重跑",
+  "RemoteAccessAllowed": true,
+
+  "//": "===== DICOMweb 插件 =====",
+  "DicomWeb": {
+    "Enable": true,
+    "Root": "/dicom-web/",
+    "EnableWado": true,
+    "WadoRoot": "/wado",
+    "//": "Orthanc 默认对 WADO-RS 返回原传输语法，眼底照因此保持 JPEG 内嵌",
+
+    "//": "必须为 Full：设成 MainDicomTags 时 /metadata 只返回精简标签集，",
+    "//": "ImageLaterality、SOPClassUID 等都查不到，Cornerstone3D / OHIF 无法正常加载。",
+    "//": "代价是元数据响应更大，可由前端按需缓存。",
+    "StudiesMetadata": "Full",
+    "SeriesMetadata": "Full"
+  }
+}

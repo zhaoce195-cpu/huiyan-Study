@@ -1,0 +1,57 @@
+# =================================================================
+# 慧眼医疗云平台 · Orthanc DICOM 服务器
+#
+# 对应方案决策三「全量 DICOM 化」与报告 P0/P1：
+#     「数据层级：单层病例宽表；影像/图层混算
+#       → 患者-检查-序列-实例-派生结果」
+#
+# 独立启动，不与主 compose 混用，避免影响现有服务：
+#     docker compose -f docker-compose.orthanc.yml up -d
+#     docker compose -f docker-compose.orthanc.yml logs -f
+#     docker compose -f docker-compose.orthanc.yml down
+#
+# 端口（已确认与本机其他容器无冲突）：
+#     8042  HTTP / REST / DICOMweb
+#     4242  DICOM 协议（C-STORE 等）
+#
+# 访问：
+#     http://localhost:8042/            Orthanc Explorer
+#     http://localhost:8042/dicom-web/  DICOMweb 根
+#     账号：huiyan / huiyan-local-dev（仅本地开发口令）
+# =================================================================
+
+services:
+  orthanc:
+    # orthancteam 官方镜像已内置 DICOMweb 等插件，无需自行编译
+    image: orthancteam/orthanc:24.7.3
+    container_name: huiyan-orthanc
+    restart: unless-stopped
+    ports:
+      - "8042:8042"
+      - "4242:4242"
+    volumes:
+      - ./deploy/orthanc/orthanc.json:/etc/orthanc/orthanc.json:ro
+      # 影像与索引持久化：删卷等于清空 PACS，注意保护
+      - orthanc-db:/var/lib/orthanc/db
+    environment:
+      # 让插件按配置文件加载，不使用镜像内置的默认值
+      ORTHANC__DICOM_WEB__ENABLE: "true"
+    # 授权插件需要回连后端做令牌校验。
+    #
+    # 注意 WSL2 下的两层网络：容器 → WSL 虚拟机 → Windows 宿主。
+    # docker 的 host-gateway 只到 WSL 虚拟机，够不到跑在 Windows 上的后端，
+    # 表现为「Server returned nothing」而非明确的连接失败，很难排查。
+    # 因此这里用 WSL 的默认网关（即 Windows 宿主 IP）显式指定：
+    #     HUIYAN_HOST_IP=$(wsl ip route show default | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | head -1)
+    # 后端与 Orthanc 同在容器编排内时，直接改用服务名即可，无需本项。
+    extra_hosts:
+      - "huiyan-host:${HUIYAN_HOST_IP:-172.28.80.1}"
+    networks:
+      - huiyan-pacs
+
+volumes:
+  orthanc-db:
+
+networks:
+  huiyan-pacs:
+    name: huiyan-pacs
