@@ -31,3 +31,15 @@ miniapp-*/dist/
 Thumbs.db
 .idea/
 *.swp
+
+# ---- 身份迁移产生的敏感文件 ----
+# 迁移脚本会写出用户临时密码明文，分发后应删除，绝不能入库
+backend/keycloak-temp-passwords.txt
+
+# ---- 数据库备份（回填脚本执行前自动生成）----
+backend/*.db.bak-*
+
+# ---- DICOM 转换产物 ----
+# 由 scripts/convert_cases_to_dicom.py 从源影像生成，可随时重跑；
+# 体积大且属派生数据，不入库（权威副本在 Orthanc）
+backend/app/static/dicom/

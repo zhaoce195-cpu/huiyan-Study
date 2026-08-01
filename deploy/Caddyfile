@@ -1,0 +1,145 @@
+# =================================================================
+# 慧眼医疗云平台 · Caddy 反向代理（自动 HTTPS）
+#
+# 对应《医学培训端评估与工作流重构报告》P0：
+#     「入口为明文 HTTP，却在页面底部展示『数据加密传输』」
+#     「应尽快启用 HTTPS/HSTS、安全 Cookie、强制改密、登录限流、
+#       失败审计和会话超时；页面合规声明应可追溯到具体证据」
+#
+# 选用 Caddy 而不是继续手工维护 nginx TLS 的原因：
+#     证书申请、续期、OCSP 装订、TLS 参数全部自动完成，
+#     不需要人工跑 certbot，也不会因忘记续期而中断。
+#
+# -----------------------------------------------------------------
+# 使用方式
+#
+# 1) 【当前阶段】只有 IP，域名申请中：
+#      export HUIYAN_SITE=https://113.219.243.122
+#      export HUIYAN_TLS=internal
+#      docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d
+#      然后导出根证书分发给客户端，见文件末尾「IP 测试期」段落。
+#
+# 2) 域名到位后（推荐，自动签发 Let's Encrypt 证书）：
+#      export HUIYAN_SITE=https://huiyan.example.com
+#      export HUIYAN_TLS=              # 留空 → 自动走 ACME
+#      export HUIYAN_ACME_EMAIL=ops@example.com
+#      docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d
+#    切换只改环境变量，Caddyfile 不用动。
+#
+# 3) 已有商业证书：
+#      export HUIYAN_TLS="/etc/ssl/huiyan.pem /etc/ssl/huiyan.key"
+# =================================================================
+
+{
+	# ACME 账户邮箱：证书到期前的通知发到这里
+	email {$HUIYAN_ACME_EMAIL:ops@example.com}
+
+	# 关闭 Caddy 自身的版本头
+	servers {
+		protocols h1 h2
+	}
+}
+
+# ---------------- 主站点 ----------------
+#
+# 当前阶段：先用 IP 做测试，域名申请中。
+#
+#   HUIYAN_SITE  站点地址。
+#                IP 测试期填 https://<服务器IP>；域名到位后改成域名即可，
+#                其余配置一行都不用动。
+#   HUIYAN_TLS   证书方式。
+#                internal = Caddy 本地 CA 自签（IP 场景只能用这个，
+#                          因为公共 CA 不给裸 IP 签发证书）；
+#                留空     = 走 ACME 自动申请（有域名后改成留空）。
+{$HUIYAN_SITE:https://localhost} {
+
+	# IP 阶段：本地 CA 自签。切到域名时把 HUIYAN_TLS 置空即可自动改走 ACME。
+	tls {$HUIYAN_TLS:internal}
+
+	# ---- 安全响应头 ----
+	header {
+		# HSTS
+		#
+		# IP + 自签测试阶段：先用较短有效期，且不加 preload。
+		# 原因是 preload 一旦被浏览器收录就很难撤销，
+		# 测试期的临时地址不该被钉进预加载列表。
+		#
+		# 域名正式上线、证书链确认无误后，再改为：
+		#   Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		Strict-Transport-Security "max-age=86400"
+
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+
+		# 关闭不需要的浏览器特性
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+
+		# 移除暴露实现细节的响应头
+		-Server
+		-X-Powered-By
+	}
+
+	# ---- 请求体上限：批量眼底图上传 ----
+	request_body {
+		max_size 200MB
+	}
+
+	# ---- 后端 API ----
+	handle /api/* {
+		reverse_proxy huiyan-backend:8000 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			# 推理与批量导入耗时较长，放宽超时
+			transport http {
+				read_timeout 300s
+				write_timeout 300s
+			}
+		}
+	}
+
+	# ---- 后端静态资源（眼底图 / 报告 PDF / 头像）----
+	handle /static/* {
+		reverse_proxy huiyan-backend:8000 {
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	# ---- 前端 SPA ----
+	handle {
+		reverse_proxy huiyan-frontend:80 {
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	# ---- 访问日志 ----
+	log {
+		output file /var/log/caddy/huiyan_access.log {
+			roll_size 50MB
+			roll_keep 10
+		}
+		format json
+	}
+}
+
+# =================================================================
+# IP 测试期：根证书分发
+#
+# 公共 CA 不会给裸 IP 签发证书，因此 IP 阶段只能用 Caddy 的本地 CA。
+# 浏览器默认不信任该 CA，需要把根证书导入各客户端信任库：
+#
+#   # 1. 从容器导出根证书
+#   docker cp huiyan-caddy:/data/caddy/pki/authorities/local/root.crt ./huiyan-ca.crt
+#
+#   # 2. 分发并导入
+#   Windows：双击 → 安装到「受信任的根证书颁发机构」
+#   macOS  ：钥匙串访问 → 系统 → 导入后设为「始终信任」
+#   Linux  ：cp huiyan-ca.crt /usr/local/share/ca-certificates/ && update-ca-certificates
+#
+# 注意事项：
+#   1. 该根证书由容器内的 /data 卷持有。docker-compose.tls.yml 已把 /data
+#      做了具名卷持久化，只要不删卷，重建容器不会换 CA，无需重新分发。
+#   2. 不导入根证书时浏览器会显示告警，但连接本身仍是加密的——
+#      这与之前的明文 HTTP 有本质区别，不要因为「反正有告警」就退回 HTTP。
+#   3. 域名到位后请及时切到方案 2：正式对外服务不应长期依赖自签 CA。
+# =================================================================

@@ -5,6 +5,10 @@ import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 import { useLogout } from '@/composables/useLogout'
 
+/** 传输是否加密：按实际连接判定，避免出现无法核对的安全声明 */
+const isSecureConnection = window.location.protocol === 'https:'
+
+
 const router = useRouter()
 const userStore = useUserStore()
 const { logout } = useLogout()
@@ -174,13 +178,33 @@ onMounted(() => {
     </main>
 
     <footer class="home-footer">
-      <div>慧眼医疗 © 2026 · 国家三类医疗器械软件备案</div>
-      <div>数据加密传输 · 符合《医疗器械数据完整性要求》</div>
+      <div>慧眼医疗 © 2026</div>
+      <!--
+        合规声明整改（报告 P0：入口为明文 HTTP，却展示「数据加密传输」）。
+        传输状态改为按当前连接实时判定，声明因此永远可被用户自行核对；
+        原「国家三类医疗器械软件备案 / 符合《医疗器械数据完整性要求》」
+        属不可追溯表述，已移除——若确已取得注册证，请填回具体证书编号。
+      -->
+      <div v-if="isSecureConnection" class="secure-ok">
+        已启用 HTTPS 加密传输
+      </div>
+      <div v-else class="secure-warn">
+        当前为非加密连接（HTTP），请联系管理员启用 HTTPS 后再传输患者相关数据
+      </div>
+      <div>AI 结果仅供教学与辅助参考，不作为临床诊断依据</div>
     </footer>
   </div>
 </template>
 
 <style scoped>
+.home-footer .secure-ok {
+  color: #2f9e44;
+}
+.home-footer .secure-warn {
+  color: #c92a2a;
+  font-weight: 600;
+}
+
 .home-page {
   min-height: 100vh;
   background: linear-gradient(180deg, #f5f9ff 0%, #ffffff 50%, #f8f9fb 100%);

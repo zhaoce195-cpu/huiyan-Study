@@ -1,0 +1,65 @@
+# =================================================================
+# 慧眼医疗云平台 · HTTPS 叠加配置
+#
+# 与主 docker-compose.yml 叠加使用，在前面加一层 Caddy 做 TLS 终止：
+#
+#   # 当前阶段（IP 测试，域名申请中）
+#   export HUIYAN_SITE=https://113.219.243.122
+#   export HUIYAN_TLS=internal
+#   docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d
+#
+#   # 域名到位后
+#   export HUIYAN_SITE=https://huiyan.example.com
+#   export HUIYAN_TLS=
+#   export HUIYAN_ACME_EMAIL=ops@example.com
+#
+# 叠加后：
+#   - 443 由 Caddy 接管，自动申请并续期证书，下发 HSTS；
+#   - 80 端口仅用于 ACME 校验与 301 跳转，不再直接提供业务；
+#   - frontend 不再对宿主暴露端口，只在内网供 Caddy 反代，
+#     避免有人绕过 TLS 直连明文端口。
+#
+# 对应报告 P0：明文 HTTP 与「数据加密传输」声明不一致。
+# =================================================================
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: huiyan-caddy
+    restart: unless-stopped
+    depends_on:
+      - frontend
+      - backend
+    environment:
+      # 当前阶段：IP 测试。域名到位后把 HUIYAN_SITE 改成域名、
+      # HUIYAN_TLS 置空即可自动切到 ACME，Caddyfile 无需修改。
+      HUIYAN_SITE: ${HUIYAN_SITE:-https://localhost}
+      HUIYAN_TLS: ${HUIYAN_TLS:-internal}
+      HUIYAN_ACME_EMAIL: ${HUIYAN_ACME_EMAIL:-ops@example.com}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # 证书与 ACME 账户数据必须持久化，否则每次重建都会重新申请，
+      # 容易触发 Let's Encrypt 的签发频率限制
+      - caddy-data:/data
+      - caddy-config:/config
+      - ./deploy/logs/caddy:/var/log/caddy
+    networks:
+      - huiyan-net
+
+  # 前端收回宿主端口：只经 Caddy 访问，杜绝明文旁路
+  #
+  # !reset 需要 Docker Compose v2.24 及以上。
+  # 若版本较低（compose 会报「unknown tag !reset」），删掉下面两行，
+  # 改为在启动前把宿主端口绑到回环地址：
+  #     FRONTEND_PORT=127.0.0.1:8080
+  # 这样外部同样无法绕过 Caddy 直连明文端口。
+  frontend:
+    ports: !reset []
+
+volumes:
+  caddy-data:
+  caddy-config:
