@@ -145,6 +145,11 @@ export interface ImageSource {
     string,
     { studyInstanceUid: string; seriesInstanceUid: string; sopInstanceUid: string }
   >
+  /** 金标准的像素级分割；学员未解锁金标准时服务端不下发 */
+  segmentation?: {
+    sopInstanceUid: string
+    segments: Array<{ number: number; label: string }>
+  } | null
   imageComplete?: boolean
   missingRoles?: string[]
   /** 当前用户是否可见金标准图层（mask / overlay） */

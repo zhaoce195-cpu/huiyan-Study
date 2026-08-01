@@ -36,6 +36,19 @@ const measurements = ref<AnnotationItem[]>([])
 const viewport = ref<any>({ scale: 1, x: 0, y: 0, ww: 255, wl: 127, invert: false })
 const layers = ref({ primary: true, heatmap: false, gold: true, my: true })
 
+// 传了 seg 就一并验证分割掩码图层
+const segmentation = qs.get('seg')
+  ? {
+      sopInstanceUid: qs.get('seg') as string,
+      segments: [
+        { number: 1, label: '微动脉瘤' },
+        { number: 2, label: '视网膜出血' },
+        { number: 3, label: '硬性渗出' },
+        { number: 4, label: '视盘' }
+      ]
+    }
+  : null
+
 const gold = ref<AnnotationItem[]>([
   {
     id: 'G1', tool: 'rect',
@@ -76,6 +89,31 @@ onMounted(async () => {
       if (d) for (let i = 3; i < d.length; i += 4) if (d[i] > 0) painted++
     }
     check('金标准标注已绘制到 overlay', painted > 100, `非透明像素 ${painted}`)
+
+    // 分割掩码：不能只看「没报错」，要确认像素真画上去了。
+    // 关掉金标准图层后掩码应当消失 —— 只验「有」不验「无」，
+    // 就分不出是掩码在起作用，还是别的东西恰好画了一片。
+    if (segmentation) {
+      const countPainted = () => {
+        const c = document.querySelector('canvas.overlay') as HTMLCanvasElement
+        const d = c?.getContext('2d')?.getImageData(0, 0, c.width, c.height).data
+        let n = 0
+        if (d) for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++
+        return n
+      }
+      await new Promise((r) => setTimeout(r, 2500))
+      const withGold = countPainted()
+      layers.value = { ...layers.value, gold: false }
+      await new Promise((r) => setTimeout(r, 500))
+      const withoutGold = countPainted()
+      check(
+        '分割掩码随金标准图层显隐',
+        withGold > withoutGold + 5000,
+        `开启 ${withGold} px，关闭 ${withoutGold} px`
+      )
+      layers.value = { ...layers.value, gold: true }
+      await new Promise((r) => setTimeout(r, 500))
+    }
 
     // 旧口径的 scale（0.109 表示适配 4752 px 宽的图）若被当成
     // 新口径的 zoom 照搬，画面会缩到适配的 1/9。应重置为适配，即 zoom=1。
@@ -130,6 +168,7 @@ onMounted(async () => {
         mode="reading"
         :image-url="imageUrl"
         :dicom-image-id="dicomImageId"
+        :segmentation="segmentation"
         :tool="tool"
         :annotations="annotations"
         :measurements="measurements"

@@ -845,6 +845,7 @@ const openNote = () => {
         </div>
         <CoreRetinaStation
           :dicom-image-id="currentDicomImageId"
+          :segmentation="source?.segmentation || null"
           v-else
           :key="caseId"
           ref="readingCanvasRef"

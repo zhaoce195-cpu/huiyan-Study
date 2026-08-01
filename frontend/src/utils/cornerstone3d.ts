@@ -283,6 +283,90 @@ export const ensureMetadataFor = async (
 }
 
 /* =========================================================
+ * DICOM SEG 病灶分割掩码
+ *
+ * 不走 Cornerstone3D 的 SEG 适配器：该适配器按断层影像设计，
+ * 要求 SEG 携带患者坐标系方位（ImageOrientationPatient）。
+ * 眼底照是二维摄影本就没有这一概念，硬要适配只能往 DICOM 里
+ * 写入伪造的空间信息 —— 不可接受。
+ *
+ * 改由服务端把每个分段渲染成带透明通道的 PNG，前端按图层叠加：
+ * 掩码与影像同一像素网格，逐像素对齐，不依赖任何三维几何假设，
+ * 传输量也从 5.98 MB 降到约 214 KB。
+ * ========================================================= */
+
+export interface SegmentMask {
+  number: number
+  label: string
+  color: string
+  image: HTMLImageElement
+}
+
+const maskCache = new Map<string, HTMLImageElement>()
+
+/** 分段掩码的配色：与病灶标签同一套，图例才对得上 */
+export const SEGMENT_COLORS: Record<string, string> = {
+  微动脉瘤: '#fadb14',
+  视网膜出血: '#f53f3f',
+  出血: '#f53f3f',
+  硬性渗出: '#ff7d00',
+  渗出: '#ff7d00',
+  软性渗出: '#52c41a',
+  棉绒斑: '#52c41a',
+  视盘: '#1677ff'
+}
+
+const FALLBACK_COLORS = ['#f53f3f', '#ff7d00', '#fadb14', '#52c41a', '#1677ff']
+
+const hexToRgbTriplet = (hex: string): string => {
+  const h = hex.replace('#', '')
+  const n = parseInt(h.length === 3 ? h.split('').map((c) => c + c).join('') : h, 16)
+  return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`
+}
+
+/**
+ * 取回某个 SEG 实例的全部分段掩码。
+ *
+ * 掩码要带鉴权取，所以走 fetch + blob，而不是直接把 URL 丢给 <img>。
+ * 某个分段取失败不影响其它分段 —— 少一层掩码总好过整个金标准不显示。
+ */
+export const loadSegmentMasks = async (
+  sopInstanceUid: string,
+  segments: Array<{ number: number; label: string }>
+): Promise<SegmentMask[]> => {
+  const out: SegmentMask[] = []
+  await Promise.all(
+    segments.map(async (s, idx) => {
+      const color = SEGMENT_COLORS[s.label] || FALLBACK_COLORS[idx % FALLBACK_COLORS.length]
+      const key = `${sopInstanceUid}#${s.number}`
+      let image = maskCache.get(key)
+      if (!image) {
+        const url =
+          `/api/v1/dicomweb/segmentations/${sopInstanceUid}` +
+          `/segments/${s.number}/mask.png?color=${encodeURIComponent(hexToRgbTriplet(color))}`
+        const resp = await fetch(url, {
+          headers: { Authorization: `Bearer ${authToken()}` }
+        })
+        if (!resp.ok) return
+        const blob = await resp.blob()
+        const objectUrl = URL.createObjectURL(blob)
+        image = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const im = new Image()
+          im.onload = () => resolve(im)
+          im.onerror = () => reject(new Error('掩码解码失败'))
+          im.src = objectUrl
+        }).catch(() => undefined as any)
+        if (!image) return
+        maskCache.set(key, image)
+      }
+      out.push({ number: s.number, label: s.label, color, image })
+    })
+  )
+  // Promise.all 的完成顺序不定，按分段号排回来，图层次序才稳定
+  return out.sort((a, b) => a.number - b.number)
+}
+
+/* =========================================================
  * 坐标换算
  *
  * 标注一律以「影像像素坐标」存库，与显示无关——

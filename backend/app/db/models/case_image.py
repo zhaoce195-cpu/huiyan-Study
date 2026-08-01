@@ -88,6 +88,20 @@ class CaseImage(Base, TimestampMixin):
         Integer, nullable=False, default=0,
     )
 
+    # ---- PACS 对应关系 ----
+    # 转换时的 SOP Instance UID 由「病例号 + 本地绝对路径」派生，
+    # 影像目录搬迁或换机器部署后就重算不出来了，表现为该病例
+    # 静默退回 JPG、DICOM 能力无声失效。故落库固化，不再依赖重算。
+    sop_instance_uid: Mapped[Optional[str]] = mapped_column(
+        String(72), nullable=True, index=True, comment="PACS 中的 SOP Instance UID",
+    )
+    series_instance_uid: Mapped[Optional[str]] = mapped_column(
+        String(72), nullable=True, comment="PACS 中的 Series Instance UID",
+    )
+    study_instance_uid: Mapped[Optional[str]] = mapped_column(
+        String(72), nullable=True, comment="PACS 中的 Study Instance UID",
+    )
+
     uploaded_by: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("sys_user.id", ondelete="SET NULL"),
         nullable=True, index=True,

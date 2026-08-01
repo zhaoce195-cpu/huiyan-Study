@@ -44,6 +44,25 @@ def expected_uids(case_no: str, file_url: str, eye: Optional[str]) -> Dict[str, 
     }
 
 
+def uids_of(record, case_no: str) -> Dict[str, str]:
+    """
+    取一条影像记录对应的 UID。
+
+    优先用落库值：它记录的是转换当时的事实。
+    没有落库才回退到重算 —— 重算依赖本地文件路径，
+    目录搬迁或换机器后就对不上了（见遗留清单 D-007）。
+    """
+    sop = getattr(record, "sop_instance_uid", None)
+    if sop:
+        return {
+            "studyInstanceUid": getattr(record, "study_instance_uid", "") or "",
+            "seriesInstanceUid": getattr(record, "series_instance_uid", "") or "",
+            "sopInstanceUid": sop,
+        }
+    return expected_uids(case_no, getattr(record, "file_url", "") or "",
+                         getattr(record, "eye", None))
+
+
 def match_instances(
     case_no: str,
     records: Iterable,
@@ -61,7 +80,9 @@ def match_instances(
         url = getattr(r, "file_url", "") or ""
         if not url:
             continue
-        uids = expected_uids(case_no, url, getattr(r, "eye", None))
-        if uids["sopInstanceUid"] in present:
+        uids = uids_of(r, case_no)
+        # 落库了也要核对：PACS 里被删过、或从未推送成功的，
+        # 光有 UID 不代表取得到像素
+        if uids["sopInstanceUid"] and uids["sopInstanceUid"] in present:
             out[url] = uids
     return out

@@ -383,6 +383,7 @@ watch(currentImageIndex, () => {
         <CoreRetinaStation
           v-else-if="currentImage"
           :dicom-image-id="currentDicomImageId"
+          :segmentation="source?.segmentation || null"
           mode="practice"
           :image-url="currentImage"
           :tool="canvasState.tool"

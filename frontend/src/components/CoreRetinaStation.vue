@@ -17,9 +17,11 @@ import { ElMessage } from 'element-plus'
 import {
   ensureCornerstone3D,
   ensureMetadataFor,
+  loadSegmentMasks,
   makeCoordMapper,
   webImageId
 } from '@/utils/cornerstone3d'
+import type { SegmentMask } from '@/utils/cornerstone3d'
 import type { AnnotationItem, LayerState, ToolName, ViewportState } from '@/views/reading/types'
 import { LESION_LABELS } from '@/views/reading/types'
 
@@ -44,11 +46,20 @@ const props = withDefaults(
     readonly: boolean
     /** 金标准（专家）标注，仅 layers.gold = true 时显示 */
     goldAnnotations?: AnnotationItem[]
+    /**
+     * DICOM SEG 病灶分割。金标准若是像素级分割，用它比矢量框精确得多；
+     * 同样受 layers.gold 控制，练习模式下强制不显示。
+     */
+    segmentation?: {
+      sopInstanceUid: string
+      segments: Array<{ number: number; label: string }>
+    } | null
   }>(),
   {
     mode: 'reading',
     dicomImageId: '',
-    goldAnnotations: () => []
+    goldAnnotations: () => [],
+    segmentation: null
   }
 )
 
@@ -373,6 +384,11 @@ const redrawOverlay = () => {
   const h = canvas.height / (window.devicePixelRatio || 1)
   ctx.clearRect(0, 0, w, h)
 
+  // 金标准分割掩码：像素级，画在矢量标注之下
+  if (effectiveLayers.value.gold && segmentMasks.value.length > 0) {
+    drawSegmentMasks(ctx)
+  }
+
   // 金标准图层（专家标注）
   if (effectiveLayers.value.gold && props.goldAnnotations.length > 0) {
     props.goldAnnotations.forEach((g) => drawGoldAnnotation(ctx, g))
@@ -440,6 +456,57 @@ const drawAnnotation = (
     ctx.font = '12px sans-serif'
     ctx.fillText(ann.label, pts[0].x + 4, pts[0].y - 4)
   }
+}
+
+/* =========================================================
+ * 金标准分割掩码
+ * ========================================================= */
+
+const segmentMasks = ref<SegmentMask[]>([])
+const segmentError = ref('')
+
+/**
+ * 掩码与影像同一像素网格，所以只要把「影像左上角」和「影像右下角」
+ * 换算到屏幕坐标，再把整张掩码拉伸到这个矩形即可，逐像素对齐。
+ * 走的是与标注同一套坐标变换，缩放平移自动跟随，不需要单独同步。
+ */
+const drawSegmentMasks = (ctx: CanvasRenderingContext2D) => {
+  const tl = pixelToCanvas(0, 0)
+  const br = pixelToCanvas(imgSize.value.w, imgSize.value.h)
+  const w = br.x - tl.x
+  const h = br.y - tl.y
+  if (!(w > 0 && h > 0)) return
+
+  const prev = ctx.globalAlpha
+  // 掩码是不透明色块，压在原图上会挡住底层纹理；
+  // 半透明才能同时看清病灶范围与影像本身
+  ctx.globalAlpha = 0.45
+  for (const m of segmentMasks.value) {
+    try {
+      ctx.drawImage(m.image, tl.x, tl.y, w, h)
+    } catch {
+      /* 单个掩码画失败不影响其它图层 */
+    }
+  }
+  ctx.globalAlpha = prev
+}
+
+const refreshSegmentMasks = async () => {
+  const seg = props.segmentation
+  // 练习模式强制隐藏金标准，连取都不该取——
+  // 请求本身会留在浏览器网络面板里，等于把答案递出去了
+  if (!seg?.sopInstanceUid || props.mode === 'practice') {
+    segmentMasks.value = []
+    return
+  }
+  try {
+    segmentMasks.value = await loadSegmentMasks(seg.sopInstanceUid, seg.segments || [])
+    segmentError.value = ''
+  } catch (e: any) {
+    segmentMasks.value = []
+    segmentError.value = e?.message || String(e)
+  }
+  redrawOverlay()
 }
 
 const drawGoldAnnotation = (ctx: CanvasRenderingContext2D, ann: AnnotationItem) => {
@@ -807,6 +874,8 @@ onMounted(async () => {
 
   resizeObserver = new ResizeObserver(onResize)
   if (elementRef.value) resizeObserver.observe(elementRef.value)
+
+  refreshSegmentMasks()
 })
 
 onBeforeUnmount(() => {
@@ -822,6 +891,11 @@ watch(
   ([nextUrl, nextDicom]) => {
     if (nextUrl || nextDicom) loadImage(nextUrl as string)
   }
+)
+
+watch(
+  () => [props.segmentation?.sopInstanceUid, props.mode],
+  () => refreshSegmentMasks()
 )
 
 watch(

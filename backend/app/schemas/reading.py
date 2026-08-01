@@ -57,6 +57,11 @@ class ImageSource(_CamelModel):
         default_factory=dict,
         description="影像 URL → {studyInstanceUid, seriesInstanceUid, sopInstanceUid}",
     )
+    # 金标准的像素级分割。学员未解锁金标准时不下发 ——
+    # 光是把 SOP UID 递出去，就等于给了取答案的入口。
+    segmentation: Optional[Dict[str, Any]] = Field(
+        None, description="DICOM SEG：{sopInstanceUid, segments:[{number,label}]}",
+    )
 
     # ============ 安全标识（报告 P0/P1：安全条常驻） ============
     modality: str = Field("CFP", description="影像模态编码")

@@ -1,6 +1,6 @@
 import { chromium } from 'playwright'
-const [study, series, sop, token] = process.argv.slice(2)
-const url = `http://127.0.0.1:5178/spike/station-check?study=${study}&series=${series}&sop=${sop}`
+const [study, series, sop, token, seg] = process.argv.slice(2)
+const url = `http://127.0.0.1:5178/spike/station-check?study=${study}&series=${series}&sop=${sop}` + (seg ? `&seg=${seg}` : '')
 const b = await chromium.launch(); const p = await b.newPage()
 const errs = []
 p.on('console', m => { if (m.type()==='error') errs.push(m.text()) })

@@ -214,6 +214,7 @@ class ReadingService:
         # PACS 对照。PACS 不可用不能影响阅片 —— 取不到就当没有 DICOM，
         # 前端照常用 JPG，而不是让整页打不开。
         dicom_instances: dict = {}
+        segmentation = None
         try:
             from app.common.dicom_link import match_instances
             from app.services import dicomweb_client
@@ -224,8 +225,18 @@ class ReadingService:
                 records=[r for r in ci_records if r.role == "original"],
                 pacs_sop_uids=[i.get("sopInstanceUid") for i in summary.get("images", [])],
             )
+            # 分割即金标准，与 mask 图层同一条可见性规则：
+            # 未解锁时连 SOP UID 都不下发，否则等于把取答案的入口递出去
+            if show_gold:
+                segs = summary.get("segmentations") or []
+                if segs:
+                    segmentation = {
+                        "sopInstanceUid": segs[0].get("sopInstanceUid"),
+                        "segments": segs[0].get("segments") or [],
+                    }
         except Exception:
             dicom_instances = {}
+            segmentation = None
 
         return ImageSource(
             case_id=case.id,
@@ -248,6 +259,7 @@ class ReadingService:
             missing_roles=list(comp["missing_roles"]),
             show_gold_layers=show_gold,
             dicom_instances=dicom_instances,
+            segmentation=segmentation,
             **_patient_block(case, user),
         )
 
