@@ -58,40 +58,14 @@ def _jwks() -> Optional[dict]:
 def verify_token(raw: str) -> Optional[dict]:
     """
     校验 Keycloak JWT，返回声明；任何异常都返回 None（拒绝）。
+
+    直接复用 keycloak_client.verify：此前这里另写了一份实现，
+    虽然取了 JWKS 缓存却又每次新建 PyJWKClient，等于缓存失效、
+    每个 PACS 请求都要多打一次 Keycloak。两份实现也容易走样。
     """
-    if not raw:
-        return None
-    token = raw[7:] if raw.lower().startswith("bearer ") else raw
+    from app.services import keycloak_client
 
-    try:
-        import jwt
-        from jwt import PyJWKClient
-    except ImportError:
-        return None
-
-    keys = _jwks()
-    if not keys:
-        return None
-
-    try:
-        issuer = (
-            f"{settings.KEYCLOAK_BASE_URL.rstrip('/')}"
-            f"/realms/{settings.KEYCLOAK_REALM}"
-        )
-        signing_key = PyJWKClient(
-            f"{issuer}/protocol/openid-connect/certs"
-        ).get_signing_key_from_jwt(token)
-        return jwt.decode(
-            token,
-            signing_key.key,
-            algorithms=["RS256"],
-            issuer=issuer,
-            # Keycloak 的 aud 随客户端变化，这里只校验签名与签发者，
-            # 具体权限由下面的角色判定负责
-            options={"verify_aud": False},
-        )
-    except Exception:
-        return None
+    return keycloak_client.verify(raw)
 
 
 def claims_allow_pacs(claims: Optional[dict]) -> bool:

@@ -443,6 +443,23 @@ def proxy_wado(path: str, accept: Optional[str] = None) -> Tuple[bytes, str]:
       2. 取帧时强制带 transfer-syntax——漏写会让单张眼底照
          从 0.28 MB 膨胀到 34.94 MB，这个约定不能交给前端保证。
     """
+    # ---- 路径校验（安全边界）----
+    # 后端用 ADMIN 权限的服务账号访问 PACS，若把用户给的路径原样拼进 URL，
+    # 任何登录用户都能用 ../ 跳出 /dicom-web/ 抵达 Orthanc 的管理接口
+    # （实测可读到 /patients、/system）。因此只放行 DICOMweb 的只读资源路径。
+    raw_path = (path or "").split("?", 1)[0]
+    if ".." in raw_path or "%2e%2e" in raw_path.lower() or raw_path.startswith("/"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="非法的影像路径",
+        )
+    allowed_roots = ("studies", "series", "instances")
+    if raw_path.split("/", 1)[0] not in allowed_roots:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="仅允许访问 DICOMweb 资源路径",
+        )
+
     is_frames = "/frames/" in path
     if is_frames:
         # transfer-syntax=* 表示「按原样返回，不要转码」。

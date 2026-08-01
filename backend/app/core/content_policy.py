@@ -164,12 +164,22 @@ def redact(
             # 列表 / 字典等可变默认值需要复制，避免共享引用
             out[field] = list(blank) if isinstance(blank, list) else blank
 
-    if "title" in out and "title" not in keep_set:
-        out["title"] = f"病例 {case_no}" if case_no else "待判读病例"
-    if "description" in out and "description" not in keep_set:
-        out["description"] = ""
+    # 按登记表迭代，而不是硬编码字段名——否则往 NEUTRALIZED_FIELDS
+    # 里加字段不会生效，而完整性测试又因它「已归类」而通过，
+    # 造成有保护的错觉。
+    for field in NEUTRALIZED_FIELDS:
+        if field not in out or field in keep_set:
+            continue
+        out[field] = _neutral_value(field, case_no)
 
     return out
+
+
+def _neutral_value(field: str, case_no: str) -> str:
+    """中性化取值：标题保留可读标识，其余文本清空"""
+    if field == "title":
+        return f"病例 {case_no}" if case_no else "待判读病例"
+    return ""
 
 
 def assert_no_answer_leak(data: Dict[str, Any]) -> None:

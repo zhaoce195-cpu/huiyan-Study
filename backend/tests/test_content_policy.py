@@ -193,3 +193,15 @@ def test_dr_level_blank_is_none_not_zero():
     """
     assert ANSWER_FIELD_BLANKS["dr_level"] is None
     assert ANSWER_FIELD_BLANKS["dr_level"] != 0
+
+
+def test_neutralized_fields_are_driven_by_the_registry():
+    """
+    中性化必须按 NEUTRALIZED_FIELDS 迭代，而不是硬编码字段名。
+    否则往登记表里加字段不会生效，完整性测试却因它「已归类」而通过，
+    造成有保护的错觉。
+    """
+    payload = {"case_no": "T1", **{f: "含 DR 3 级的内容" for f in NEUTRALIZED_FIELDS}}
+    out = redact(payload, PresentationMode.TRAINING_BLINDED, case_no="T1")
+    for field in NEUTRALIZED_FIELDS:
+        assert "DR" not in str(out[field]), f"{field} 未被中性化"

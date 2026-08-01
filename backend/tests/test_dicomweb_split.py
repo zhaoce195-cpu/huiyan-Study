@@ -168,3 +168,54 @@ def test_legacy_fields_kept_for_migration(fake_study):
         s = dw.study_summary("T1")
     assert s["instanceCount"] == s["imageCount"]
     assert all(i["modality"] != "SEG" for i in s["instances"])
+
+
+# --------------------------------------------------------------------------
+# WADO 透传的安全边界
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("bad", [
+    "../../patients",
+    "..%2f..%2fpatients",
+    "studies/../../system",
+    "/system",
+    "patients",
+    "system",
+    "tools/reset",
+])
+def test_wado_passthrough_rejects_non_dicomweb_paths(bad):
+    """
+    后端用 ADMIN 权限的服务账号访问 PACS。若把用户路径原样拼进 URL，
+    任何登录用户都能用 ../ 跳出 /dicom-web/ 抵达 Orthanc 管理接口
+    （实测曾可读到 /patients 与 /system）。只放行 DICOMweb 资源路径。
+    """
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc:
+        dw.proxy_wado(bad)
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.parametrize("ok", [
+    "studies",
+    "studies/1.2.3/metadata",
+    "studies/1.2.3/series/4.5.6/instances/7.8.9/frames/1",
+])
+def test_wado_passthrough_allows_dicomweb_paths(ok, monkeypatch):
+    """正常 DICOMweb 路径不受影响"""
+    captured = {}
+
+    class FakeResp:
+        status_code = 200
+        content = b"x"
+        headers = {"Content-Type": "application/dicom+json"}
+
+    def fake_get(url, headers=None, timeout=None):
+        captured["url"] = url
+        return FakeResp()
+
+    monkeypatch.setattr(dw.requests, "get", fake_get)
+    monkeypatch.setattr(dw, "_headers", lambda a: {})
+    body, ctype = dw.proxy_wado(ok)
+    assert body == b"x"
+    assert "/dicom-web/" + ok.split("?")[0] in captured["url"]
