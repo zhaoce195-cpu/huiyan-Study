@@ -260,7 +260,11 @@ const goBack = () => router.push('/')
                     <el-tag size="small">{{ randomCase.caseNo }}</el-tag>
                     <el-tag size="small" type="info">{{ randomCase.categoryText }}</el-tag>
                     <el-tag size="small" type="warning">{{ randomCase.difficultyText }}</el-tag>
-                    <el-tag size="small" type="success">{{ randomCase.drGradeText }}</el-tag>
+                    <!-- 盲训态：作答前不显示正确分级（报告 P0） -->
+                    <el-tag v-if="randomCase.drGradeText" size="small" type="success">
+                      {{ randomCase.drGradeText }}
+                    </el-tag>
+                    <el-tag v-else size="small" type="info" effect="plain">分级待判读</el-tag>
                     <el-tag size="small" effect="plain">
                       共 {{ randomCase.imageCount }} 张影像
                     </el-tag>

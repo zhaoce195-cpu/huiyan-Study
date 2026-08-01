@@ -23,6 +23,8 @@ from app.db.models import (
     TrainingCase,
     User,
 )
+from app.common.dr_grade import grade_level, grade_text
+from app.core.content_policy import PresentationMode, Scene, redact, resolve_mode
 from app.schemas.case_browse import (
     CaseArchiveParams,
     CaseBrowseDetail,
@@ -67,12 +69,56 @@ def _first_image(image_paths: Optional[dict]) -> Optional[str]:
     return images[0] if images else None
 
 
+def _answered_case_ids(
+    db: Session, user: Optional[User], case_ids: List[int],
+) -> set:
+    """
+    返回该用户在给定病例中「已提交作答」的病例 ID 集合。
+
+    盲态解除的唯一依据：必须由服务端查询作答记录得出，
+    不接受前端传入的任何标记。教师 / 管理员不受盲态约束，直接返回全集。
+    """
+    if not case_ids or user is None:
+        return set()
+
+    role_code = user.role.code if user.role else None
+    if role_code in (RoleEnum.TEACHER.value, RoleEnum.ADMIN.value):
+        return set(case_ids)
+
+    # 延迟导入，避免与 practice 模块循环引用
+    from app.db.models.practice_session import PracticeSession, PracticeStatusEnum
+
+    rows = (
+        db.query(PracticeSession.case_id)
+        .filter(
+            PracticeSession.user_id == user.id,
+            PracticeSession.case_id.in_(case_ids),
+            PracticeSession.status.in_([
+                PracticeStatusEnum.SUBMITTED.value,
+                PracticeStatusEnum.REVIEWED.value,
+            ]),
+        )
+        .all()
+    )
+    return {row[0] for row in rows}
+
+
+def _blind_mode_for(viewer: Optional[User], answered: bool) -> PresentationMode:
+    """病例浏览场景的呈现模式（服务端推导，不接受前端指定）"""
+    return resolve_mode(
+        viewer_role=viewer.role.code if (viewer and viewer.role) else None,
+        scene=Scene.CASE_BROWSE,
+        answered=answered,
+    )
+
+
 def _to_item(
     case: TrainingCase,
     *,
     comp: Optional[dict] = None,
     image_count: Optional[int] = None,
     viewer: Optional[User] = None,
+    answered: bool = False,
 ) -> CaseBrowseItem:
     from app.common.case_utils import mask_phone_by_role
 
@@ -83,7 +129,8 @@ def _to_item(
         creator_role = case.creator.role.code if case.creator.role else ""
 
     images = _flatten_images(case.image_paths)
-    dr = case.gold_dr_grade or "0"
+    # 空值表示「DR 分级不适用」，不得回落成 '0'（报告 P1）
+    dr_raw = case.gold_dr_grade
 
     image_complete = True
     missing_roles: List[str] = []
@@ -98,7 +145,7 @@ def _to_item(
         viewer_role,
     )
 
-    return CaseBrowseItem(
+    item = CaseBrowseItem(
         id=case.id,
         case_no=case.case_no,
         case_sn=getattr(case, "case_sn", "") or "",
@@ -108,8 +155,8 @@ def _to_item(
         category_text=CATEGORY_TEXT.get(case.category, ""),
         difficulty=case.difficulty,
         difficulty_text=DIFFICULTY_TEXT.get(case.difficulty, ""),
-        dr_level=int(dr) if dr.isdigit() else 0,
-        dr_grade_text=DR_GRADE_TEXT.get(dr, ""),
+        dr_level=grade_level(dr_raw),
+        dr_grade_text=grade_text(dr_raw),
         archive_status=case.archive_status,  # type: ignore[arg-type]
         is_published=bool(case.is_published),
         is_train_case=bool(getattr(case, "is_train_case", False)),
@@ -129,6 +176,10 @@ def _to_item(
         updated_at=case.updated_at,
     )
 
+    # ============ 盲训内容策略：作答前不下发答案型字段 ============
+    mode = _blind_mode_for(viewer, answered)
+    return CaseBrowseItem(**redact(item.model_dump(), mode, case_no=case.case_no))
+
 
 def _to_detail(
     case: TrainingCase,
@@ -136,9 +187,12 @@ def _to_detail(
     comp: Optional[dict] = None,
     image_count: Optional[int] = None,
     viewer: Optional[User] = None,
+    answered: bool = False,
 ) -> CaseBrowseDetail:
-    base = _to_item(case, comp=comp, image_count=image_count, viewer=viewer)
-    return CaseBrowseDetail(
+    base = _to_item(
+        case, comp=comp, image_count=image_count, viewer=viewer, answered=answered,
+    )
+    detail = CaseBrowseDetail(
         **base.model_dump(),
         clinical_info=case.clinical_info or "",
         image_paths=case.image_paths or {},
@@ -147,6 +201,10 @@ def _to_detail(
         teaching_points=case.teaching_points or "",
         pass_score=case.pass_score or 60,
     )
+    # base 已裁剪，此处再裁剪一次以覆盖 detail 独有的答案字段
+    # （gold_diagnosis / teaching_points）
+    mode = _blind_mode_for(viewer, answered)
+    return CaseBrowseDetail(**redact(detail.model_dump(), mode, case_no=case.case_no))
 
 
 def _scope_query(db: Session, user: User):
@@ -244,13 +302,19 @@ class CaseBrowseService:
             )
             count_map = {cid: cnt for cid, cnt in count_rows}
 
+        # 批量取本人已提交作答的病例，用于解除盲态（一次查询，避免 N+1）
+        answered_ids = _answered_case_ids(db, user, ids)
+
         items: List[CaseBrowseItem] = []
         for c in rows:
             comp = CaseImageService.case_completeness(
                 db, case_table="training", case_id=c.id,
             )
             ic = count_map.get(c.id, 0) or len(_flatten_images(c.image_paths))
-            items.append(_to_item(c, comp=comp, image_count=ic, viewer=user))
+            items.append(_to_item(
+                c, comp=comp, image_count=ic, viewer=user,
+                answered=c.id in answered_ids,
+            ))
 
         if query.only_incomplete:
             items = [it for it in items if not it.image_complete]
@@ -284,7 +348,11 @@ class CaseBrowseService:
                     detail="病例不存在或当前不可访问",
                 )
 
-        return _to_detail(case, viewer=user)
+        return _to_detail(
+            case,
+            viewer=user,
+            answered=bool(_answered_case_ids(db, user, [case.id])),
+        )
 
     @staticmethod
     def archive(

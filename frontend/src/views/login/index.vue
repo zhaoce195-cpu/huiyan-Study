@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElLoading, type FormInstance, type FormRules } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
 import { LoginApi } from '@/api'
+import { startLogin } from '@/utils/oidc'
 import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
@@ -16,24 +17,52 @@ const loading = ref(false)
 /* 登录入口：学生 / 教师（含管理员）——不依赖用户名区分角色 */
 type LoginEntrance = 'student' | 'teacher'
 const loginRole = ref<LoginEntrance>('student')
-const DEMO: Record<LoginEntrance, { username: string; password: string }> = {
-  student: { username: 'student', password: 'Huiyan@123' },
-  teacher: { username: 'teacher', password: 'Huiyan@123' }
-}
 
+/**
+ * 安全整改（报告 P0）：登录页不得预填或展示任何账号密码。
+ * 原实现把演示账号与明文密码写在前端源码里，构建产物可直接读出。
+ * 演示环境的账号应由环境隔离与专用演示 Realm 提供，不进入生产代码。
+ */
 const form = reactive<LoginApi.LoginParams>({
-  username: DEMO.student.username,
-  password: DEMO.student.password,
+  username: '',
+  password: '',
   remember: false
 })
 
-// 切换入口时填入该入口的演示账号（仅便捷，真正的角色以登录后返回为准）
-watch(loginRole, (r) => {
-  form.username = DEMO[r].username
-  form.password = DEMO[r].password
+// 切换入口时清空已输入的凭据，避免误用另一入口的账号
+watch(loginRole, () => {
+  form.username = ''
+  form.password = ''
 })
 
 const goRegister = () => router.push('/register')
+
+/* ========== 统一身份登录（OIDC 授权码 + PKCE） ========== */
+// 首次登录强制改密、账号锁定提示等必需动作只能在 Keycloak 登录页完成，
+// 表单直传口令拿不到这些能力，因此迁移后应优先走这条路径。
+const oidcEnabled = ref(false)
+const oidcLoading = ref(false)
+
+onMounted(async () => {
+  try {
+    const cfg = await LoginApi.getOidcConfig()
+    oidcEnabled.value = !!cfg?.enabled
+  } catch {
+    oidcEnabled.value = false
+  }
+})
+
+const goUnifiedLogin = async () => {
+  oidcLoading.value = true
+  try {
+    const cfg = await LoginApi.getOidcConfig()
+    const redirect = (route.query.redirect as string) || ''
+    await startLogin(cfg as any, redirect && redirect !== '/login' ? redirect : '/')
+  } catch (e: any) {
+    ElMessage.error(e?.message || '无法跳转到统一登录页面')
+    oidcLoading.value = false
+  }
+}
 
 const rules: FormRules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
@@ -226,8 +255,23 @@ const handleLogin = async () => {
               登 录
             </el-button>
 
+            <div v-if="oidcEnabled" class="oidc-block">
+              <div class="oidc-divider"><span>或</span></div>
+              <el-button
+                class="oidc-btn"
+                size="large"
+                :loading="oidcLoading"
+                @click="goUnifiedLogin"
+              >
+                使用统一身份登录
+              </el-button>
+              <div class="oidc-hint">
+                首次登录、修改密码或账号被锁定时，请走统一身份登录
+              </div>
+            </div>
+
             <div class="tip">
-              管理员 admin / Admin@123 · 教师 teacher · 学员 student（密码 Huiyan@123）
+              账号由所在机构管理员分配；忘记密码请联系管理员重置
             </div>
           </el-form>
         </div>
@@ -237,6 +281,40 @@ const handleLogin = async () => {
 </template>
 
 <style scoped>
+.oidc-block {
+  margin-top: 14px;
+}
+.oidc-divider {
+  position: relative;
+  text-align: center;
+  margin: 10px 0;
+  color: #a8abb2;
+  font-size: 12px;
+}
+.oidc-divider::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  border-top: 1px solid #e4e7ed;
+}
+.oidc-divider span {
+  position: relative;
+  padding: 0 10px;
+  background: #fff;
+}
+.oidc-btn {
+  width: 100%;
+}
+.oidc-hint {
+  margin-top: 8px;
+  color: #909399;
+  font-size: 12px;
+  text-align: center;
+  line-height: 1.6;
+}
+
 .login-page {
   position: relative;
   width: 100vw;

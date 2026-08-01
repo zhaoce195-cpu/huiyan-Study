@@ -471,9 +471,15 @@ const onShareSubmit = (row: Item) => {
           </el-table-column>
           <el-table-column label="DR 等级" width="160">
             <template #default="{ row }">
-              <el-tag size="small" :type="drTagType(row.drLevel)" effect="plain">
+              <el-tag
+                v-if="row.drLevel !== null && row.drLevel !== undefined"
+                size="small"
+                :type="drTagType(row.drLevel)"
+                effect="plain"
+              >
                 {{ row.drGradeText || `${row.drLevel} 级` }}
               </el-tag>
+              <span v-else class="blinded-hint">作答后可见</span>
             </template>
           </el-table-column>
           <el-table-column label="难度" width="92">
@@ -671,6 +677,12 @@ const onShareSubmit = (row: Item) => {
 </template>
 
 <style scoped>
+/* 盲训态占位：答案型字段在作答前不展示 */
+.blinded-hint {
+  color: #909399;
+  font-size: 12px;
+}
+
 .case-browse-page {
   min-height: 100vh;
   background: #f5f6fa;

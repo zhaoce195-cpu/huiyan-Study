@@ -114,7 +114,7 @@ const genderText = (g: string) => {
           <div class="meta-line">
             <el-tag size="small" effect="plain">{{ data.categoryText || data.category }}</el-tag>
             <el-tag size="small" type="warning" effect="plain">
-              {{ data.drGradeText || `${data.drLevel} 级` }}
+              {{ data.drGradeText || (data.drLevel !== null && data.drLevel !== undefined ? `${data.drLevel} 级` : '作答后可见') }}
             </el-tag>
             <el-tag size="small" type="info" effect="plain">
               难度：{{ data.difficultyText || data.difficulty }}

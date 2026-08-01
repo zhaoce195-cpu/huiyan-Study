@@ -26,7 +26,8 @@ export interface CaseBrowseItem {
   categoryText: string
   difficulty: string
   difficultyText: string
-  drLevel: number
+  /** 盲训态下为 null（未解锁）；亦用于区分「不适用」与「0 级无 DR」 */
+  drLevel: number | null
   drGradeText: string
   archiveStatus: ArchiveStatus
   isPublished: boolean

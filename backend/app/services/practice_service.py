@@ -24,6 +24,8 @@ from app.db.models import (
     TrainingCase,
     User,
 )
+from app.common.dr_grade import grade_level, grade_text, is_applicable
+from app.core.content_policy import Scene, redact, resolve_mode
 from app.schemas.practice import (
     CaseBriefForPractice,
     ErrorPoint,
@@ -149,17 +151,25 @@ def _score(
     gold_anns = _gold_to_annotations(case)
 
     # ----- 1. 分级题 -----
-    gold_dr = (case.gold_dr_grade or "0").strip()
+    # 空的金标准分级表示「DR 分级不适用」（青光眼 / AMD 等非 DR 病种）。
+    # 这类病例不该考分级题，否则学员无论答什么都会被扣分（报告 P1）。
+    gold_dr = (case.gold_dr_grade or "").strip()
+    grade_applicable = is_applicable(gold_dr)
     s_dr = (student_dr_grade or "").strip()
-    grade_match = gold_dr == s_dr
-    if grade_match:
-        score_grade = 100.0
+
+    if not grade_applicable:
+        grade_match = True          # 不计入对错
+        score_grade = 0.0           # 不计分，权重后续重新分配
     else:
-        try:
-            diff = abs(int(gold_dr) - int(s_dr))
-            score_grade = max(0.0, 100.0 - diff * 25.0)
-        except Exception:
-            score_grade = 0.0
+        grade_match = gold_dr == s_dr
+        if grade_match:
+            score_grade = 100.0
+        else:
+            try:
+                diff = abs(int(gold_dr) - int(s_dr))
+                score_grade = max(0.0, 100.0 - diff * 25.0)
+            except Exception:
+                score_grade = 0.0
 
     # ----- 2. 标注题 -----
     iou_threshold = 0.3
@@ -258,17 +268,26 @@ def _score(
     fp_cnt = sum(1 for e in error_points if e.type == "false_positive")
 
     # ----- 总分加权 -----
-    score_total = round(
-        score_grade * 0.3 + score_annotation * 0.5 + score_diagnosis * 0.2,
-        2,
-    )
+    # 标准权重：分级 30% + 标注 50% + 诊断 20%。
+    # 分级不适用时把这 30% 按原比例分摊给标注与诊断，
+    # 使非 DR 病例的满分仍是 100，而不是最高只能拿 70。
+    if grade_applicable:
+        score_total = round(
+            score_grade * 0.3 + score_annotation * 0.5 + score_diagnosis * 0.2,
+            2,
+        )
+    else:
+        score_total = round(
+            score_annotation * (0.5 / 0.7) + score_diagnosis * (0.2 / 0.7),
+            2,
+        )
 
     pass_score = case.pass_score or 60
     is_passed = score_total >= pass_score
 
     # ----- 学习建议 -----
     tips: List[str] = []
-    if not grade_match:
+    if grade_applicable and not grade_match:
         tips.append(f"DR 分级与金标准不一致（应为 {DR_GRADE_TEXT.get(gold_dr, gold_dr)}）。")
     if iou_avg < 0.5 and iou_cnt > 0:
         tips.append("标注定位精度偏低，建议放大病灶后再勾画。")
@@ -356,10 +375,36 @@ def _to_out(record: PracticeSession) -> PracticeOut:
     )
 
 
-def _to_brief(case: TrainingCase) -> CaseBriefForPractice:
+def _has_answered(db: Session, user: User, case_id: int) -> bool:
+    """该用户是否已对此病例提交过作答（盲态解除的唯一依据，服务端判定）"""
+    if _is_teacher_or_admin(user):
+        return True
+    return (
+        db.query(PracticeSession.id)
+        .filter(
+            PracticeSession.user_id == user.id,
+            PracticeSession.case_id == case_id,
+            PracticeSession.status.in_([
+                PracticeStatusEnum.SUBMITTED.value,
+                PracticeStatusEnum.REVIEWED.value,
+            ]),
+        )
+        .first()
+        is not None
+    )
+
+
+def _to_brief(case: TrainingCase, *, user: Optional[User] = None,
+              answered: bool = False) -> CaseBriefForPractice:
+    """
+    练习病例摘要。
+
+    盲训内容策略：学员在提交作答前，摘要中不得出现正确 DR 分级与含答案的标题
+    （报告 P0：自主练习入口在「开始练习」前即显示疾病名称与正确分级）。
+    """
     images = _flatten_images(case.image_paths)
-    dr = case.gold_dr_grade or "0"
-    return CaseBriefForPractice(
+    dr_raw = case.gold_dr_grade  # 空 = DR 分级不适用
+    brief = CaseBriefForPractice(
         case_id=case.id,
         case_no=case.case_no,
         title=case.title or "",
@@ -367,11 +412,20 @@ def _to_brief(case: TrainingCase) -> CaseBriefForPractice:
         category_text=CATEGORY_TEXT.get(case.category, ""),
         difficulty=case.difficulty,
         difficulty_text=DIFFICULTY_TEXT.get(case.difficulty, ""),
-        dr_level=int(dr) if dr.isdigit() else 0,
-        dr_grade_text=DR_GRADE_TEXT.get(dr, ""),
+        dr_level=grade_level(dr_raw),
+        dr_grade_text=grade_text(dr_raw),
         images=images,
         image_count=len(images),
         pass_score=case.pass_score or 60,
+    )
+
+    mode = resolve_mode(
+        viewer_role=user.role.code if (user and user.role) else None,
+        scene=Scene.PRACTICE,
+        answered=answered,
+    )
+    return CaseBriefForPractice(
+        **redact(brief.model_dump(), mode, case_no=case.case_no)
     )
 
 
@@ -454,7 +508,10 @@ class PracticeService:
             )
 
         shuffle(cases)
-        return _to_brief(cases[0])
+        picked = cases[0]
+        return _to_brief(
+            picked, user=user, answered=_has_answered(db, user, picked.id),
+        )
 
     @staticmethod
     def case_brief(db: Session, user: User, case_id: int) -> CaseBriefForPractice:
@@ -465,7 +522,9 @@ class PracticeService:
                 detail=f"病例不存在：{case_id}",
             )
         _ensure_case_visible(case, user)
-        return _to_brief(case)
+        return _to_brief(
+            case, user=user, answered=_has_answered(db, user, case.id),
+        )
 
     # ---------- 金标准 ----------
 

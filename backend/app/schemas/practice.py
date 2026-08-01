@@ -109,7 +109,8 @@ class CaseBriefForPractice(_CamelModel):
     category_text: str = ""
     difficulty: str = ""
     difficulty_text: str = ""
-    dr_level: int = 0
+    # 盲训态下为 None：作答前不得下发正确分级
+    dr_level: Optional[int] = None
     dr_grade_text: str = ""
     images: List[str] = Field(default_factory=list)
     image_count: int = 0

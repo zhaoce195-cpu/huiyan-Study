@@ -51,7 +51,8 @@ class CaseBrowseItem(_CamelModel):
     category_text: str = ""
     difficulty: str = ""
     difficulty_text: str = ""
-    dr_level: int = 0
+    # 盲训态下为 None（未解锁）；同时用于区分「不适用」与「0 级无 DR」
+    dr_level: Optional[int] = None
     dr_grade_text: str = ""
     archive_status: ArchiveStatusLiteral = "ACTIVE"
     is_published: bool = False

@@ -114,7 +114,7 @@ def get_gold(
     db: DbSession,
     caseId: str = Path(...),
 ):
-    data = TrainingService.get_gold(db=db, case_id=caseId)
+    data = TrainingService.get_gold(db=db, case_id=caseId, user=current_user)
     return success(data=data.model_dump(by_alias=True))
 
 

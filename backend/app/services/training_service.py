@@ -21,6 +21,7 @@ from app.db.models import (
     CaseCategoryEnum,
     CaseDifficultyEnum,
     RecordStatusEnum,
+    RoleEnum,
     TrainingCase,
     TrainingRecord,
     User,
@@ -445,8 +446,42 @@ class TrainingService:
     # -------- 金标准 --------
 
     @staticmethod
-    def get_gold(db: Session, case_id: str) -> GoldStandardResult:
+    def get_gold(db: Session, case_id: str, user: "User" = None) -> GoldStandardResult:
+        """
+        获取金标准标注。
+
+        盲训门禁（报告 P0）：学员必须先提交过本病例的作答才能查看金标准。
+        此前本接口只校验角色、不校验作答状态，任何登录学员可在作答前直接取回
+        任意病例的金标准，导致训练与考核效度失真。
+        """
         case = _get_case_or_404(db, case_id)
+
+        if user is not None:
+            role_code = user.role.code if user.role else None
+            if role_code not in (RoleEnum.TEACHER.value, RoleEnum.ADMIN.value):
+                from app.db.models.practice_session import (
+                    PracticeSession,
+                    PracticeStatusEnum,
+                )
+
+                submitted = (
+                    db.query(PracticeSession.id)
+                    .filter(
+                        PracticeSession.user_id == user.id,
+                        PracticeSession.case_id == case.id,
+                        PracticeSession.status.in_([
+                            PracticeStatusEnum.SUBMITTED.value,
+                            PracticeStatusEnum.REVIEWED.value,
+                        ]),
+                    )
+                    .first()
+                )
+                if not submitted:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="请先提交本次作答，才能查看金标准",
+                    )
+
         return GoldStandardResult(
             case_id=case.case_no,
             annotations=_annotations_from_gold(case),

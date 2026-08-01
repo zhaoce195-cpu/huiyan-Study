@@ -31,7 +31,8 @@ export interface CaseBriefForPractice {
   categoryText: string
   difficulty: string
   difficultyText: string
-  drLevel: number
+  /** 盲训态下为 null：作答前不下发正确分级 */
+  drLevel: number | null
   drGradeText: string
   images: string[]
   imageCount: number
