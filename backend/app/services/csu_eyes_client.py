@@ -312,6 +312,37 @@ async def detect_glaucoma(
     return await _post_form(_api("/inference/glaucoma-screening"), files=files, data=data)
 
 
+async def assess_image_quality(
+    *,
+    image_path: Path,
+    model_id: Optional[int] = None,
+) -> dict:
+    """
+    眼底图像质量评估（单图三分类：好 / 可用 / 差）。
+
+    用于报告要求的「先质量后诊断」门控：任何练习或临床结论前，
+    都应先确认影像可判读。
+
+    返回示例：{
+      "record_id": 91,
+      "model": {"name": "Image_quality", "task_type": "image_quality", ...},
+      "result": {"prediction": 0, "prediction_name": "好",
+                 "prediction_en": "good",
+                 "probabilities": {"good": 0.x, "usable": 0.y, "poor": 0.z}}
+    }
+    """
+    if not image_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"待评估影像不存在：{image_path.name}",
+        )
+    files = {"image": _file_tuple(image_path)}
+    data: Dict[str, str] = {}
+    if model_id is not None:
+        data["model_id"] = str(model_id)
+    return await _post_form(_api("/inference/image-quality"), files=files, data=data)
+
+
 async def comprehensive(
     *,
     image_path: Path,

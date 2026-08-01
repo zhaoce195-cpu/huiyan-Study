@@ -47,6 +47,28 @@ def get_image_source(
     return success(data=data.model_dump(by_alias=True))
 
 
+@router.post(
+    "/cases/{caseId}/quality-check",
+    summary="评估病例原始影像的图像质量（先质量后诊断门控）",
+    response_model=None,
+)
+async def check_image_quality(
+    current_user: CurrentUser,
+    db: DbSession,
+    caseId: int = Path(..., ge=1),
+):
+    """
+    调用 CSU-EYES 图像质量模型评估该病例的全部原始影像。
+
+    算法服务不可用时不抛错：逐张记录失败原因，质量保持「未评估」，
+    由界面如实呈现——绝不因为调用失败就把影像当作合格。
+    """
+    from app.services.image_quality_service import ImageQualityService
+
+    data = await ImageQualityService.evaluate_case(db=db, case_id=caseId)
+    return success(data=data, msg="质量评估完成")
+
+
 @router.get(
     "/cases/{caseId}/draft",
     summary="恢复当前用户在该病例的最新阅片草稿（可能为空）",

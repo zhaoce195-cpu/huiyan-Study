@@ -57,6 +57,42 @@ export interface ImageMeta {
   index: number
   url: string
   side?: 'OD' | 'OS' | 'OU'
+  /** ============ 安全标识（报告 P0/P1） ============ */
+  fileName?: string
+  /** 眼别；UNKNOWN 表示原始数据未采集，前端须显式提示未知 */
+  eye?: 'OD' | 'OS' | 'OU' | 'UNKNOWN'
+  eyeText?: string
+  /** 影像角色：original 为原始影像，其余为派生对象 */
+  role?: string
+  roleText?: string
+  isOriginal?: boolean
+  quality?: 'good' | 'usable' | 'poor' | 'ungradable' | 'unknown'
+  qualityText?: string
+  qualityConfidence?: number
+  /** 质量为 poor/ungradable：不得据此给出默认阴性结论 */
+  ungradable?: boolean
+  /** 元数据眼别与文件名线索冲突时的提示；不为空即须醒目告警 */
+  lateralityConflict?: string | null
+  /** 原图独立编号，派生对象为 null，避免「N 张影像」混算 */
+  originalIndex?: number | null
+  originalTotal?: number
+}
+
+/** 病例级安全汇总 */
+export interface SafetySummary {
+  originalCount?: number
+  derivedCount?: number
+  /** 不可判读的原图张数 */
+  ungradableCount?: number
+  /** 尚未评估质量的原图张数 */
+  unevaluatedCount?: number
+  hasUngradable?: boolean
+  /** 原图是否已全部完成质量评估；为 false 时不得声称已质控 */
+  qualityChecked?: boolean
+  eyes?: string[]
+  eyesText?: string
+  hasLateralityConflict?: boolean
+  lateralityConflicts?: string[]
 }
 
 export interface ImageSource {
@@ -78,6 +114,14 @@ export interface ImageSource {
   missingRoles?: string[]
   /** 当前用户是否可见金标准图层（mask / overlay） */
   showGoldLayers?: boolean
+  /** ============ 安全标识（报告 P0/P1：安全条常驻） ============ */
+  modality?: string
+  modalityText?: string
+  /** 检查日期；为空表示未采集 */
+  examDate?: string | null
+  /** 为 false 时不得用入库时间冒充检查日期 */
+  examDateKnown?: boolean
+  safety?: SafetySummary
   /** ============ 模拟患者信息（按角色脱敏） ============ */
   patientName?: string
   patientGender?: string
@@ -185,3 +229,91 @@ export const reviewReading = (recordId: number, params: ReadingReviewParams) => 
 export const deleteReading = (recordId: number) => {
   return http.delete<null>(`/reading/${recordId}`, undefined, { showSuccess: true })
 }
+
+/** 影像质量评估结果汇总 */
+export interface QualityCheckResult {
+  total: number
+  evaluated: number
+  failed: number
+  hasUngradable: boolean
+  items: Array<{
+    imageId: number
+    quality: string
+    confidence?: number
+    error?: string
+  }>
+}
+
+/**
+ * 触发病例原始影像的质量评估（先质量后诊断门控）。
+ * 算法服务不可用时不会报错，失败张数计入 failed，质量保持「未评估」。
+ */
+export const checkImageQuality = (caseId: number) =>
+  http.post<QualityCheckResult>(`/reading/cases/${caseId}/quality-check`)
+
+/* ============ DICOMweb：影像与分割分离（报告 P1） ============ */
+
+/** 单个分段（如「微动脉瘤」「视盘」） */
+export interface DicomSegment {
+  number: number
+  label: string
+}
+
+/** 一个 SEG 实例，可含多个分段 */
+export interface DicomSegmentation {
+  sopInstanceUid: string
+  seriesInstanceUid: string
+  studyInstanceUid: string
+  modality: string
+  segments: DicomSegment[]
+  segmentCount: number
+  frameCount: number
+  /** 形如 /dicomweb/instances/{uid}/frames/{frame}，按需替换 {frame} */
+  frameUrlTemplate: string
+}
+
+/** PACS 中的原始影像实例 */
+export interface DicomImageInstance {
+  sopInstanceUid: string
+  seriesInstanceUid: string
+  /** wadors 需要完整的 study/series/instance 三级路径 */
+  studyInstanceUid: string
+  eye: 'OD' | 'OS' | 'UNKNOWN'
+  eyeText: string
+  modality: string
+  rows: number
+  columns: number
+  acquisitionDateTime: string
+  instanceNumber: number
+  frameUrl: string
+}
+
+/** 病例级汇总：影像与分割分开计数，不再混算 */
+export interface DicomCaseSummary {
+  /** 原始影像张数——不含任何派生对象 */
+  imageCount: number
+  segmentationCount: number
+  segmentTotal: number
+  eyes: string[]
+  eyesText: string
+  examDateKnown: boolean
+  examDate: string | null
+  images: DicomImageInstance[]
+  segmentations: DicomSegmentation[]
+}
+
+export const getPacsStatus = () =>
+  http.get<{ enabled: boolean; available: boolean }>('/dicomweb/status')
+
+export const getCaseDicom = (caseNo: string) =>
+  http.get<DicomCaseSummary>(`/dicomweb/cases/${encodeURIComponent(caseNo)}/instances`)
+
+/**
+ * 单独取分割清单。
+ * 分割体积远大于原图（单个 SEG 约 5.8 MB、原图约 0.4 MB），
+ * 因此与影像分开请求，按需加载。
+ */
+export const getCaseSegmentations = (caseNo: string) =>
+  http.get<{ segmentations: DicomSegmentation[]; count: number }>(
+    `/dicomweb/cases/${encodeURIComponent(caseNo)}/segmentations`
+  )

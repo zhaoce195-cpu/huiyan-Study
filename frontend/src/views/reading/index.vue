@@ -13,6 +13,7 @@ import ReadingToolbar from './components/ReadingToolbar.vue'
 import CoreRetinaStation from '@/components/CoreRetinaStation.vue'
 import ReadingSidePanel from './components/ReadingSidePanel.vue'
 import ReadingSubmitDialog from './components/ReadingSubmitDialog.vue'
+import ReadingSafetyBar from './components/ReadingSafetyBar.vue'
 import NoteEditDialog from '@/views/learning/components/NoteEditDialog.vue'
 import AiDiagnosisDialog from '@/components/AiDiagnosisDialog.vue'
 import type {
@@ -486,6 +487,49 @@ const reloadCurrent = () => {
   }, 0)
 }
 
+/* ========== 质量门控（先质量后诊断） ========== */
+const qualityChecking = ref(false)
+const runQualityCheck = async () => {
+  const cid = source.value?.caseId ?? caseId.value
+  if (!cid) return
+  qualityChecking.value = true
+  try {
+    const r = await ReadingApi.checkImageQuality(Number(cid))
+    // 算法服务不可用时接口仍返回成功，此处如实告知失败张数，
+    // 不把「未评估」说成「已质控」
+    if (r.failed > 0 && r.evaluated === 0) {
+      ElMessage.warning(`质量评估未完成：${r.failed} 张调用失败，质量保持「未评估」`)
+    } else if (r.failed > 0) {
+      ElMessage.warning(`已评估 ${r.evaluated} 张，${r.failed} 张失败`)
+    } else if (r.hasUngradable) {
+      ElMessage.error('检出不可判读影像，请勿据此给出阴性结论')
+    } else {
+      ElMessage.success(`质量评估完成，共 ${r.evaluated} 张`)
+    }
+    await fetchSource()
+  } finally {
+    qualityChecking.value = false
+  }
+}
+
+/* ========== 影像安全标识（报告 P0/P1：安全条常驻） ========== */
+const currentImageMeta = computed(() => {
+  const metas = (source.value?.imageMeta || []) as any[]
+  if (!metas.length) return null
+  // 优先按当前影像 URL 匹配，避免索引错位导致「看错眼」
+  const url = currentImage.value
+  const byUrl = metas.find((m) => m?.url && url && m.url === url)
+  return byUrl || metas[currentImageIndex.value] || null
+})
+
+const readingStatusText = computed(() => {
+  const st = existingRecord.value?.status
+  if (st === 'REVIEWED') return '已审核'
+  if (st === 'SUBMITTED') return '已提交'
+  if (st === 'DRAFT') return '草稿'
+  return '未开始'
+})
+
 /* ========== AI 辅助诊断（CSU-EYES 真实算法） ========== */
 const aiVisible = ref(false)
 const aiCaseKey = computed(() => source.value?.caseNo || String(caseId.value || ''))
@@ -608,6 +652,16 @@ void cornerstone
           AI 辅助判读
         </el-button>
         <el-button
+          v-if="canAnnotate && !reviewMode"
+          size="small"
+          plain
+          :loading="qualityChecking"
+          :disabled="!source || sourceLoading"
+          @click="runQualityCheck"
+        >
+          质量评估
+        </el-button>
+        <el-button
           size="small"
           :disabled="!source"
           @click="openNote"
@@ -616,6 +670,19 @@ void cornerstone
         </el-button>
       </div>
     </header>
+
+    <!-- 影像安全标识条（常驻，报告 P0/P1） -->
+    <ReadingSafetyBar
+      v-if="source"
+      :case-no="source.caseNo"
+      :patient-name="source.patientName"
+      :modality-text="(source as any).modalityText"
+      :exam-date="(source as any).examDate"
+      :exam-date-known="(source as any).examDateKnown"
+      :current="currentImageMeta"
+      :safety="(source as any).safety"
+      :status-text="readingStatusText"
+    />
 
     <!-- 患者信息栏 -->
     <div v-if="source" class="patient-bar">

@@ -47,6 +47,20 @@ class ImageSource(_CamelModel):
     image_complete: bool = True
     missing_roles: List[str] = Field(default_factory=list)
     show_gold_layers: bool = False
+
+    # ============ 安全标识（报告 P0/P1：安全条常驻） ============
+    modality: str = Field("CFP", description="影像模态编码")
+    modality_text: str = Field("眼底彩照", description="影像模态中文名")
+    exam_date: Optional[datetime] = Field(
+        None, description="检查日期；为空表示原始数据未采集，前端须显式提示未知",
+    )
+    exam_date_known: bool = Field(
+        False, description="检查日期是否可信。为 False 时不得用入库时间冒充检查日期",
+    )
+    safety: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="病例级安全汇总：原图张数、派生对象数、眼别集合、眼别冲突",
+    )
     # ============ 模拟患者信息（按调用者角色脱敏） ============
     patient_name: str = ""
     patient_gender: str = "U"

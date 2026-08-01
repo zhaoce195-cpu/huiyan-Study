@@ -22,6 +22,12 @@ from app.db.models import (
     TrainingCase,
     User,
 )
+from app.common.image_safety import (
+    DEFAULT_MODALITY,
+    DEFAULT_MODALITY_TEXT,
+    build_image_meta,
+    summarize_safety,
+)
 from app.schemas.reading import (
     ImageSource,
     ReadingListQuery,
@@ -188,6 +194,20 @@ class ReadingService:
         if not images:
             images = legacy_images
 
+        # ============ 安全标识（报告 P0/P1） ============
+        # 元数据优先取自 biz_case_image（含眼别与影像角色），
+        # 老病例回退到 image_paths；两者都会做眼别交叉校验。
+        visible_records = [r for r in ci_records if r.role in groups]
+        # 质量结果为派生对象，单独查表；缺失即「未评估」，不伪造合格
+        from app.services.image_quality_service import ImageQualityService
+        q_map = ImageQualityService.quality_map(
+            db, [r.id for r in visible_records],
+        )
+        safety_meta = build_image_meta(
+            records=visible_records, legacy=meta, quality_map=q_map,
+        )
+        safety = summarize_safety(safety_meta)
+
         return ImageSource(
             case_id=case.id,
             case_no=case.case_no,
@@ -195,8 +215,16 @@ class ReadingService:
             width=1024,
             height=1024,
             images=images,
-            image_meta=meta,
+            image_meta=safety_meta,
             image_groups=dict(groups),
+            modality=DEFAULT_MODALITY,
+            modality_text=DEFAULT_MODALITY_TEXT,
+            # 现有数据模型没有采集检查日期字段；此处如实返回未知，
+            # 不用 created_at（入库时间）冒充检查日期。
+            # DICOM 化迁移时由 AcquisitionDateTime 回填。
+            exam_date=None,
+            exam_date_known=False,
+            safety=safety,
             image_complete=bool(comp["complete"]),
             missing_roles=list(comp["missing_roles"]),
             show_gold_layers=show_gold,
