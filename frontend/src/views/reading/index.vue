@@ -589,13 +589,13 @@ const currentImageMeta = computed(() => {
   return byUrl || metas[currentImageIndex.value] || null
 })
 
-const readingStatusText = computed(() => {
+const readingStatusMeta = computed(() => {
   const st = existingRecord.value?.status
-  if (st === 'REVIEWED') return '已审核'
-  if (st === 'SUBMITTED') return '已提交'
-  if (st === 'DRAFT') return '草稿'
-  return '未开始'
+  return st ? ReadingApi.READING_STATUS_META[st] : null
 })
+const readingStatusText = computed(
+  () => readingStatusMeta.value?.label || '未开始'
+)
 
 /* ========== AI 辅助诊断（CSU-EYES 真实算法） ========== */
 const aiVisible = ref(false)
@@ -682,22 +682,10 @@ void cornerstone
         <el-tag
           v-if="existingRecord"
           size="small"
-          :type="
-            existingRecord.status === 'REVIEWED'
-              ? 'success'
-              : existingRecord.status === 'SUBMITTED'
-              ? 'warning'
-              : 'info'
-          "
+          :type="readingStatusMeta?.tag || 'info'"
           effect="plain"
         >
-          {{
-            existingRecord.status === 'REVIEWED'
-              ? '已审核'
-              : existingRecord.status === 'SUBMITTED'
-              ? '已提交'
-              : '草稿'
-          }}
+          {{ readingStatusText }}
         </el-tag>
         <el-button
           v-if="canAnnotate && !reviewMode"

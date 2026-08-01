@@ -15,7 +15,22 @@ export type ReadingTool =
   | 'freehand'
   | 'ellipse'
 
-export type ReadingStatus = 'DRAFT' | 'SUBMITTED' | 'REVIEWED'
+export type ReadingStatus = 'DRAFT' | 'SUBMITTED' | 'REVIEWED' | 'REJECTED'
+
+/**
+ * 状态文案集中一处，且与后端 app/common/workflow.py 用同一套中文名。
+ * 此前三个地方各写了一遍内联三元，新增状态时极易漏掉某一处，
+ * 漏掉的那处会把未知状态显示成「草稿」——比不显示更糟。
+ */
+export const READING_STATUS_META: Record<
+  ReadingStatus,
+  { label: string; tag: 'info' | 'warning' | 'success' | 'danger' }
+> = {
+  DRAFT: { label: '草稿', tag: 'info' },
+  SUBMITTED: { label: '待审核', tag: 'warning' },
+  REVIEWED: { label: '已通过', tag: 'success' },
+  REJECTED: { label: '已驳回', tag: 'danger' }
+}
 
 export interface Point2D {
   x: number

@@ -250,6 +250,16 @@ const onReview = (accept: boolean) => {
         <div class="muted">审核意见：</div>
         <div>{{ existingRecord.reviewComment }}</div>
       </div>
+      <!-- 驳回后要明确告诉学员「该做什么」。
+           只把状态标成「已驳回」，学员未必知道可以直接改这一份再交 -->
+      <el-alert
+        v-if="existingRecord.status === 'REJECTED'"
+        type="warning"
+        :closable="false"
+        show-icon
+        title="本次阅片被驳回"
+        description="请按审核意见修改后重新提交，仍是同一份记录。"
+      />
     </section>
 
     <!-- 教师审核 -->

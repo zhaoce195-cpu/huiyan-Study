@@ -24,6 +24,7 @@ from app.db.models import (
     TrainingCase,
     User,
 )
+from app.common import workflow
 from app.common.dr_grade import grade_level, grade_text, is_applicable
 from app.core.content_policy import Scene, redact, resolve_mode
 from app.services.op_log_service import OpLogService
@@ -475,10 +476,10 @@ def _replay_or_reject(record: PracticeSession, request_id: str) -> PracticeOut:
     """
     if request_id and record.submit_request_id == request_id:
         return _to_out(record)
-    raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail="该练习会话已提交，无法重复提交",
-    )
+    # 不是重试就是真的重复提交。合法性交给状态机判，
+    # 免得这里和状态机各写一套规则、日后改一处漏一处。
+    workflow.PRACTICE.ensure(record.status, PracticeStatusEnum.SUBMITTED.value)
+    return _to_out(record)
 
 
 def _ensure_case_visible(case: TrainingCase, user: User) -> None:
@@ -754,11 +755,16 @@ class PracticeService:
             user=user,
             module="practice",
             action="submit",
-            detail=(
-                f"练习会话 #{record.id} 病例 {record.case_id} "
-                f"总分 {record.score_total} 口径 {record.scoring_mode} "
-                f"{'通过' if record.is_passed else '未通过'} "
-                f"用时 {record.duration_seconds}s"
+            detail=workflow.transition_detail(
+                workflow.PRACTICE, record.id,
+                PracticeStatusEnum.DRAFT.value,
+                PracticeStatusEnum.SUBMITTED.value,
+                extra=(
+                    f"病例 {record.case_id} 总分 {record.score_total} "
+                    f"口径 {record.scoring_mode} "
+                    f"{'通过' if record.is_passed else '未通过'} "
+                    f"用时 {record.duration_seconds}s"
+                ),
             ),
         )
         return _to_out(record)
@@ -787,11 +793,8 @@ class PracticeService:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"练习记录不存在：{record_id}",
             )
-        if record.status == PracticeStatusEnum.DRAFT.value:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="该练习尚未提交，无法点评",
-            )
+        before = record.status
+        workflow.PRACTICE.ensure(before, PracticeStatusEnum.REVIEWED.value)
         record.teacher_comment = params.teacher_comment or ""
         record.teacher_id = user.id
         record.status = PracticeStatusEnum.REVIEWED.value
@@ -804,9 +807,10 @@ class PracticeService:
             user=user,
             module="practice",
             action="review",
-            detail=(
-                f"点评练习会话 #{record.id} 学员 {record.user_id} "
-                f"总分 {record.score_total}"
+            detail=workflow.transition_detail(
+                workflow.PRACTICE, record.id,
+                before, PracticeStatusEnum.REVIEWED.value,
+                extra=f"学员 {record.user_id} 总分 {record.score_total}",
             ),
         )
         return _to_out(record)

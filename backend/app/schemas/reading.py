@@ -22,7 +22,9 @@ class _CamelModel(BaseModel):
 
 # 工具类型枚举
 ToolLiteral = Literal["rect", "polygon", "pen", "length", "angle", "freehand", "ellipse"]
-StatusLiteral = Literal["DRAFT", "SUBMITTED", "REVIEWED"]
+# REJECTED：驳回是独立状态，不倒回 DRAFT，否则分不出
+# 「学员还没写完」和「提交过但被驳回」。合法流转见 app.common.workflow
+StatusLiteral = Literal["DRAFT", "SUBMITTED", "REVIEWED", "REJECTED"]
 
 
 # ====================== 影像源 ======================

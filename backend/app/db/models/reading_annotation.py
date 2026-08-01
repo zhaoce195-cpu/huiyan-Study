@@ -18,6 +18,10 @@ class ReadingStatusEnum(str, Enum):
     DRAFT = "DRAFT"
     SUBMITTED = "SUBMITTED"
     REVIEWED = "REVIEWED"
+    # 驳回是独立状态，不倒回 DRAFT：
+    # 倒回去就分不出「学员还没写完」和「提交过但被驳回」了。
+    # 合法流转集中定义在 app.common.workflow
+    REJECTED = "REJECTED"
 
 
 class ReadingAnnotation(Base, TimestampMixin):

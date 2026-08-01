@@ -129,7 +129,8 @@ def test_different_key_is_a_real_duplicate_and_rejected(db, student, session_row
     PracticeService.submit(db, student, _params(session_row.id, "req-abc"))
     with pytest.raises(HTTPException) as exc:
         PracticeService.submit(db, student, _params(session_row.id, "req-xyz"))
-    assert exc.value.status_code == 400
+    # 409 而不是 400：请求本身没写错，是会话状态不允许再次提交
+    assert exc.value.status_code == 409
 
 
 def test_no_key_falls_back_to_rejecting(db, student, session_row):

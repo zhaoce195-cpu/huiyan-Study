@@ -22,6 +22,7 @@ from app.db.models import (
     TrainingCase,
     User,
 )
+from app.common import workflow
 from app.common.image_safety import (
     DEFAULT_MODALITY,
     DEFAULT_MODALITY_TEXT,
@@ -286,14 +287,19 @@ class ReadingService:
             if replay is not None:
                 return _to_out(replay)
 
-        # 复用同一用户 + 同一病例 + 同一影像 的最近一条草稿；否则新建
+        # 复用同一用户 + 同一病例 + 同一影像 的最近一条可编辑记录；否则新建。
+        # 被驳回的记录也算可编辑 —— 驳回的意义就是让学员改完再交，
+        # 若不复用，学员一改就变成新的一条，教师看不出这是上次那份的修订。
         record: Optional[ReadingAnnotation] = (
             db.query(ReadingAnnotation)
             .filter(
                 ReadingAnnotation.user_id == user.id,
                 ReadingAnnotation.case_id == case.id,
                 ReadingAnnotation.image_index == params.image_index,
-                ReadingAnnotation.status == ReadingStatusEnum.DRAFT.value,
+                ReadingAnnotation.status.in_([
+                    ReadingStatusEnum.DRAFT.value,
+                    ReadingStatusEnum.REJECTED.value,
+                ]),
             )
             .order_by(desc(ReadingAnnotation.id))
             .first()
@@ -318,7 +324,9 @@ class ReadingService:
         record.diagnosis = params.diagnosis or {}
         record.note = params.note or ""
 
+        before = record.status
         if params.submit:
+            workflow.READING.ensure(before, ReadingStatusEnum.SUBMITTED.value)
             record.status = ReadingStatusEnum.SUBMITTED.value
             record.submit_request_id = params.request_id or None
 
@@ -332,8 +340,10 @@ class ReadingService:
                 user=user,
                 module="reading",
                 action="submit",
-                detail=(
-                    f"提交阅片 #{record.id} 病例 {case.id} 第 {record.image_index + 1} 张"
+                detail=workflow.transition_detail(
+                    workflow.READING, record.id,
+                    before, ReadingStatusEnum.SUBMITTED.value,
+                    extra=f"病例 {case.id} 第 {record.image_index + 1} 张",
                 ),
             )
         return _to_out(record)
@@ -442,22 +452,34 @@ class ReadingService:
                 detail=f"阅片记录不存在：{record_id}",
             )
 
-        if record.status != ReadingStatusEnum.SUBMITTED.value and not params.accept:
-            # 仅允许在 SUBMITTED 上做接受/驳回
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="仅可审核已提交的记录",
-            )
+        # 通过与驳回都必须从「待审核」出发。
+        # 原先只有驳回分支校验了状态，通过分支没校验 ——
+        # 教师能直接通过一份从未提交的草稿，跳过学员提交这一环。
+        target = (
+            ReadingStatusEnum.REVIEWED.value
+            if params.accept
+            else ReadingStatusEnum.REJECTED.value
+        )
+        before = record.status
+        workflow.READING.ensure(before, target)
 
         record.review_comment = params.review_comment or ""
         record.reviewer_id = user.id
-        if params.accept:
-            record.status = ReadingStatusEnum.REVIEWED.value
-        else:
-            record.status = ReadingStatusEnum.DRAFT.value
+        record.status = target
         record.updated_at = datetime.now()
         db.commit()
         db.refresh(record)
+
+        OpLogService.record(
+            db,
+            user=user,
+            module="reading",
+            action="review",
+            detail=workflow.transition_detail(
+                workflow.READING, record.id, before, target,
+                extra=f"学员 {record.user_id}",
+            ),
+        )
         return _to_out(record)
 
     # ---------- 删除（学员只能删自己的草稿） ----------
