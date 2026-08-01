@@ -28,6 +28,22 @@ const routes: RouteRecordRaw[] = [
     name: 'CornerstoneSpike',
     component: () => import('@/views/spike/cornerstone-spike.vue'),
     meta: { title: 'Cornerstone3D 验证' }
+  },
+  {
+    // 阅片内核自检（web: 加载器与坐标往返，非正式功能）
+    path: '/spike/viewport-check',
+    name: 'ViewportCheck',
+    component: () => import('@/views/spike/viewport-check.vue'),
+    // public：自检只渲染一张静态图并做坐标换算，不读任何业务数据，
+    // 无需登录态。加它是为了能在 CI / 无头浏览器里直接跑。
+    meta: { title: '阅片内核自检', public: true }
+  },
+  {
+    // 阅片组件自检（替换后的 CoreRetinaStation，非正式功能）
+    path: '/spike/station-check',
+    name: 'StationCheck',
+    component: () => import('@/views/spike/station-check.vue'),
+    meta: { title: '阅片组件自检', public: true }
   },  {
     // 首页原为「端口选择页」，体检筛查端已停用、只剩培训端 → 直接按角色重定向
     path: '/',

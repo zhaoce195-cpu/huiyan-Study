@@ -5,7 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Back, MagicStick } from '@element-plus/icons-vue'
 
 import { ReadingApi, PracticeApi } from '@/api'
-import { ensureCornerstone } from '@/utils/cornerstone'
+import { wadorsImageId } from '@/utils/cornerstone3d'
 import {
   buildAnswerSummary,
   newRequestId,
@@ -14,7 +14,7 @@ import {
 } from '@/utils/submit-guard'
 
 import ReadingToolbar from '@/views/reading/components/ReadingToolbar.vue'
-import ReadingCanvas from '@/views/reading/components/ReadingCanvas.vue'
+import CoreRetinaStation from '@/components/CoreRetinaStation.vue'
 import AiDiagnosisDialog from '@/components/AiDiagnosisDialog.vue'
 import DiagnosisForm from '@/views/reading/components/DiagnosisForm.vue'
 import type { ToolName, AnnotationItem, CanvasState } from '@/views/reading/types'
@@ -31,6 +31,18 @@ const source = ref<ReadingApi.ImageSource | null>(null)
 const sourceLoading = ref(false)
 const currentImageIndex = ref(0)
 const currentImage = computed(() => source.value?.images?.[currentImageIndex.value] || '')
+
+
+/** 当前影像在 PACS 中的 DICOM id；未进 PACS 的病例为空，画布自动退回 JPG */
+const currentDicomImageId = computed(() => {
+  const hit = source.value?.dicomInstances?.[currentImage.value]
+  if (!hit) return ''
+  return wadorsImageId(
+    hit.studyInstanceUid,
+    hit.seriesInstanceUid,
+    hit.sopInstanceUid
+  )
+})
 
 /* ========== 练习记录 ========== */
 const record = ref<PracticeApi.PracticeRecord | null>(null)
@@ -305,7 +317,6 @@ const aiCaseKey = computed(() => record.value?.caseNo || String(caseId.value || 
 
 /* ========== 生命周期 ========== */
 onMounted(async () => {
-  ensureCornerstone()
   if (!sessionId.value || !caseId.value) {
     ElMessage.warning('缺少 sessionId / caseId 参数')
     return
@@ -369,8 +380,10 @@ watch(currentImageIndex, () => {
       <!-- 中间画布 -->
       <div class="canvas-area">
         <div v-if="sourceLoading" v-loading="true" class="loading-mask">影像加载中…</div>
-        <ReadingCanvas
+        <CoreRetinaStation
           v-else-if="currentImage"
+          :dicom-image-id="currentDicomImageId"
+          mode="practice"
           :image-url="currentImage"
           :tool="canvasState.tool"
           :annotations="canvasState.annotations"

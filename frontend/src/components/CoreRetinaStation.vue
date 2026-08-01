@@ -2,7 +2,7 @@
 /**
  * CoreRetinaStation 共享影像画布
  *
- * 由原 views/reading/components/ReadingCanvas.vue 升格为公共组件。
+ * 阅片 / 练习 / 教学查看 三端共用的唯一影像画布。
  * 新增 `mode` 用于在阅片 / 练习 / 教学查看 三种场景下复用：
  *
  *   - reading       默认。教师/管理员阅片标注
@@ -15,11 +15,11 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
-  cornerstone,
-  cornerstoneTools,
-  ensureCornerstone,
-  toImageId
-} from '@/utils/cornerstone'
+  ensureCornerstone3D,
+  ensureMetadataFor,
+  makeCoordMapper,
+  webImageId
+} from '@/utils/cornerstone3d'
 import type { AnnotationItem, LayerState, ToolName, ViewportState } from '@/views/reading/types'
 import { LESION_LABELS } from '@/views/reading/types'
 
@@ -30,6 +30,12 @@ const props = withDefaults(
     /** 模式：reading（默认）/ practice / teaching-view */
     mode?: RetinaMode
     imageUrl: string
+    /**
+     * DICOM 影像 id（wadors:…）。给了就优先用它，
+     * 未进 PACS 的遗留病例仍走 imageUrl 的 JPG。
+     * 两条来源在视口内表现一致，上层无需分叉。
+     */
+    dicomImageId?: string
     tool: ToolName
     annotations: AnnotationItem[]
     measurements: AnnotationItem[]
@@ -41,6 +47,7 @@ const props = withDefaults(
   }>(),
   {
     mode: 'reading',
+    dicomImageId: '',
     goldAnnotations: () => []
   }
 )
@@ -71,39 +78,99 @@ const loading = ref(false)
 const imgSize = ref({ w: 1024, h: 1024 })
 
 /* =========================================================
- * Cornerstone 初始化
+ * Cornerstone3D 初始化
+ *
+ * 每个组件实例用独立的 renderingEngine / toolGroup：
+ * 阅片页与练习页可能同时挂载，共用一套会互相改工具状态。
  * ========================================================= */
 
-const enableElement = () => {
+let cs: any = null                 // @cornerstonejs/core
+let csTools: any = null            // @cornerstonejs/tools
+let renderingEngine: any = null
+let viewport: any = null
+let toolGroup: any = null
+let mapper = {
+  pixelToCanvas: (x: number, y: number) => ({ x, y }),
+  canvasToPixel: (x: number, y: number) => ({ x, y })
+}
+
+const uid = Math.random().toString(36).slice(2, 9)
+const ENGINE_ID = `huiyan-engine-${uid}`
+const VIEWPORT_ID = `huiyan-viewport-${uid}`
+const TOOLGROUP_ID = `huiyan-toolgroup-${uid}`
+
+/** 自定义标注工具由 overlay 画布接管左键，此时内置工具都不能占用左键 */
+const CS_TOOL_OF: Partial<Record<ToolName, string>> = {
+  pan: 'Pan',
+  zoom: 'Zoom',
+  wwwc: 'WindowLevel',
+  length: 'Length',
+  angle: 'Angle'
+}
+
+const setupTools = async () => {
+  csTools = await import('@cornerstonejs/tools')
+  const {
+    PanTool, ZoomTool, WindowLevelTool, LengthTool, AngleTool,
+    StackScrollTool, ToolGroupManager, Enums: csToolsEnums
+  } = csTools
+
+  // addTool 是全局注册，重复注册会抛；已注册就跳过
+  for (const T of [PanTool, ZoomTool, WindowLevelTool, LengthTool, AngleTool, StackScrollTool]) {
+    try {
+      csTools.addTool(T)
+    } catch {
+      /* 已注册 */
+    }
+  }
+
+  toolGroup = ToolGroupManager.createToolGroup(TOOLGROUP_ID)
+  if (!toolGroup) return
+  for (const name of ['Pan', 'Zoom', 'WindowLevel', 'Length', 'Angle', 'StackScroll']) {
+    toolGroup.addTool(name)
+  }
+  toolGroup.addViewport(VIEWPORT_ID, ENGINE_ID)
+
+  // 滚轮缩放始终可用，与工具选择无关
+  toolGroup.setToolActive('Zoom', {
+    bindings: [{ mouseButton: csToolsEnums.MouseBindings.Wheel }]
+  })
+}
+
+const enableElement = async () => {
   if (!elementRef.value || enabled.value) return
-  cornerstone.enable(elementRef.value, { renderer: 'canvas' })
-  registerCornerstoneTools()
+  const bundle = await ensureCornerstone3D()
+  cs = bundle.cornerstone
+  dicomLoader = bundle.dicomImageLoader
+
+  renderingEngine = new cs.RenderingEngine(ENGINE_ID)
+  renderingEngine.enableElement({
+    viewportId: VIEWPORT_ID,
+    type: cs.Enums.ViewportType.STACK,
+    element: elementRef.value
+  })
+  viewport = renderingEngine.getViewport(VIEWPORT_ID)
+  mapper = makeCoordMapper(cs, viewport)
+
+  await setupTools()
   enabled.value = true
 }
 
 const disableElement = () => {
-  if (!elementRef.value || !enabled.value) return
   try {
-    cornerstone.disable(elementRef.value)
+    csTools?.ToolGroupManager?.destroyToolGroup?.(TOOLGROUP_ID)
   } catch {
     /* ignore */
   }
+  try {
+    renderingEngine?.destroy?.()
+  } catch {
+    /* ignore */
+  }
+  renderingEngine = null
+  viewport = null
+  toolGroup = null
   enabled.value = false
-}
-
-/* 注册工具：内置 cornerstone-tools 工具用于 平移/缩放/窗宽窗位/距离/角度 */
-const registerCornerstoneTools = () => {
-  if (!elementRef.value) return
-
-  cornerstoneTools.addTool(cornerstoneTools.PanTool)
-  cornerstoneTools.addTool(cornerstoneTools.ZoomTool)
-  cornerstoneTools.addTool(cornerstoneTools.ZoomMouseWheelTool)
-  cornerstoneTools.addTool(cornerstoneTools.WwwcTool)
-  cornerstoneTools.addTool(cornerstoneTools.LengthTool)
-  cornerstoneTools.addTool(cornerstoneTools.AngleTool)
-
-  // 滚轮缩放始终激活
-  cornerstoneTools.setToolActive('ZoomMouseWheel', {})
 }
 
 /* =========================================================
@@ -111,31 +178,42 @@ const registerCornerstoneTools = () => {
  * ========================================================= */
 
 let loadSeq = 0
+let dicomLoader: any = null
 
 const loadImage = async (url: string) => {
-  if (!elementRef.value) return
-  if (!url) {
+  if (!enabled.value) await enableElement()
+  if (!viewport) return
+
+  // DICOM 优先；没有 DICOM 才回退到遗留 JPG
+  const imageId = props.dicomImageId || (url ? webImageId(url) : '')
+  if (!imageId) {
     emit('error', new Error('影像 URL 为空'))
     ElMessage.warning('该病例暂无影像数据')
-    return
-  }
-  // 不是 http(s) / data: / blob: 也得提示
-  const imageId = toImageId(url)
-  if (!/^https?:|^data:|^blob:/i.test(imageId)) {
-    emit('error', new Error(`不支持的影像协议：${imageId}`))
-    ElMessage.error(`不支持的影像协议：${url}`)
     return
   }
 
   const seq = ++loadSeq
   loading.value = true
   try {
-    const image = await cornerstone.loadAndCacheImage(imageId)
+    // wadors 加载器不会自己去取元数据，必须先注册；
+    // 少了这一步解码时读不到 imagePixelModule
+    await ensureMetadataFor(dicomLoader, imageId)
+    await viewport.setStack([imageId])
+
+    // setStack 不会因解码失败而抛异常。不显式校验的话，
+    // 页面会在图根本没出来的情况下显示为加载成功。
+    const data = viewport.getImageData?.()
+    const dims = data?.dimensions
+    if (!dims || !dims[0] || !dims[1]) {
+      throw new Error('影像未能解码：视口中没有像素数据')
+    }
+
     // 期间用户切换了图片 → 丢弃过期结果
     if (seq !== loadSeq || !elementRef.value) return
-    imgSize.value = { w: image.width || 1024, h: image.height || 1024 }
-    cornerstone.displayImage(elementRef.value, image)
+    imgSize.value = { w: dims[0], h: dims[1] }
+
     applyViewport()
+    viewport.render()
     syncOverlaySize()
     redrawOverlay()
     emit('ready')
@@ -147,45 +225,64 @@ const loadImage = async (url: string) => {
     else if (status === 403) reason = '无权访问该影像（403）'
     else if (status >= 500) reason = '服务器异常，无法加载影像'
     else if (err?.message?.includes('timeout')) reason = '影像加载超时'
+    else if (err?.message?.includes('解码')) reason = err.message
     else if (err?.error === 'NetworkError') reason = '网络异常，无法加载影像'
     emit('error', err)
     ElMessage.error(reason)
-    console.warn('[ReadingCanvas] loadImage failed:', { imageId, err })
+    console.warn('[CoreRetinaStation] loadImage failed:', { imageId, err })
   } finally {
     if (seq === loadSeq) loading.value = false
   }
 }
 
+/** 窗宽窗位 ↔ Cornerstone3D 的 voiRange */
+const toVoiRange = (ww: number, wl: number) => ({
+  lower: wl - ww / 2,
+  upper: wl + ww / 2
+})
+
 const applyViewport = () => {
-  if (!elementRef.value || !enabled.value) return
+  if (!viewport) return
   try {
-    const v = cornerstone.getViewport(elementRef.value)
-    if (!v) return
-    v.scale = props.viewport.scale || 1
-    v.translation = { x: props.viewport.x || 0, y: props.viewport.y || 0 }
-    v.voi = {
-      windowWidth: props.viewport.ww || 255,
-      windowCenter: props.viewport.wl || 127
+    const v = props.viewport || ({} as ViewportState)
+
+    viewport.setProperties({
+      voiRange: toVoiRange(v.ww || 255, v.wl || 127),
+      invert: !!v.invert
+    })
+
+    // 旧内核的 scale=1 是影像 1:1，新内核的 zoom=1 是适配窗口，
+    // 不是同一个量纲。缺 engine 标记的旧快照只还原窗宽窗位，
+    // 缩放平移重置为适配 —— 硬套会让 4752 px 宽的眼底照
+    // 放大到十倍，用户以为图坏了。
+    if (v.engine === 'cs3d') {
+      if (v.scale) viewport.setZoom(v.scale)
+      viewport.setPan([v.x || 0, v.y || 0])
+    } else {
+      viewport.resetCamera()
     }
-    v.invert = !!props.viewport.invert
-    cornerstone.setViewport(elementRef.value, v)
+    viewport.render()
   } catch {
     /* ignore */
   }
 }
 
 const readViewport = () => {
-  if (!elementRef.value) return
+  if (!viewport) return
   try {
-    const v = cornerstone.getViewport(elementRef.value)
-    if (!v) return
+    const props_ = viewport.getProperties?.() || {}
+    const range = props_.voiRange
+    const ww = range ? range.upper - range.lower : 255
+    const wl = range ? (range.upper + range.lower) / 2 : 127
+    const pan = viewport.getPan?.() || [0, 0]
     emit('update:viewport', {
-      scale: v.scale || 1,
-      x: v.translation?.x || 0,
-      y: v.translation?.y || 0,
-      ww: v.voi?.windowWidth || 255,
-      wl: v.voi?.windowCenter || 127,
-      invert: !!v.invert
+      scale: viewport.getZoom?.() || 1,
+      x: pan[0] || 0,
+      y: pan[1] || 0,
+      ww,
+      wl,
+      invert: !!props_.invert,
+      engine: 'cs3d'
     })
   } catch {
     /* ignore */
@@ -197,23 +294,28 @@ const readViewport = () => {
  * ========================================================= */
 
 const setActiveCornerstoneTool = (t: ToolName) => {
-  // 关闭可能激活的内置工具
-  ;['Pan', 'Zoom', 'Wwwc', 'Length', 'Angle'].forEach((name) => {
+  if (!toolGroup || !csTools) return
+  const { Enums: csToolsEnums } = csTools
+
+  // 先让内置工具全部让出左键
+  for (const name of Object.values(CS_TOOL_OF)) {
     try {
-      cornerstoneTools.setToolPassive(name)
+      toolGroup.setToolPassive(name as string)
     } catch {
       /* ignore */
     }
-  })
+  }
 
-  if (t === 'pan') cornerstoneTools.setToolActive('Pan', { mouseButtonMask: 1 })
-  else if (t === 'zoom') cornerstoneTools.setToolActive('Zoom', { mouseButtonMask: 1 })
-  else if (t === 'wwwc') cornerstoneTools.setToolActive('Wwwc', { mouseButtonMask: 1 })
-  else if (t === 'length') cornerstoneTools.setToolActive('Length', { mouseButtonMask: 1 })
-  else if (t === 'angle') cornerstoneTools.setToolActive('Angle', { mouseButtonMask: 1 })
-  else {
-    // 自定义标注工具下，左键交给 overlay 画布；其他 cornerstone 工具进 passive
-    cornerstoneTools.setToolPassive('Pan')
+  // 自定义标注工具（rect/polygon/…）下不激活任何内置工具，
+  // 左键留给 overlay 画布，否则画一笔就同时平移了影像
+  const name = CS_TOOL_OF[t]
+  if (!name) return
+  try {
+    toolGroup.setToolActive(name, {
+      bindings: [{ mouseButton: csToolsEnums.MouseBindings.Primary }]
+    })
+  } catch {
+    /* ignore */
   }
 }
 
@@ -242,23 +344,21 @@ const colorOf = (label: string): string => {
   return hit?.color || '#4091ff'
 }
 
+// 标注一律以影像像素坐标存库，与显示无关：换缩放、换内核、换屏幕
+// 都不影响既有标注的位置。这两个函数是像素与屏幕之间唯一的桥。
 const pixelToCanvas = (x: number, y: number) => {
-  if (!elementRef.value) return { x, y }
+  if (!viewport) return { x, y }
   try {
-    return cornerstone.pixelToCanvas(elementRef.value, { x, y })
+    return mapper.pixelToCanvas(x, y)
   } catch {
     return { x, y }
   }
 }
 
 const canvasToPixel = (x: number, y: number) => {
-  if (!elementRef.value) return { x, y }
+  if (!viewport) return { x, y }
   try {
-    return cornerstone.pageToPixel(
-      elementRef.value,
-      x + elementRef.value.getBoundingClientRect().left,
-      y + elementRef.value.getBoundingClientRect().top
-    )
+    return mapper.canvasToPixel(x, y)
   } catch {
     return { x, y }
   }
@@ -548,56 +648,72 @@ const pointHits = (
  * cornerstone 内置工具的测量结果同步到我们的 measurements
  * ========================================================= */
 
+/**
+ * 把内置 Length / Angle 工具的结果同步成我们的 measurements。
+ *
+ * Cornerstone3D 的标注存的是世界坐标（handles.points），
+ * 必须转回影像像素坐标再入库 —— 世界坐标依赖当前影像的
+ * 原点与间距，换一张图就没有意义了。
+ */
+const worldToPixel = (world: number[]): { x: number; y: number } => {
+  const id = viewport?.getCurrentImageId?.()
+  if (!id || !cs) return { x: 0, y: 0 }
+  const p = cs.utilities.worldToImageCoords(id, world)
+  return p ? { x: p[0], y: p[1] } : { x: 0, y: 0 }
+}
+
 const syncCornerstoneMeasurements = () => {
-  if (!elementRef.value) return
-  const lengthState = cornerstoneTools.getToolState(elementRef.value, 'Length')
-  const angleState = cornerstoneTools.getToolState(elementRef.value, 'Angle')
+  if (!elementRef.value || !csTools) return
+  const getAnns = csTools.annotation?.state?.getAnnotations
+  if (typeof getAnns !== 'function') return
 
   const measurements: AnnotationItem[] = []
-
-  if (lengthState && Array.isArray(lengthState.data)) {
-    lengthState.data.forEach((d: any, i: number) => {
-      const start = d.handles?.start
-      const end = d.handles?.end
-      if (!start || !end) return
-      measurements.push({
-        id: `L_${i}`,
-        tool: 'length',
-        points: [
-          { x: start.x, y: start.y },
-          { x: end.x, y: end.y }
-        ],
-        label: '距离',
-        color: '#52c41a',
-        layer: 'primary',
-        value: d.length || Math.hypot(end.x - start.x, end.y - start.y),
-        unit: 'px'
-      })
-    })
+  const pull = (toolName: string) => {
+    try {
+      return getAnns(toolName, elementRef.value) || []
+    } catch {
+      return []
+    }
   }
 
-  if (angleState && Array.isArray(angleState.data)) {
-    angleState.data.forEach((d: any, i: number) => {
-      const s = d.handles?.start
-      const m = d.handles?.middle
-      const e = d.handles?.end
-      if (!s || !m || !e) return
-      measurements.push({
-        id: `A_${i}`,
-        tool: 'angle',
-        points: [
-          { x: s.x, y: s.y },
-          { x: m.x, y: m.y },
-          { x: e.x, y: e.y }
-        ],
-        label: '角度',
-        color: '#52c41a',
-        layer: 'primary',
-        value: d.rAngle || 0,
-        unit: '°'
-      })
+  pull('Length').forEach((a: any, i: number) => {
+    const pts = a?.data?.handles?.points
+    if (!pts || pts.length < 2) return
+    const p0 = worldToPixel(pts[0])
+    const p1 = worldToPixel(pts[1])
+    measurements.push({
+      id: a.annotationUID || `L_${i}`,
+      tool: 'length',
+      points: [p0, p1],
+      label: '距离',
+      color: '#52c41a',
+      layer: 'primary',
+      // 眼底照没有真实物理间距，一律按像素报，不冒充毫米
+      value: Math.hypot(p1.x - p0.x, p1.y - p0.y),
+      unit: 'px'
     })
-  }
+  })
+
+  pull('Angle').forEach((a: any, i: number) => {
+    const pts = a?.data?.handles?.points
+    if (!pts || pts.length < 3) return
+    const p = pts.slice(0, 3).map(worldToPixel)
+    const v1 = { x: p[0].x - p[1].x, y: p[0].y - p[1].y }
+    const v2 = { x: p[2].x - p[1].x, y: p[2].y - p[1].y }
+    const dot = v1.x * v2.x + v1.y * v2.y
+    const mag = Math.hypot(v1.x, v1.y) * Math.hypot(v2.x, v2.y)
+    const deg = mag ? (Math.acos(Math.max(-1, Math.min(1, dot / mag))) * 180) / Math.PI : 0
+    measurements.push({
+      id: a.annotationUID || `A_${i}`,
+      tool: 'angle',
+      points: p,
+      label: '角度',
+      color: '#52c41a',
+      layer: 'primary',
+      value: deg,
+      unit: '°'
+    })
+  })
 
   if (measurements.length !== props.measurements.length) {
     emit('update:measurements', measurements)
@@ -605,39 +721,37 @@ const syncCornerstoneMeasurements = () => {
 }
 
 /* =========================================================
- * 对外暴露：清空全部标注 / 测量（含 cornerstone-tools 内部状态）
+ * 对外暴露：清空全部标注 / 测量（含内置工具的标注状态）
  * 父组件「清空」按钮调用，避免 Length / Angle 留在 toolStateManager
  * 中被 syncCornerstoneMeasurements 重新回填。
  * ========================================================= */
 
 const clearAllTools = () => {
-  if (!elementRef.value) return
-  // 1. 清掉 cornerstone-tools 自带工具（Length / Angle）的所有 measurement
-  ;['Length', 'Angle'].forEach((toolName) => {
-    try {
-      const stateManager =
-        cornerstoneTools.getElementToolStateManager?.(elementRef.value)
-      stateManager?.clear?.(elementRef.value)
-    } catch {
-      /* 某些版本无 stateManager.clear；走兜底 */
-    }
-    try {
-      const st = cornerstoneTools.getToolState(elementRef.value, toolName)
-      if (st && Array.isArray(st.data)) {
-        st.data.length = 0
+  // 1. 清掉内置工具（Length / Angle）留在标注状态里的记录。
+  //    不清的话，下一次 IMAGE_RENDERED 会把它们重新同步回 measurements，
+  //    表现为「清空了又自己长回来」。
+  try {
+    const state = csTools?.annotation?.state
+    if (state && elementRef.value) {
+      for (const toolName of ['Length', 'Angle']) {
+        const list = state.getAnnotations?.(toolName, elementRef.value) || []
+        // 边删边遍历会漏，先拷一份
+        for (const a of [...list]) {
+          if (a?.annotationUID) state.removeAnnotation(a.annotationUID)
+        }
       }
-    } catch {
-      /* ignore */
     }
-  })
+  } catch {
+    /* ignore */
+  }
 
   // 2. 重置自定义 overlay 的临时绘制状态
   drawing.value = false
   currentPoints.value = []
 
-  // 3. 触发一次重绘，让画布上残留的尺标/标注立即消失
+  // 3. 立即重绘，让画布上残留的尺标/标注消失
   try {
-    cornerstone.updateImage(elementRef.value)
+    viewport?.render()
   } catch {
     /* ignore */
   }
@@ -657,24 +771,37 @@ const onCsRendered = () => {
 }
 
 const onResize = () => {
-  if (!elementRef.value || !enabled.value) return
-  cornerstone.resize(elementRef.value, false)
+  if (!enabled.value) return
+  try {
+    renderingEngine?.resize(true, false)
+  } catch {
+    /* ignore */
+  }
   syncOverlaySize()
   redrawOverlay()
 }
 
 let resizeObserver: ResizeObserver | null = null
+/** Cornerstone3D 的渲染完成事件名，init 之后才拿得到 */
+let renderedEventName = ''
 
 onMounted(async () => {
-  ensureCornerstone()
-  enableElement()
-  if (elementRef.value) {
-    elementRef.value.addEventListener('cornerstoneimagerendered', onCsRendered)
+  try {
+    await enableElement()
+  } catch (err) {
+    emit('error', err)
+    ElMessage.error('阅片内核初始化失败')
+    return
+  }
+
+  if (elementRef.value && cs) {
+    renderedEventName = cs.Enums.Events.IMAGE_RENDERED
+    elementRef.value.addEventListener(renderedEventName, onCsRendered)
   }
   setActiveCornerstoneTool(props.tool)
   syncOverlaySize()
 
-  if (props.imageUrl) {
+  if (props.dicomImageId || props.imageUrl) {
     await loadImage(props.imageUrl)
   }
 
@@ -684,16 +811,16 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (resizeObserver) resizeObserver.disconnect()
-  if (elementRef.value) {
-    elementRef.value.removeEventListener('cornerstoneimagerendered', onCsRendered)
+  if (elementRef.value && renderedEventName) {
+    elementRef.value.removeEventListener(renderedEventName, onCsRendered)
   }
   disableElement()
 })
 
 watch(
-  () => props.imageUrl,
-  (next) => {
-    if (next) loadImage(next)
+  () => [props.imageUrl, props.dicomImageId],
+  ([nextUrl, nextDicom]) => {
+    if (nextUrl || nextDicom) loadImage(nextUrl as string)
   }
 )
 

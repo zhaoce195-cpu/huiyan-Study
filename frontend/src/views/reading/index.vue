@@ -6,13 +6,13 @@ import { Back, Document, ArrowLeft, ArrowRight, MagicStick } from '@element-plus
 
 import { LoginApi, ReadingApi } from '@/api'
 import { getCaseBrowseList } from '@/api/case-browse'
-import { ensureCornerstone, cornerstone } from '@/utils/cornerstone'
 import {
   buildAnswerSummary,
   newRequestId,
   submitWithRetry,
   summaryHtml
 } from '@/utils/submit-guard'
+import { wadorsImageId } from '@/utils/cornerstone3d'
 import { useUserStore } from '@/stores/user'
 
 import ReadingToolbar from './components/ReadingToolbar.vue'
@@ -134,6 +134,18 @@ const onChangeRole = (r: string) => {
   canvasState.redoStack = []
 }
 
+
+/** 当前影像在 PACS 中的 DICOM id；未进 PACS 的病例为空，画布自动退回 JPG */
+const currentDicomImageId = computed(() => {
+  const hit = source.value?.dicomInstances?.[currentImage.value]
+  if (!hit) return ''
+  return wadorsImageId(
+    hit.studyInstanceUid,
+    hit.seriesInstanceUid,
+    hit.sopInstanceUid
+  )
+})
+
 /* ========== 阅片记录（如果由 review 跳转过来） ========== */
 const reviewMode = computed(() => recordId.value > 0)
 const existingRecord = ref<ReadingRecord | null>(null)
@@ -225,7 +237,7 @@ const clearAll = async () => {
   canvasState.annotations = []
   canvasState.measurements = []
   canvasState.redoStack = []
-  // 同步清掉 cornerstone-tools 内部 Length / Angle 测量状态，防止重绘时被 syncCornerstoneMeasurements 回填
+  // 同步清掉内置 Length / Angle 工具的标注状态，防止重绘时被 syncCornerstoneMeasurements 回填
   readingCanvasRef.value?.clearAllTools?.()
 }
 
@@ -454,7 +466,8 @@ const genderText = (g?: string) => {
 /* ========== 生命周期 ========== */
 
 onMounted(async () => {
-  ensureCornerstone()
+  // 阅片内核由 CoreRetinaStation 自行初始化（并发调用共用同一个 Promise），
+  // 页面不再需要预热
   await loadCaseList()
 
   // 无病例参数进入 → 直接进入第一例
@@ -475,7 +488,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  // 离开页面时清理 cornerstone 启用元素由 ReadingCanvas 自身负责
+  // 离开页面时清理 cornerstone 启用元素由 CoreRetinaStation 自身负责
 })
 
 watch(currentImageIndex, () => {
@@ -543,11 +556,11 @@ const onCanvasError = (err: any) => {
 const onCanvasReady = () => {
   imageLoadError.value = false
 }
-/** 让用户主动重试当前影像（重新触发 ReadingCanvas 的 watch） */
+/** 让用户主动重试当前影像（重新触发 CoreRetinaStation 的 watch） */
 const reloadCurrent = () => {
   imageLoadError.value = false
   const idx = currentImageIndex.value
-  // 强制改一下索引再改回来 → ReadingCanvas 会重新调用 loadImage
+  // 强制改一下索引再改回来 → CoreRetinaStation 会重新调用 loadImage
   currentImageIndex.value = -1
   setTimeout(() => {
     currentImageIndex.value = idx
@@ -625,8 +638,6 @@ const openNote = () => {
   noteVisible.value = true
 }
 
-/* eslint-disable @typescript-eslint/no-unused-vars */
-void cornerstone
 </script>
 
 <template>
@@ -833,6 +844,7 @@ void cornerstone
           </div>
         </div>
         <CoreRetinaStation
+          :dicom-image-id="currentDicomImageId"
           v-else
           :key="caseId"
           ref="readingCanvasRef"

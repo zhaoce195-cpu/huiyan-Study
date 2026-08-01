@@ -50,6 +50,14 @@ class ImageSource(_CamelModel):
     missing_roles: List[str] = Field(default_factory=list)
     show_gold_layers: bool = False
 
+    # 影像 URL → PACS 中对应 DICOM 实例的 UID。
+    # 只收录在 PACS 中确实核对到的那些：对不上就不给，前端退回 JPG。
+    # 宁可某个病例暂时不走 DICOM，也不能把影像与标注配错。
+    dicom_instances: Dict[str, Dict[str, str]] = Field(
+        default_factory=dict,
+        description="影像 URL → {studyInstanceUid, seriesInstanceUid, sopInstanceUid}",
+    )
+
     # ============ 安全标识（报告 P0/P1：安全条常驻） ============
     modality: str = Field("CFP", description="影像模态编码")
     modality_text: str = Field("眼底彩照", description="影像模态中文名")
@@ -98,6 +106,10 @@ class ViewportState(_CamelModel):
     ww: float = Field(255.0, description="窗宽")
     wl: float = Field(127.0, description="窗位")
     invert: bool = False
+    # 产生这份快照的渲染内核。legacy（缺省）的 scale=1 是影像 1:1 显示，
+    # cs3d 的 zoom=1 是适配窗口，两者不同量纲。缺标记的旧快照
+    # 只还原窗宽窗位，缩放平移重置为适配，避免明显错位。
+    engine: str = Field("legacy", description="渲染内核：legacy / cs3d")
 
 
 class LayerState(_CamelModel):

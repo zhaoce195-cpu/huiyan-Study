@@ -59,6 +59,17 @@ export interface ViewportState {
   /** 窗位 */
   wl: number
   invert: boolean
+  /**
+   * 产生这份快照的渲染内核。
+   *
+   * legacy（缺省）：cornerstone-core v2，scale=1 表示影像 1:1 显示。
+   * cs3d：Cornerstone3D，zoom=1 表示适配窗口。
+   *
+   * 两者的 scale 不是同一个量纲，直接拿旧快照按新语义还原会明显错位
+   * （4752 px 宽的眼底照，适配窗口时旧口径的 scale 约为 0.11）。
+   * 因此缺标记的旧快照只还原窗宽窗位与反相，缩放平移一律重置为适配。
+   */
+  engine?: 'legacy' | 'cs3d'
 }
 
 export interface LayerState {
@@ -125,6 +136,15 @@ export interface ImageSource {
     string[]
   >>
   /** 影像是否完整（按 IDRiD 必备 role 集合判断） */
+  /**
+   * 影像 URL → PACS 中对应 DICOM 实例的 UID。
+   * 只收录服务端核对确认存在的那些；缺席即表示该图未进 PACS，
+   * 前端退回 JPG。宁可某个病例暂时不走 DICOM，也不能把图配错。
+   */
+  dicomInstances?: Record<
+    string,
+    { studyInstanceUid: string; seriesInstanceUid: string; sopInstanceUid: string }
+  >
   imageComplete?: boolean
   missingRoles?: string[]
   /** 当前用户是否可见金标准图层（mask / overlay） */

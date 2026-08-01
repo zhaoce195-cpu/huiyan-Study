@@ -211,6 +211,22 @@ class ReadingService:
         )
         safety = summarize_safety(safety_meta)
 
+        # PACS 对照。PACS 不可用不能影响阅片 —— 取不到就当没有 DICOM，
+        # 前端照常用 JPG，而不是让整页打不开。
+        dicom_instances: dict = {}
+        try:
+            from app.common.dicom_link import match_instances
+            from app.services import dicomweb_client
+
+            summary = dicomweb_client.study_summary(case.case_no)
+            dicom_instances = match_instances(
+                case_no=case.case_no,
+                records=[r for r in ci_records if r.role == "original"],
+                pacs_sop_uids=[i.get("sopInstanceUid") for i in summary.get("images", [])],
+            )
+        except Exception:
+            dicom_instances = {}
+
         return ImageSource(
             case_id=case.id,
             case_no=case.case_no,
@@ -231,6 +247,7 @@ class ReadingService:
             image_complete=bool(comp["complete"]),
             missing_roles=list(comp["missing_roles"]),
             show_gold_layers=show_gold,
+            dicom_instances=dicom_instances,
             **_patient_block(case, user),
         )
 
