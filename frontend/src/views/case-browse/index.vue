@@ -492,7 +492,12 @@ const onShareSubmit = (row: Item) => {
           <el-table-column label="影像" width="160" align="center">
             <template #default="{ row }">
               <div>
-                <span class="muted">{{ row.imageCount }} 张</span>
+                <!-- 原图与派生对象分开显示：此前合计成「8 张影像」，
+                     医生无法判断原始检查是否阅完（报告 P1） -->
+                <span class="muted">原图 {{ row.imageCount }} 张</span>
+                <span v-if="row.derivedCount" class="muted derived">
+                  · 派生 {{ row.derivedCount }} 项
+                </span>
               </div>
               <el-tag
                 v-if="row.imageComplete === false"
@@ -677,6 +682,10 @@ const onShareSubmit = (row: Item) => {
 </template>
 
 <style scoped>
+.derived {
+  color: #7cc4ff;
+}
+
 /* 盲训态占位：答案型字段在作答前不展示 */
 .blinded-hint {
   color: #909399;

@@ -119,6 +119,7 @@ def _to_item(
     image_count: Optional[int] = None,
     viewer: Optional[User] = None,
     answered: bool = False,
+    derived_count: int = 0,
 ) -> CaseBrowseItem:
     from app.common.case_utils import mask_phone_by_role
 
@@ -166,6 +167,7 @@ def _to_item(
         thumb_url=_first_image(case.image_paths),
         image_count=image_count if image_count is not None else len(images),
         image_complete=image_complete,
+        derived_count=derived_count,
         missing_roles=missing_roles,
         patient_name=getattr(case, "patient_name", "") or "",
         patient_gender=case.patient_gender or "U",
@@ -290,17 +292,34 @@ class CaseBrowseService:
         # 批量取每条病例的影像数 + 完整性，避免 N+1 后再循环查
         ids = [c.id for c in rows]
         count_map: dict = {}
+        derived_map: dict = {}
         if ids:
+            # 只统计原始影像。此前把 mask / overlay / 金标准一起计入，
+            # 列表因此显示「8 张影像」却说不清哪些是原图——
+            # 正是报告 P1 抱怨的场景。派生对象另行计数。
             count_rows = (
                 db.query(CaseImage.case_id, func.count(CaseImage.id))
                 .filter(
                     CaseImage.case_table == "training",
                     CaseImage.case_id.in_(ids),
+                    CaseImage.role == "original",
                 )
                 .group_by(CaseImage.case_id)
                 .all()
             )
             count_map = {cid: cnt for cid, cnt in count_rows}
+
+            derived_rows = (
+                db.query(CaseImage.case_id, func.count(CaseImage.id))
+                .filter(
+                    CaseImage.case_table == "training",
+                    CaseImage.case_id.in_(ids),
+                    CaseImage.role != "original",
+                )
+                .group_by(CaseImage.case_id)
+                .all()
+            )
+            derived_map = {cid: cnt for cid, cnt in derived_rows}
 
         # 批量取本人已提交作答的病例，用于解除盲态（一次查询，避免 N+1）
         answered_ids = _answered_case_ids(db, user, ids)
@@ -314,6 +333,7 @@ class CaseBrowseService:
             items.append(_to_item(
                 c, comp=comp, image_count=ic, viewer=user,
                 answered=c.id in answered_ids,
+                derived_count=derived_map.get(c.id, 0),
             ))
 
         if query.only_incomplete:

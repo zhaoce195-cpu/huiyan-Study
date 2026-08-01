@@ -141,7 +141,10 @@ def password_login(username: str, password: str) -> Dict[str, Any]:
     desc = body.get("error_description", "")
 
     if "not fully set up" in desc:
-        message = "该账号需要先完成首次设置（如修改初始密码），请使用统一登录页面完成后再试"
+        # 迁移后所有账号都带 UPDATE_PASSWORD，必须走 OIDC 授权码流程改密。
+        # 用独立错误码让前端能直接把用户引导过去，而不是丢一句错误了事。
+        return {"ok": False, "error": "setup_required",
+                "message": "该账号需要先完成首次设置（修改初始密码）"}
     elif r.status_code in (400, 401):
         message = "用户名或密码错误"
     elif r.status_code == 403:

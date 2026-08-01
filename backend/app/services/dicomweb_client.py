@@ -13,6 +13,7 @@ DICOMweb 客户端（Orthanc）
     本模块的所有取像请求都带 transfer-syntax，不给调用方漏写的机会。
 """
 
+from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -357,6 +358,51 @@ def fetch_frame(sop_instance_uid: str) -> Tuple[bytes, str]:
     return payload, "image/jpeg"
 
 
+# 已解码的 SEG 数据集缓存。
+# 一份 SEG 约 5.8 MB，每个分段一次请求就要完整下载 + 解码一遍；
+# 4 个分段 = 4 次全量往返。这里按 SOP UID 缓存解码后的像素，
+# 用小上限的 LRU 控制内存（单例约 50 MB 解码后数组，故只留少量）。
+_SEG_CACHE_MAX = 4
+_seg_cache: "OrderedDict[str, Any]" = OrderedDict()
+
+# 渲染好的 PNG 缓存。实测瓶颈不在下载与解码，而在 4288×2848 RGBA
+# 的 PNG 编码（单次约 1.1s）；只缓存数据集仅提速 1.2 倍，
+# 缓存成品才真正有效。掩码 PNG 仅几十 KB，可以多留一些。
+_PNG_CACHE_MAX = 32
+_png_cache: "OrderedDict[str, bytes]" = OrderedDict()
+
+
+def _cached_seg(sop_instance_uid: str):
+    """取缓存的 SEG（pydicom Dataset）；未命中则回源并缓存"""
+    import io as _io
+
+    import pydicom
+
+    hit = _seg_cache.get(sop_instance_uid)
+    if hit is not None:
+        _seg_cache.move_to_end(sop_instance_uid)
+        return hit
+
+    found = _get_json("/dicom-web/instances",
+                      params={"SOPInstanceUID": sop_instance_uid})
+    if not found:
+        raise HTTPException(status_code=404, detail="分割实例不存在")
+
+    item = found[0]
+    raw, _ = proxy_wado(
+        f"studies/{_first(item, TAG_STUDY_UID)}"
+        f"/series/{_first(item, TAG_SERIES_UID)}"
+        f"/instances/{sop_instance_uid}",
+        accept='multipart/related; type="application/dicom"; transfer-syntax=*',
+    )
+    ds = pydicom.dcmread(_io.BytesIO(extract_multipart_part(raw)))
+
+    _seg_cache[sop_instance_uid] = ds
+    while len(_seg_cache) > _SEG_CACHE_MAX:
+        _seg_cache.popitem(last=False)
+    return ds
+
+
 def render_segment_mask(
     sop_instance_uid: str,
     segment_number: int,
@@ -376,21 +422,13 @@ def render_segment_mask(
     import pydicom
     from PIL import Image
 
-    found = _get_json("/dicom-web/instances",
-                      params={"SOPInstanceUID": sop_instance_uid})
-    if not found:
-        raise HTTPException(status_code=404, detail="分割实例不存在")
+    cache_key = f"{sop_instance_uid}|{segment_number}|{color}|{opacity}"
+    cached = _png_cache.get(cache_key)
+    if cached is not None:
+        _png_cache.move_to_end(cache_key)
+        return cached, "image/png"
 
-    item = found[0]
-    study_uid = _first(item, TAG_STUDY_UID)
-    series_uid = _first(item, TAG_SERIES_UID)
-
-    raw, _ = proxy_wado(
-        f"studies/{study_uid}/series/{series_uid}/instances/{sop_instance_uid}",
-        accept='multipart/related; type="application/dicom"; transfer-syntax=*',
-    )
-    ds = pydicom.dcmread(_io.BytesIO(extract_multipart_part(raw)))
-
+    ds = _cached_seg(sop_instance_uid)
     arr = ds.pixel_array
     if arr.ndim == 2:
         arr = arr[np.newaxis, ...]
@@ -430,8 +468,14 @@ def render_segment_mask(
 
     buf = _io.BytesIO()
     # 稀疏掩码 PNG 压缩率极高，通常只有原始分段帧的几十分之一
-    Image.fromarray(rgba, mode="RGBA").save(buf, format="PNG", optimize=True)
-    return buf.getvalue(), "image/png"
+    # optimize=True 对这类稀疏掩码收益很小，却明显更慢；用默认压缩级别
+    Image.fromarray(rgba, mode="RGBA").save(buf, format="PNG", compress_level=6)
+    png = buf.getvalue()
+
+    _png_cache[cache_key] = png
+    while len(_png_cache) > _PNG_CACHE_MAX:
+        _png_cache.popitem(last=False)
+    return png, "image/png"
 
 
 def proxy_wado(path: str, accept: Optional[str] = None) -> Tuple[bytes, str]:

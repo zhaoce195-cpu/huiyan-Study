@@ -71,6 +71,23 @@ ANSWER_FIELDS: Set[str] = set(ANSWER_FIELD_BLANKS.keys())
 # 直接清空会让列表不可用，因此替换为不含答案的可读标识。
 NEUTRALIZED_FIELDS: Set[str] = {"title", "description"}
 
+# 影像路径类字段：盲态下需过滤掉病灶层，只保留原图。
+# 掩码文件名形如 IDRiD_01_MA.png / _HE / _EX / _SE，
+# 文件名本身就暴露了该病例存在哪几类病灶——等同于泄题。
+PATH_FIELDS: Set[str] = {"images", "image_paths"}
+
+# 病灶层文件名的角色后缀（大小写不敏感）
+_LESION_ROLE_SUFFIXES = ("_ma", "_he", "_ex", "_se", "_od",
+                         "_mask", "_overlay", "_gold")
+
+# 仅当键名明确只可能是病灶层时才整组丢弃。
+# 刻意不含 "OD"：它在 image_paths 里是「右眼」，在 CaseImage.role 里才是「视盘」，
+# 同名不同义，按键名一刀切会误删右眼影像。
+_LESION_ONLY_KEYS = frozenset({
+    "MA", "HE", "EX", "SE", "COLOR_MASK", "OVERLAY", "CLASS_MASK", "GOLD",
+})
+
+
 # 明确判定为「非答案」的安全字段。
 # 与 ANSWER_FIELDS / NEUTRALIZED_FIELDS 共同构成完整分类，
 # 新增字段若三者都不属于，完整性测试会失败。
@@ -81,7 +98,7 @@ SAFE_FIELDS: Set[str] = {
     "category", "category_text", "difficulty", "difficulty_text",
     "pass_score", "estimated_minutes", "is_scored",
     # 影像与质量
-    "images", "image_paths", "image_count", "image_complete",
+    "image_count", "derived_count", "image_complete",
     "missing_roles", "thumb_url", "modality", "laterality", "image_quality",
     # 病例状态
     "archive_status", "is_published", "is_train_case",
@@ -172,7 +189,46 @@ def redact(
             continue
         out[field] = _neutral_value(field, case_no)
 
+    # 影像路径：滤掉病灶层，只留原图
+    for field in PATH_FIELDS:
+        if field not in out or field in keep_set:
+            continue
+        out[field] = _strip_lesion_paths(out[field])
+
     return out
+
+
+def _is_lesion_path(path: str) -> bool:
+    """文件名是否暴露病灶类型"""
+    name = str(path).rsplit("/", 1)[-1].rsplit(".", 1)[0].lower()
+    return any(name.endswith(sfx) for sfx in _LESION_ROLE_SUFFIXES)
+
+
+def _strip_lesion_paths(value: Any) -> Any:
+    """
+    从影像路径集合中移除病灶层。
+
+    同时支持列表（images）与按角色分组的字典（image_paths）。
+    """
+    if isinstance(value, list):
+        return [p for p in value if not _is_lesion_path(p)]
+    if isinstance(value, dict):
+        out: Dict[str, Any] = {}
+        for key, paths in value.items():
+            # 注意：不能按键名判断是否为病灶层。
+            # 本代码库中 "OD" 同时表示「右眼」（image_paths 的键）
+            # 与「视盘掩码」（CaseImage.role），按键名丢弃会把右眼影像一起删掉。
+            # 因此统一只按文件名后缀过滤，键名一律保留。
+            if str(key).upper() in _LESION_ONLY_KEYS:
+                continue
+            if isinstance(paths, list):
+                kept = [p for p in paths if not _is_lesion_path(p)]
+                if kept:
+                    out[key] = kept
+            else:
+                out[key] = paths
+        return out
+    return value
 
 
 def _neutral_value(field: str, case_no: str) -> str:

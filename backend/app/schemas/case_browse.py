@@ -61,7 +61,8 @@ class CaseBrowseItem(_CamelModel):
     creator_name: str = ""
     creator_role: str = ""
     thumb_url: Optional[str] = None
-    image_count: int = 0
+    image_count: int = Field(0, description="原始影像张数，不含派生对象")
+    derived_count: int = Field(0, description="派生对象数（mask/overlay/金标准）")
     image_complete: bool = True
     missing_roles: List[str] = Field(default_factory=list)
     # ============ 模拟患者信息（按调用者角色脱敏） ============

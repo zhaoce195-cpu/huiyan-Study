@@ -12,6 +12,7 @@ import pytest
 
 from app.core.content_policy import (
     ANSWER_FIELDS,
+    PATH_FIELDS,
     ANSWER_FIELD_BLANKS,
     NEUTRALIZED_FIELDS,
     PresentationMode,
@@ -150,7 +151,7 @@ def test_mutable_blanks_are_not_shared():
 # 3. 完整性守卫：新增字段必须显式归类，否则默认按答案处理
 # --------------------------------------------------------------------------
 
-CLASSIFIED = ANSWER_FIELDS | NEUTRALIZED_FIELDS | SAFE_FIELDS
+CLASSIFIED = ANSWER_FIELDS | NEUTRALIZED_FIELDS | SAFE_FIELDS | PATH_FIELDS
 
 GUARDED_MODELS = [CaseBrowseItem, CaseBrowseDetail, CaseBriefForPractice]
 
@@ -205,3 +206,66 @@ def test_neutralized_fields_are_driven_by_the_registry():
     out = redact(payload, PresentationMode.TRAINING_BLINDED, case_no="T1")
     for field in NEUTRALIZED_FIELDS:
         assert "DR" not in str(out[field]), f"{field} 未被中性化"
+
+
+# --------------------------------------------------------------------------
+# 影像路径不得暴露病灶类型
+# --------------------------------------------------------------------------
+
+def test_blinded_strips_lesion_mask_paths_from_list():
+    """
+    掩码文件名形如 IDRiD_01_MA.png，文件名本身就说明该病例有微动脉瘤，
+    等同于泄题。盲态下只保留原图。
+    """
+    payload = {
+        "case_no": "T1",
+        "images": [
+            "/static/x/IDRiD_01.jpg",
+            "/static/x/IDRiD_01_MA.png",
+            "/static/x/IDRiD_01_HE.png",
+            "/static/x/IDRiD_01_EX.png",
+            "/static/x/IDRiD_01_overlay.png",
+        ],
+    }
+    out = redact(payload, PresentationMode.TRAINING_BLINDED, case_no="T1")
+    assert out["images"] == ["/static/x/IDRiD_01.jpg"]
+    joined = " ".join(out["images"]).lower()
+    for role in ("_ma", "_he", "_ex", "_se", "_overlay"):
+        assert role not in joined
+
+
+def test_blinded_strips_lesion_roles_from_grouped_paths():
+    """按角色分组时整组病灶层丢弃，但眼别分组必须保留"""
+    payload = {
+        "case_no": "T1",
+        "image_paths": {
+            "OD": ["/static/a.jpg"],
+            "OS": ["/static/b.jpg"],
+            "MA": ["/static/a_MA.png"],
+            "HE": ["/static/a_HE.png"],
+        },
+    }
+    out = redact(payload, PresentationMode.TRAINING_BLINDED, case_no="T1")
+    assert set(out["image_paths"]) == {"OD", "OS"}
+
+
+def test_od_key_is_eye_not_lesion():
+    """
+    「OD」在本代码库中一词两义：image_paths 的键表示右眼，
+    CaseImage.role 表示视盘掩码。按键名一刀切会把右眼影像误删。
+    """
+    payload = {"case_no": "T1", "image_paths": {"OD": ["/static/right_eye.jpg"]}}
+    out = redact(payload, PresentationMode.TRAINING_BLINDED, case_no="T1")
+    assert out["image_paths"].get("OD") == ["/static/right_eye.jpg"],         "右眼影像被当成视盘掩码删掉了"
+
+
+@pytest.mark.parametrize("mode", [
+    PresentationMode.TRAINING_REVIEW,
+    PresentationMode.TEACHING_DEMO,
+])
+def test_non_blinded_keeps_all_paths(mode):
+    """复盘与教学态需要看病灶层做对照，不能过滤"""
+    payload = {"case_no": "T1",
+               "images": ["/x/a.jpg", "/x/a_MA.png"]}
+    out = redact(payload, mode, case_no="T1")
+    assert len(out["images"]) == 2

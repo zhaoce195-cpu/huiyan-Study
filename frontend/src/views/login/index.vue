@@ -131,6 +131,21 @@ const handleLogin = async () => {
         : homePath
       router.replace(redirect)
     } catch (e: any) {
+      // 迁移后的账号首次登录必须改密，而改密只能在统一登录页完成。
+      // 后端用 409 + SETUP_REQUIRED 与「口令错误」区分开，
+      // 这里直接把用户送过去，不让他卡在「密码错误」上。
+      const detail = e?.response?.data?.detail || e?.detail
+      const needSetup =
+        e?.status === 409 ||
+        e?.response?.status === 409 ||
+        detail?.code === 'SETUP_REQUIRED'
+      if (needSetup) {
+        ElMessage.warning(
+          detail?.message || '该账号需要先完成首次设置，正在前往统一登录页…'
+        )
+        await goUnifiedLogin()
+        return
+      }
       const msg = e?.message || '登录失败，请检查账号密码'
       if (!msg.includes('请求失败')) {
         ElMessage.error(msg)

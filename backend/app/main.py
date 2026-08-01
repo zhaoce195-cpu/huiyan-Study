@@ -285,14 +285,25 @@ async def add_process_time_header(request: Request, call_next):
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(_request: Request, exc: StarletteHTTPException):
-    """统一 HTTPException 响应结构"""
+    """
+    统一 HTTPException 响应结构。
+
+    detail 为字典时把内容放进 data 并取其 message 作为提示：
+    此前一律丢成「请求失败」，结构化错误（如「需先完成首次设置」
+    要告诉前端跳去哪里）会被整个吃掉，前端只能靠状态码猜。
+    """
+    detail = exc.detail
+    if isinstance(detail, str):
+        msg, data = detail, None
+    elif isinstance(detail, dict):
+        msg = detail.get("message") or detail.get("msg") or "请求失败"
+        data = detail
+    else:
+        msg, data = "请求失败", None
+
     return JSONResponse(
         status_code=exc.status_code,
-        content={
-            "code": exc.status_code,
-            "msg": exc.detail if isinstance(exc.detail, str) else "请求失败",
-            "data": None,
-        },
+        content={"code": exc.status_code, "msg": msg, "data": data},
     )
 
 

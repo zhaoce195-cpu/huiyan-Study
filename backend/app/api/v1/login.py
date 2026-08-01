@@ -55,6 +55,18 @@ def login(params: LoginRequest, request: Request, db: DbSession):
                 logging.getLogger("huiyan.auth").warning(
                     "Keycloak 不可达，本次登录回退本地校验：%s", result["message"],
                 )
+            elif result.get("error") == "setup_required":
+                # 首次登录必须改密。用 409 与「口令错误」区分开，
+                # 并告诉前端该跳去哪里，避免用户卡在「密码错误」上。
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "code": "SETUP_REQUIRED",
+                        "message": result["message"],
+                        "action": "oidc_login",
+                        "hint": "请点击「使用统一身份登录」完成首次密码设置",
+                    },
+                )
             else:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,

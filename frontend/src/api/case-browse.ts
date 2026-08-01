@@ -37,7 +37,10 @@ export interface CaseBrowseItem {
   creatorName: string
   creatorRole: string
   thumbUrl: string | null
+  /** 原始影像张数，不含派生对象 */
   imageCount: number
+  /** 派生对象数（mask/overlay/金标准） */
+  derivedCount?: number
   /** 影像是否完整（缺失关键 role 时为 false） */
   imageComplete?: boolean
   /** 缺失的 role 列表 */
