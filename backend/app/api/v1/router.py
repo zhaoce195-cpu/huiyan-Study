@@ -24,6 +24,8 @@ from app.api.v1 import organization as organization_router
 from app.api.v1 import user_message as user_message_router
 # ===== 教学实训分享（纯追加） =====
 from app.api.v1 import teaching as teaching_router
+from app.api.v1 import dicomweb as dicomweb_router
+from app.api.v1 import orthanc_auth as orthanc_auth_router
 
 api_v1_router = APIRouter()
 
@@ -46,3 +48,7 @@ api_v1_router.include_router(admin_import_router.router)
 api_v1_router.include_router(organization_router.router)
 api_v1_router.include_router(user_message_router.router)
 api_v1_router.include_router(teaching_router.router)
+# 影像层改造：DICOMweb（方案决策三「全量 DICOM 化」）
+api_v1_router.include_router(dicomweb_router.router)
+# PACS 授权回调（Orthanc Authorization 插件 → Keycloak 令牌校验）
+api_v1_router.include_router(orthanc_auth_router.router)

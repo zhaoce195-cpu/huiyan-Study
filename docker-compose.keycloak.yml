@@ -1,0 +1,47 @@
+# =================================================================
+# 慧眼医疗云平台 · Keycloak 身份提供者
+#
+# 对应报告 P0（认证安全整改）：
+#     「登录页公开演示凭据」「无强制改密 / 限流 / 会话超时 / 失败审计」
+# 与方案第 4.1 节选型：Keycloak（Apache-2.0）一次接入覆盖上述全部条目。
+#
+# 独立启动，不影响现有服务：
+#     docker compose -f docker-compose.keycloak.yml up -d
+#
+# 端口 8085（避开本机 8080/3372/3373/54321 等已占用端口）
+#     控制台：http://localhost:8085/  （admin / admin，仅开发）
+#     Realm ：huiyan
+#
+# 注意：此处用 start-dev + 内置 H2，仅供本地验证。
+# 生产必须改为 start（生产模式）+ 外部 PostgreSQL + HTTPS，
+# 并且不导入 huiyan-realm.json 中的测试账号。
+# =================================================================
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: huiyan-keycloak
+    restart: unless-stopped
+    command:
+      - start-dev
+      - --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HTTP_PORT: "8080"
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "8085:8080"
+    volumes:
+      - ./deploy/keycloak:/opt/keycloak/data/import:ro
+      - keycloak-data:/opt/keycloak/data
+    networks:
+      - huiyan-pacs
+
+volumes:
+  keycloak-data:
+
+networks:
+  huiyan-pacs:
+    name: huiyan-pacs
+    external: true

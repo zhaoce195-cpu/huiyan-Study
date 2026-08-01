@@ -52,18 +52,28 @@ def get_current_user(
     if is_token_revoked(token):
         _raise_401("令牌已注销，请重新登录")
 
+    # ========== 迁移期：同时接受自建 JWT 与 Keycloak 令牌 ==========
+    # 身份正在从自建 JWT 迁往 Keycloak（方案 Phase 1）。迁移期内两种令牌都要认，
+    # 否则切换当天所有在线会话会被一次性踢掉。
+    # 判定顺序：先试自建 JWT（存量主力），失败再试 Keycloak。
+    # 待前端全量切到 OIDC 后，删掉自建分支即可。
+    user = None
     try:
         payload = decode_access_token(token)
+        user_id = payload.get("sub")
+        if not user_id:
+            _raise_401("令牌内容异常")
+        user = db.query(User).filter(User.id == int(user_id)).first()
     except jwt.ExpiredSignatureError:
         _raise_401("令牌已过期，请重新登录")
     except jwt.PyJWTError:
-        _raise_401("令牌无效")
+        # 不是自建 JWT，尝试按 Keycloak 令牌解析
+        from app.services.keycloak_client import resolve_local_user
 
-    user_id = payload.get("sub")
-    if not user_id:
-        _raise_401("令牌内容异常")
+        user = resolve_local_user(db, token)
+        if user is None:
+            _raise_401("令牌无效")
 
-    user = db.query(User).filter(User.id == int(user_id)).first()
     if not user:
         _raise_401("用户不存在")
     if user.is_active is False:

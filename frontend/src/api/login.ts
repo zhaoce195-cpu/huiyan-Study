@@ -171,6 +171,24 @@ export const login = async (params: LoginParams): Promise<LoginResult> => {
 }
 
 /** 用户登出 */
+/** 统一身份登录（OIDC）配置 */
+export interface OidcConfigResult {
+  enabled: boolean
+  issuer: string
+  clientId: string
+  authorizationEndpoint: string
+  tokenEndpoint: string
+  endSessionEndpoint: string
+  accountUrl: string
+}
+
+/**
+ * 取 OIDC 参数。前端据此发起授权码 + PKCE 流程，
+ * 从而能用上 Keycloak 登录页的强制改密、账号锁定提示等能力。
+ */
+export const getOidcConfig = () =>
+  http.get<OidcConfigResult>('/auth/oidc/config')
+
 export const logout = () =>
   http.post<void>('/auth/logout', null, { showSuccess: true, successText: '已退出登录' })
 

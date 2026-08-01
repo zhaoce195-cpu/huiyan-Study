@@ -120,6 +120,32 @@ class Settings(BaseSettings):
     # 推理结果中的 base64 图（heatmap/overlay）落盘到 /static/csu/
     CSU_EYES_RESULT_SUBDIR: str = "csu"
 
+    # ---------- Orthanc / DICOMweb ----------
+    # 影像层改造（方案决策三「全量 DICOM 化」）：
+    # 影像经 DICOMweb 读取，不再由前端拼接静态文件路径。
+    # 关闭时全部回退到旧的文件路径方案，便于灰度切换。
+    ORTHANC_ENABLED: bool = False
+    ORTHANC_BASE_URL: str = "http://localhost:8042"
+    ORTHANC_USER: str = "huiyan"
+    # 机器间凭据，务必由 .env 覆盖；不要把生产口令写进代码
+    ORTHANC_PASSWORD: str = "huiyan-local-dev"
+    ORTHANC_TIMEOUT_SEC: int = 60
+
+    # 取像必须显式声明传输语法，否则 Orthanc 会把内嵌的 JPEG
+    # 转码成未压缩再返回——实测同一张眼底照 0.28 MB 变 34.94 MB（125 倍）。
+    ORTHANC_TRANSFER_SYNTAX: str = "1.2.840.10008.1.2.4.50"  # JPEG Baseline
+
+    # ---------- Keycloak ----------
+    # 身份统一由 Keycloak 承担（报告 P0：强制改密 / 限流 / 会话超时 / 审计）。
+    # Orthanc 通过授权插件回调后端校验同一套令牌，PACS 不再使用静态口令。
+    KEYCLOAK_BASE_URL: str = "http://localhost:8085"
+    KEYCLOAK_REALM: str = "huiyan"
+    KEYCLOAK_CLIENT_ID: str = "huiyan-backend"
+    KEYCLOAK_CLIENT_SECRET: str = "huiyan-backend-local-dev-secret"
+    # 登录口令是否交给 Keycloak 校验。开启后口令策略、登录限流、
+    # 会话时长与失败审计立即生效；Keycloak 不可达时自动回退本地校验。
+    KEYCLOAK_LOGIN_ENABLED: bool = False
+
     @field_validator("AVATAR_ALLOWED_EXT", "SCREENING_ALLOWED_EXT", mode="before")
     @classmethod
     def parse_ext_list(cls, v):

@@ -48,7 +48,16 @@ class AuthService:
         db: Session,
         params: LoginRequest,
         client_ip: str = "",
+        password_already_verified: bool = False,
     ) -> LoginResponse:
+        """
+        :param password_already_verified:
+            口令已由外部身份提供者（Keycloak）校验通过。
+
+            迁移期内 Keycloak 是口令权威，本地 bcrypt 哈希不再更新，
+            两边必然不一致。此时若仍用本地哈希复核，用户改完密码反而登不进来。
+            因此外部校验通过后跳过本地口令校验，但账号状态与角色检查照常执行。
+        """
         # 1. 查用户
         user: Optional[User] = (
             db.query(User).filter(User.username == params.username).first()
@@ -59,12 +68,13 @@ class AuthService:
                 detail="账号或密码错误",
             )
 
-        # 2. 校验密码
-        if not verify_password(params.password, user.password_hash):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="账号或密码错误",
-            )
+        # 2. 校验密码（已由 Keycloak 校验过则跳过）
+        if not password_already_verified:
+            if not verify_password(params.password, user.password_hash):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="账号或密码错误",
+                )
 
         # 3. 状态
         if not user.is_active:
