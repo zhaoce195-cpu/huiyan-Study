@@ -163,7 +163,7 @@ const onReview = (accept: boolean) => {
         />
       </div>
       <div class="row">
-        <span class="muted"><el-icon><Hide /></el-icon> AI 热力图</span>
+        <span class="muted"><el-icon><Hide /></el-icon> 病灶提示图层</span>
         <el-switch
           :model-value="layers.heatmap"
           size="small"
