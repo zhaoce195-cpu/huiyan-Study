@@ -85,6 +85,12 @@ class ReadingAnnotation(Base, TimestampMixin):
         index=True, comment="状态：DRAFT/SUBMITTED/REVIEWED",
     )
 
+    # 结构化诊断结论（报告 P1：仅自由备注导致结论难评分、难审计、难统计）
+    # 按病种表单存 {字段key: 值}；note 退化为补充说明。
+    diagnosis: Mapped[Optional[dict]] = mapped_column(
+        JSON, nullable=True, comment="结构化诊断结论",
+    )
+
     note: Mapped[str] = mapped_column(
         Text, nullable=False, default="", comment="阅片备注",
     )

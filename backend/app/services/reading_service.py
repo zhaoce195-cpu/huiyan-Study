@@ -75,6 +75,7 @@ def _to_out(record: ReadingAnnotation) -> ReadingOut:
         measurements=record.measurements or [],
         layers=record.layers,
         status=record.status,  # type: ignore[arg-type]
+        diagnosis=record.diagnosis or {},
         note=record.note or "",
         review_comment=record.review_comment or "",
         reviewer_id=record.reviewer_id,
@@ -249,6 +250,23 @@ class ReadingService:
                     detail="该病例当前不可写入",
                 )
 
+        # ---- 提交前校验结构化结论（报告 P1）----
+        # 草稿允许不完整，正式提交必须结构化完备：否则结论仍旧
+        # 难评分、难审计、难统计，等于没改。
+        if params.submit:
+            from app.common import diagnosis_form
+
+            problems = diagnosis_form.validate(case.category, params.diagnosis)
+            if problems:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "code": "DIAGNOSIS_INCOMPLETE",
+                        "message": "诊断结论不完整，无法提交",
+                        "problems": problems,
+                    },
+                )
+
         # 复用同一用户 + 同一病例 + 同一影像 的最近一条草稿；否则新建
         record: Optional[ReadingAnnotation] = (
             db.query(ReadingAnnotation)
@@ -278,6 +296,7 @@ class ReadingService:
         record.layers = params.layers.model_dump(by_alias=False) if params.layers else None
         record.annotations = [a.model_dump(by_alias=False) for a in params.annotations]
         record.measurements = [m.model_dump(by_alias=False) for m in params.measurements]
+        record.diagnosis = params.diagnosis or {}
         record.note = params.note or ""
 
         if params.submit:

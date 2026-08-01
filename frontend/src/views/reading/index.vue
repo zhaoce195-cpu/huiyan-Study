@@ -269,6 +269,7 @@ const fetchSource = async () => {
   try {
     const res = await ReadingApi.getImageSource(caseId.value)
     source.value = res || null
+    loadDiagnosisForm()
     if (res && (!res.images || res.images.length === 0)) {
       sourceError.value = '该病例暂无影像数据'
     }
@@ -316,8 +317,13 @@ const fetchExistingRecord = async () => {
       // 用 record 里的 caseId 拉影像
       router.replace({ query: { ...route.query, caseId: d.caseId } })
     }
-  } catch {
-    /* 已弹错误 */
+  } catch (e: any) {
+    // 服务端把缺失项逐条列出，回显到表单顶部，
+    // 而不是只丢一句「提交失败」让用户猜哪里没填
+    const detail = e?.response?.data?.data || e?.data
+    if (detail?.code === 'DIAGNOSIS_INCOMPLETE') {
+      submitProblems.value = detail.problems || []
+    }
   }
 }
 
@@ -326,9 +332,28 @@ const fetchExistingRecord = async () => {
 const submitVisible = ref(false)
 const saving = ref(false)
 
-const onSave = async (submit: boolean, note: string) => {
+const diagnosisForm = ref<any>(null)
+const submitProblems = ref<string[]>([])
+
+/** 按病种取表单定义；失败不阻断阅片，退化为仅备注 */
+const loadDiagnosisForm = async () => {
+  const cid = source.value?.caseId ?? caseId.value
+  if (!cid) return
+  try {
+    diagnosisForm.value = await ReadingApi.getDiagnosisForm(Number(cid))
+  } catch {
+    diagnosisForm.value = null
+  }
+}
+
+const onSave = async (
+  submit: boolean,
+  payload: { note: string; diagnosis: Record<string, any> }
+) => {
   if (!source.value) return
+  const { note, diagnosis } = payload
   saving.value = true
+  submitProblems.value = []
   try {
     const params: ReadingApi.ReadingSaveParams = {
       caseId: source.value.caseId,
@@ -339,6 +364,7 @@ const onSave = async (submit: boolean, note: string) => {
       viewport: canvasState.viewport,
       layers: canvasState.layers,
       note,
+      diagnosis,
       submit
     }
     const out = await ReadingApi.saveReading(params)
@@ -851,8 +877,11 @@ void cornerstone
       v-model:visible="submitVisible"
       :saving="saving"
       :default-note="existingRecord?.note || ''"
-      @save="(note) => onSave(false, note)"
-      @submit="(note) => onSave(true, note)"
+      :form="diagnosisForm"
+      :default-diagnosis="existingRecord?.diagnosis"
+      :problems="submitProblems"
+      @save="(p) => onSave(false, p)"
+      @submit="(p) => onSave(true, p)"
     />
 
     <!-- 学习笔记弹窗（绑定当前病例与影像） -->

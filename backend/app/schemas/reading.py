@@ -115,6 +115,10 @@ class ReadingSaveParams(_CamelModel):
     measurements: List[AnnotationItem] = Field(default_factory=list)
     viewport: Optional[ViewportState] = None
     layers: Optional[LayerState] = None
+    diagnosis: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="结构化诊断结论，键为病种表单的字段 key",
+    )
     note: str = ""
     submit: bool = Field(False, description="True 表示提交（SUBMITTED），否则保留为 DRAFT")
 
@@ -145,6 +149,8 @@ class ReadingOut(_CamelModel):
     reviewer_name: str = ""
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    diagnosis: Dict[str, Any] = Field(default_factory=dict)
+
 
 
 class ReadingPage(_CamelModel):

@@ -14,7 +14,7 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
 from app.common.response import success
 from app.core.dependencies import CurrentUser, DbSession, require_roles
@@ -67,6 +67,31 @@ async def check_image_quality(
 
     data = await ImageQualityService.evaluate_case(db=db, case_id=caseId)
     return success(data=data, msg="质量评估完成")
+
+
+@router.get(
+    "/cases/{caseId}/diagnosis-form",
+    summary="按病种取结构化诊断表单定义",
+    response_model=None,
+)
+def diagnosis_form_def(
+    current_user: CurrentUser,
+    db: DbSession,
+    caseId: int = Path(..., ge=1),
+):
+    """
+    表单由配置定义、按病种加载，新增病种只加配置不改代码。
+
+    字段顺序遵循报告建议：质量 → 主要结论 → 关键征象 → 分级 →
+    置信度 → 处置，渐进展开而非一次铺开全部字段。
+    """
+    from app.common import diagnosis_form
+    from app.db.models import TrainingCase
+
+    case = db.query(TrainingCase).filter(TrainingCase.id == caseId).first()
+    if not case:
+        raise HTTPException(status_code=404, detail="病例不存在")
+    return success(data=diagnosis_form.get_form(case.category))
 
 
 @router.get(

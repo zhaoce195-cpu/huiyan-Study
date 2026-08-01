@@ -143,6 +143,8 @@ export interface ReadingRecord {
   measurements: AnnotationItem[]
   layers: LayerState | null
   status: ReadingStatus
+  /** 结构化诊断结论 */
+  diagnosis?: Record<string, any>
   note: string
   reviewComment: string
   reviewerId: number | null
@@ -159,6 +161,8 @@ export interface ReadingSaveParams {
   measurements: AnnotationItem[]
   viewport?: ViewportState | null
   layers?: LayerState | null
+  /** 结构化诊断结论，键为病种表单的字段 key */
+  diagnosis?: Record<string, any>
   note?: string
   submit?: boolean
 }
@@ -301,6 +305,10 @@ export interface DicomCaseSummary {
   images: DicomImageInstance[]
   segmentations: DicomSegmentation[]
 }
+
+/** 按病种取结构化诊断表单定义 */
+export const getDiagnosisForm = (caseId: number) =>
+  http.get<any>(`/reading/cases/${caseId}/diagnosis-form`)
 
 export const getPacsStatus = () =>
   http.get<{ enabled: boolean; available: boolean }>('/dicomweb/status')
