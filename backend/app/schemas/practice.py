@@ -78,6 +78,10 @@ class PracticeSubmitParams(_CamelModel):
     session_id: int
     student_dr_grade: str = Field(..., description="DR 分级 0~4")
     student_diagnosis: str = ""
+    diagnosis: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="结构化诊断作答；提供时按结构化口径评分",
+    )
     annotations: List[PracticeAnnotation] = Field(default_factory=list)
     measurements: List[PracticeAnnotation] = Field(default_factory=list)
     viewport: Optional[Dict[str, Any]] = None

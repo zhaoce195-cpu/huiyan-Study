@@ -249,6 +249,140 @@ def required_keys(category: Optional[str], readability: str = "") -> List[str]:
     return [f["key"] for f in form["fields"] if f["required"]]
 
 
+# DR 分级 → 推荐处置（ICDR 通行随访间隔）
+_DR_DISPOSITION = {
+    "0": "followup_12m",
+    "1": "followup_12m",
+    "2": "followup_6m",
+    "3": "followup_3m",
+    "4": "refer_urgent",
+}
+
+# 金标准病灶标签 → 表单征象编码
+_LESION_TO_FINDING = {
+    "微动脉瘤": "MA",
+    "出血": "HE",
+    "视网膜出血": "HE",
+    "硬性渗出": "EX",
+    "渗出": "EX",
+    "软性渗出": "SE",
+    "棉绒斑": "SE",
+    "新生血管": "NV",
+}
+
+
+def _normalize_finding(value: str) -> str:
+    """把金标准里的病灶标识归一化为表单征象编码"""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    upper = raw.upper()
+    if upper in ("MA", "HE", "EX", "SE", "NV", "IRMA", "VB"):
+        return upper
+    return _LESION_TO_FINDING.get(raw, "")
+
+
+def gold_from_case(case: Any) -> Dict[str, Any]:
+    """
+    由病例已有字段推导结构化金标准。
+
+    不要求教师重新录入一遍：分级、病灶标签都已存在，
+    处置按 DR 分级的通行随访间隔映射。这样存量病例无需人工补录
+    就能参与结构化评分。
+
+    金标准分级为空（不适用）时不给出 dr_grade，
+    避免又把「不适用」变回某个具体分级。
+    """
+    category = (getattr(case, "category", "") or "").upper()
+    grade = (getattr(case, "gold_dr_grade", "") or "").strip()
+
+    gold: Dict[str, Any] = {"readability": "readable"}
+
+    if category == "DR":
+        if grade:
+            gold["dr_grade"] = grade
+            gold["disposition"] = _DR_DISPOSITION.get(grade, "routine")
+        findings: List[str] = []
+        has_lesion_data = False
+
+        def _collect(raw: Any) -> None:
+            nonlocal has_lesion_data
+            for item in (raw or []):
+                has_lesion_data = True
+                if isinstance(item, dict):
+                    # 金标准里病灶键名不统一：导入的数据用 type，
+                    # 教师手工标注用 label，两种都要认
+                    value = item.get("type") or item.get("label") or ""
+                    # pixel_count 为 0 表示该类病灶实际不存在
+                    if "pixel_count" in item and not item.get("pixel_count"):
+                        continue
+                else:
+                    value = str(item)
+                code = _normalize_finding(value)
+                if code and code not in findings:
+                    findings.append(code)
+
+        _collect(getattr(case, "gold_lesions", None))
+        _collect(getattr(case, "gold_annotations", None))
+
+        # 只有确实存在病灶数据时才纳入评分。
+        # 金标准没记录征象 ≠ 该病例没有征象——把「未知」当成「无」，
+        # 会把学员的正确作答判成「多报」。
+        if has_lesion_data:
+            gold["findings"] = findings
+
+    return gold
+
+
+def score_structured(
+    category: Optional[str],
+    student: Dict[str, Any],
+    gold: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    结构化结论评分（0~100）。
+
+    比关键词匹配可靠得多：关键词只能看学员有没有写到某几个词，
+    写法稍有不同就判错，也无法区分「征象对但处置错」。
+
+    :return: {"score": 分数, "detail": {各子项}, "errors": [错因]}
+    """
+    student = student or {}
+    gold = gold or {}
+    errors: List[str] = []
+    parts: List[float] = []
+    detail: Dict[str, Any] = {}
+
+    # 征象：交并比，兼顾漏报与误报
+    if "findings" in gold:
+        s = set(student.get("findings") or [])
+        g = set(gold.get("findings") or [])
+        if g or s:
+            inter = len(s & g)
+            union = len(s | g) or 1
+            f_score = inter / union * 100
+            parts.append(f_score)
+            detail["findings"] = round(f_score, 2)
+            for miss in sorted(g - s):
+                errors.append(f"漏报征象：{miss}")
+            for extra in sorted(s - g):
+                errors.append(f"多报征象：{extra}")
+
+    # 处置：对错二值——处置直接关系患者去向，没有部分正确
+    if gold.get("disposition"):
+        ok = student.get("disposition") == gold.get("disposition")
+        parts.append(100.0 if ok else 0.0)
+        detail["disposition"] = 100.0 if ok else 0.0
+        if not ok:
+            errors.append(
+                f"处置建议不当：应为 {gold.get('disposition')}，"
+                f"实际 {student.get('disposition') or '未填'}"
+            )
+
+    score = round(sum(parts) / len(parts), 2) if parts else 0.0
+    return {"score": score, "detail": detail, "errors": errors}
+
+
 def validate(category: Optional[str], answers: Dict[str, Any]) -> List[str]:
     """
     校验结构化结论，返回缺失项的中文提示；无问题返回空列表。

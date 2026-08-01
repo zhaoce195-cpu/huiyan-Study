@@ -184,3 +184,129 @@ def test_option_fields_have_options():
         for f in df.get_form(category)["fields"]:
             if f["type"] in ("select", "radio", "checkbox"):
                 assert f.get("options"), f"{category}/{f['key']} 缺 options"
+
+
+# --------------------------------------------------------------------------
+# 结构化金标准推导
+# --------------------------------------------------------------------------
+
+class FakeCase:
+    def __init__(self, category="DR", grade="3", lesions=None, anns=None):
+        self.category = category
+        self.gold_dr_grade = grade
+        self.gold_lesions = lesions or []
+        self.gold_annotations = anns or []
+
+
+def test_gold_derived_from_existing_fields():
+    """
+    不要求教师重新录一遍：分级、病灶标签都已存在，
+    处置按 DR 分级的通行随访间隔映射。
+    """
+    gold = df.gold_from_case(FakeCase(grade="3", lesions=[{"label": "微动脉瘤"}]))
+    assert gold["dr_grade"] == "3"
+    assert gold["disposition"] == "followup_3m"
+    assert "MA" in gold["findings"]
+
+
+def test_gold_maps_severity_to_followup_interval():
+    assert df.gold_from_case(FakeCase(grade="0"))["disposition"] == "followup_12m"
+    assert df.gold_from_case(FakeCase(grade="2"))["disposition"] == "followup_6m"
+    assert df.gold_from_case(FakeCase(grade="4"))["disposition"] == "refer_urgent"
+
+
+def test_gold_omits_grade_when_not_applicable():
+    """
+    金标准分级为空表示「不适用」，不能又推出一个具体分级——
+    否则等于把之前修掉的「不适用变 0 级」问题重新引入。
+    """
+    gold = df.gold_from_case(FakeCase(category="GLAUCOMA", grade=""))
+    assert "dr_grade" not in gold
+
+
+def test_gold_collects_findings_from_annotations():
+    gold = df.gold_from_case(FakeCase(anns=[{"label": "硬性渗出"}, {"label": "出血"}]))
+    assert set(gold["findings"]) >= {"EX", "HE"}
+
+
+# --------------------------------------------------------------------------
+# 结构化评分
+# --------------------------------------------------------------------------
+
+def test_perfect_structured_answer_scores_full():
+    gold = {"findings": ["MA", "HE"], "disposition": "followup_6m"}
+    r = df.score_structured("DR", dict(gold), gold)
+    assert r["score"] == 100.0
+    assert r["errors"] == []
+
+
+def test_missing_finding_is_reported():
+    gold = {"findings": ["MA", "HE"], "disposition": "followup_6m"}
+    r = df.score_structured("DR", {"findings": ["MA"], "disposition": "followup_6m"}, gold)
+    assert r["score"] < 100
+    assert any("漏报" in e for e in r["errors"])
+
+
+def test_extra_finding_is_penalized():
+    """多报同样要扣分，否则学员会倾向于全选"""
+    gold = {"findings": ["MA"], "disposition": "routine"}
+    r = df.score_structured("DR", {"findings": ["MA", "NV"], "disposition": "routine"}, gold)
+    assert r["score"] < 100
+    assert any("多报" in e for e in r["errors"])
+
+
+def test_disposition_is_all_or_nothing():
+    """处置直接关系患者去向，没有部分正确"""
+    gold = {"disposition": "refer_urgent"}
+    r = df.score_structured("DR", {"disposition": "routine"}, gold)
+    assert r["detail"]["disposition"] == 0.0
+    assert any("处置" in e for e in r["errors"])
+
+
+def test_wrong_disposition_reported_even_if_findings_right():
+    """关键词匹配区分不出「征象对但处置错」，结构化必须能"""
+    gold = {"findings": ["MA"], "disposition": "refer_urgent"}
+    r = df.score_structured("DR", {"findings": ["MA"], "disposition": "routine"}, gold)
+    assert r["detail"]["findings"] == 100.0
+    assert r["detail"]["disposition"] == 0.0
+
+
+def test_gold_reads_type_key_from_imported_data():
+    """
+    金标准里病灶键名不统一：导入数据用 type，教师手工标注用 label。
+    只认 label 会让导入的病例全部推不出征象，
+    进而把学员的正确作答判成「多报」。
+    """
+    case = FakeCase(lesions=[{"type": "MA", "pixel_count": 6941},
+                             {"type": "HE", "pixel_count": 35430}])
+    gold = df.gold_from_case(case)
+    assert set(gold["findings"]) == {"MA", "HE"}
+
+
+def test_zero_pixel_lesion_is_not_a_finding():
+    """pixel_count 为 0 表示该类病灶实际不存在，不应算作征象"""
+    case = FakeCase(lesions=[{"type": "MA", "pixel_count": 100},
+                             {"type": "SE", "pixel_count": 0}])
+    gold = df.gold_from_case(case)
+    assert "MA" in gold["findings"]
+    assert "SE" not in gold["findings"]
+
+
+def test_no_lesion_data_means_findings_not_scored():
+    """
+    金标准没记录征象 ≠ 该病例没有征象。
+    把「未知」当成「无」，会把学员的正确作答全判成「多报」——
+    这与「不适用被当成 0 级」是同一类错误。
+    """
+    gold = df.gold_from_case(FakeCase(lesions=[], anns=[]))
+    assert "findings" not in gold
+
+    r = df.score_structured("DR", {"findings": ["MA", "HE"]}, gold)
+    assert not any("多报" in e for e in r["errors"])
+
+
+def test_findings_scored_only_when_gold_has_data():
+    """有金标准征象数据时才参与评分"""
+    gold = df.gold_from_case(FakeCase(lesions=[{"type": "MA", "pixel_count": 5}]))
+    r = df.score_structured("DR", {"findings": ["MA", "NV"]}, gold)
+    assert any("多报：NV" in e or "多报征象：NV" in e for e in r["errors"])

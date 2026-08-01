@@ -115,6 +115,8 @@ export interface PracticeSubmitParams {
   measurements: PracticeAnnotation[]
   viewport?: Record<string, any> | null
   durationSeconds: number
+  /** 结构化诊断作答；提供时按结构化口径评分 */
+  diagnosis?: Record<string, any>
 }
 
 export interface PracticeListQuery {

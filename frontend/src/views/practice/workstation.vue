@@ -4,12 +4,13 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Back, MagicStick } from '@element-plus/icons-vue'
 
-import { PracticeApi, ReadingApi } from '@/api'
+import { ReadingApi, PracticeApi } from '@/api'
 import { ensureCornerstone } from '@/utils/cornerstone'
 
 import ReadingToolbar from '@/views/reading/components/ReadingToolbar.vue'
 import ReadingCanvas from '@/views/reading/components/ReadingCanvas.vue'
 import AiDiagnosisDialog from '@/components/AiDiagnosisDialog.vue'
+import DiagnosisForm from '@/views/reading/components/DiagnosisForm.vue'
 import type { ToolName, AnnotationItem, CanvasState } from '@/views/reading/types'
 
 const route = useRoute()
@@ -45,6 +46,18 @@ const canvasState = reactive<CanvasState>({
 })
 
 /* ========== 诊断表单 ========== */
+const diagnosisForm = ref<any>(null)
+const structuredAnswer = ref<Record<string, any>>({})
+
+/** 与阅片端共用同一套病种表单；取不到则退回旧的自由文本表单 */
+const loadDiagnosisForm = async (caseId: number) => {
+  try {
+    diagnosisForm.value = await ReadingApi.getDiagnosisForm(caseId)
+  } catch {
+    diagnosisForm.value = null
+  }
+}
+
 const diagForm = ref({
   drGrade: '',
   diagnosis: ''
@@ -149,6 +162,8 @@ const loadRecord = async () => {
   if (!sessionId.value) return
   try {
     record.value = await PracticeApi.getPracticeDetail(sessionId.value)
+    const cid = record.value?.caseId
+    if (cid) loadDiagnosisForm(Number(cid))
     if (record.value) {
       diagForm.value.drGrade = record.value.studentDrGrade || ''
       diagForm.value.diagnosis = record.value.studentDiagnosis || ''
@@ -180,7 +195,10 @@ const onGoldToggle = async (val: any) => {
 /* ========== 提交作答 ========== */
 const handleSubmit = async () => {
   if (!record.value) return
-  if (!diagForm.value.drGrade) {
+  const grade = structuredAnswer.value.dr_grade || diagForm.value.drGrade
+  const ungradable =
+    structuredAnswer.value.readability === diagnosisForm.value?.ungradableValue
+  if (!grade && !ungradable) {
     ElMessage.warning('请选择 DR 分级')
     return
   }
@@ -197,8 +215,12 @@ const handleSubmit = async () => {
     const duration = Math.floor((Date.now() - startTime.value) / 1000)
     const out = await PracticeApi.submitPractice({
       sessionId: record.value.id,
-      studentDrGrade: diagForm.value.drGrade,
+      // 分级仍单独上送：它是评分的独立一项（占 30%），
+      // 结构化表单里的 dr_grade 与之保持同一取值
+      studentDrGrade:
+        structuredAnswer.value.dr_grade || diagForm.value.drGrade,
       studentDiagnosis: diagForm.value.diagnosis,
+      diagnosis: structuredAnswer.value,
       annotations: canvasState.annotations,
       measurements: canvasState.measurements,
       viewport: canvasState.viewport,
@@ -345,7 +367,13 @@ watch(currentImageIndex, () => {
         <!-- 诊断表单（答题模式） -->
         <div v-if="!viewMode && record?.status === 'DRAFT'" class="panel-section">
           <h3>诊断作答</h3>
-          <el-form label-position="top" size="default">
+          <!-- 与阅片端共用同一套病种表单，保证两边结论口径一致 -->
+          <DiagnosisForm
+            v-if="diagnosisForm"
+            v-model="structuredAnswer"
+            :form="diagnosisForm"
+          />
+          <el-form v-else label-position="top" size="default">
             <el-form-item label="DR 分级">
               <el-radio-group v-model="diagForm.drGrade">
                 <el-radio

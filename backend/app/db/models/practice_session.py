@@ -60,6 +60,18 @@ class PracticeSession(Base, TimestampMixin):
     student_diagnosis: Mapped[str] = mapped_column(
         Text, nullable=False, default="", comment="学员书写的诊断结论",
     )
+    # 结构化作答（与阅片端同一套病种表单）。
+    # 旧记录为空，此时仍按自由文本关键词评分，保证历史成绩可比。
+    student_diagnosis_form: Mapped[Optional[dict]] = mapped_column(
+        JSON, nullable=True, comment="结构化诊断作答",
+    )
+    # 评分口径版本：keyword=自由文本关键词匹配，structured=结构化比对。
+    # 显式记录而不是让两种口径悄悄混在一起——否则历史成绩无法解释。
+    scoring_mode: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="keyword",
+        comment="评分口径：keyword / structured",
+    )
+
     student_annotations: Mapped[Optional[list]] = mapped_column(
         JSON, nullable=True,
         comment="学员标注列表 [{id,tool,points,label,...}]",

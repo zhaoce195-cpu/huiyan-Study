@@ -141,6 +141,7 @@ def _score(
     student_dr_grade: str,
     student_diagnosis: str,
     student_anns: List[PracticeAnnotation],
+    structured: Optional[dict] = None,
 ) -> Tuple[dict, List[ErrorPoint]]:
     """
     自动比对评分
@@ -256,7 +257,25 @@ def _score(
     if not keywords:
         keywords = [DR_GRADE_TEXT.get(gold_dr, "").split(" ", 1)[-1] or "无 DR"]
 
-    if student_diagnosis:
+    # 结构化作答优先：比关键词匹配可靠得多。
+    # 关键词只看学员有没有写到某几个词，写法稍变就判错，
+    # 也无法区分「征象对但处置错」。
+    #
+    # 两种口径不混用：有结构化作答就整题走结构化，否则沿用关键词，
+    # 并由调用方把口径记进 scoring_mode，使历史成绩可解释、可对比。
+    scoring_mode = "keyword"
+    structured_errors: List[str] = []
+    if structured:
+        from app.common import diagnosis_form
+
+        gold_struct = diagnosis_form.gold_from_case(case)
+        result = diagnosis_form.score_structured(
+            case.category, structured, gold_struct,
+        )
+        score_diagnosis = result["score"]
+        structured_errors = result["errors"]
+        scoring_mode = "structured"
+    elif student_diagnosis:
         hit = sum(1 for kw in keywords if kw and kw in student_diagnosis)
         score_diagnosis = round(min(100.0, hit / len(keywords) * 100.0), 2) if keywords else 60.0
         # 只要写了诊断起步给 30
@@ -291,11 +310,13 @@ def _score(
         tips.append(f"DR 分级与金标准不一致（应为 {DR_GRADE_TEXT.get(gold_dr, gold_dr)}）。")
     if iou_avg < 0.5 and iou_cnt > 0:
         tips.append("标注定位精度偏低，建议放大病灶后再勾画。")
+    for msg in structured_errors:
+        tips.append(msg)
     if missed_cnt > 0:
         tips.append(f"存在 {missed_cnt} 处漏诊，请重点关注金标准图层中标注的病灶。")
     if fp_cnt > 0:
         tips.append(f"存在 {fp_cnt} 处误诊，请结合 AI 热力图与教学要点核对。")
-    if not student_diagnosis:
+    if scoring_mode == "keyword" and not student_diagnosis:
         tips.append("未填写诊断结论，建议结合分级与典型病变做规范化书写。")
     if not tips:
         tips.append("整体表现良好，继续保持规范化阅片习惯。")
@@ -304,6 +325,8 @@ def _score(
 
     return (
         {
+            "scoring_mode": scoring_mode,
+            "structured_errors": structured_errors,
             "score_total": score_total,
             "score_grade": score_grade,
             "score_annotation": score_annotation,
@@ -653,6 +676,7 @@ class PracticeService:
             student_dr_grade=params.student_dr_grade,
             student_diagnosis=params.student_diagnosis,
             student_anns=params.annotations,
+            structured=params.diagnosis or None,
         )
 
         # 落库
@@ -665,6 +689,8 @@ class PracticeService:
         record.submitted_at = datetime.now()
         record.status = PracticeStatusEnum.SUBMITTED.value
 
+        record.student_diagnosis_form = params.diagnosis or None
+        record.scoring_mode = result.get("scoring_mode", "keyword")
         record.score_total = result["score_total"]
         record.score_grade = result["score_grade"]
         record.score_annotation = result["score_annotation"]

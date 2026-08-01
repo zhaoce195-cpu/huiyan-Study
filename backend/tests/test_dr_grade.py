@@ -177,3 +177,52 @@ def test_known_issue_no_gold_annotation_caps_annotation_score_at_70():
     assert r["score_grade"] == 100.0
     assert r["score_diagnosis"] == 100.0
     assert r["score_total"] == 85.0, "全对却拿不到满分，属既有评分缺陷"
+
+
+# --------------------------------------------------------------------------
+# 评分口径：新旧不得混用
+# --------------------------------------------------------------------------
+
+def test_legacy_free_text_keeps_keyword_scoring():
+    """
+    历史记录没有结构化作答，必须仍按关键词口径评分——
+    否则历史成绩会被新口径悄悄重算，无法与当时的分数对比。
+    """
+    from app.services.practice_service import _score
+
+    result, _ = _score(FakeCase("3"), "3", "出血 渗出", [], structured=None)
+    assert result["scoring_mode"] == "keyword"
+
+
+def test_structured_answer_switches_mode_explicitly():
+    """有结构化作答时整题走结构化，并显式标记口径"""
+    from app.services.practice_service import _score
+
+    case = FakeCase("3")
+    case.category = "DR"
+    case.gold_lesions = [{"label": "微动脉瘤"}]
+    result, _ = _score(
+        case, "3", "",
+        [],
+        structured={"readability": "readable", "findings": ["MA"],
+                    "disposition": "followup_3m"},
+    )
+    assert result["scoring_mode"] == "structured"
+    assert result["score_diagnosis"] == 100.0
+
+
+def test_two_modes_never_mix():
+    """同一次作答只会用一种口径，不会把两种分数掺在一起"""
+    from app.services.practice_service import _score
+
+    case = FakeCase("3")
+    case.category = "DR"
+    case.gold_lesions = [{"label": "微动脉瘤"}]
+    # 同时给自由文本与结构化：结构化优先，关键词不参与
+    result, _ = _score(
+        case, "3", "完全不相关的文字", [],
+        structured={"readability": "readable", "findings": ["MA"],
+                    "disposition": "followup_3m"},
+    )
+    assert result["scoring_mode"] == "structured"
+    assert result["score_diagnosis"] == 100.0, "自由文本不应拉低结构化得分"
