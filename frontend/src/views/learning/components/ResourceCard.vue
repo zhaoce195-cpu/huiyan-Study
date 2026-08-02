@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Star, StarFilled, View, Document } from '@element-plus/icons-vue'
+import { Star, StarFilled, Document } from '@element-plus/icons-vue'
 import { LearningApi } from '@/api'
 
 type Resource = LearningApi.LearningResource

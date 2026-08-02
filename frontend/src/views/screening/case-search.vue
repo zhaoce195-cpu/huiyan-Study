@@ -6,12 +6,9 @@
  * - 操作：查看报告 / 导出PDF / 绑定手机号 / 确认报告 / 移除
  */
 import { computed, onActivated, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Search,
   Refresh,
-  RefreshLeft,
   View,
   Printer,
   Iphone,
@@ -20,7 +17,7 @@ import {
   Download,
   Edit
 } from '@element-plus/icons-vue'
-import { ScreeningApi, LoginApi, PatientApi } from '@/api'
+import { ScreeningApi, PatientApi } from '@/api'
 import { useCaseBindingStore } from '@/stores/case-binding'
 import { useUserStore } from '@/stores/user'
 import CaseEditDialog from './components/CaseEditDialog.vue'
@@ -31,14 +28,11 @@ type Task = ScreeningApi.ScreeningTask
 type Status = ScreeningApi.ScreeningStatus
 type RiskLevel = ScreeningApi.RiskLevel
 type Eye = ScreeningApi.EyeSide
-type FrontRole = LoginApi.FrontRole
 
-const router = useRouter()
 const bindingStore = useCaseBindingStore()
 const userStore = useUserStore()
 
 /* ===== 角色权限 ===== */
-const currentRole = computed<FrontRole | ''>(() => userStore.role)
 const canManage = computed(() => userStore.canManage)
 
 /* ===== 检索条件 ===== */
@@ -424,7 +418,10 @@ onMounted(fetchList)
 onActivated(fetchList)
 
 /* ===== 工具 ===== */
-const phoneMask = (p: string) => {
+// 参数放开为可选：手机号在多处本就可能缺失（未采集 / 被按角色脱敏成空），
+// 函数体一直就处理了空值。此前签名写死 string，调用处只能加 ! 骗过类型
+// 检查——空值该来还是会来，只是错误挪到了运行时。
+const phoneMask = (p?: string | null) => {
   if (!p || p.length < 7) return p || '—'
   return `${p.slice(0, 3)}****${p.slice(-4)}`
 }

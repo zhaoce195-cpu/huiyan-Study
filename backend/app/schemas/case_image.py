@@ -81,6 +81,25 @@ class IdridImportParams(_CamelModel):
     skip_existing: bool = True
 
 
+class BackfillPatientParams(_CamelModel):
+    only_empty: bool = Field(
+        True, description="只补空字段；为 False 时按 overwrite 决定是否覆盖",
+    )
+    overwrite: bool = Field(
+        False,
+        description="强制覆盖已有的模拟患者信息。真实采集的信息不会被覆盖 —— "
+                    "训练病例本无真实患者，此开关只用于重置模拟数据",
+    )
+
+
+class BackfillPatientResult(_CamelModel):
+    training_total: int = 0
+    training_filled: int = 0
+    screening_total: int = 0
+    screening_filled: int = 0
+    case_sn_filled: int = Field(0, description="顺带补齐的业务流水号数量")
+
+
 class IdridImportResult(_CamelModel):
     imported_cases: int = 0
     appended_images: int = 0

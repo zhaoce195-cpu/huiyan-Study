@@ -13,14 +13,13 @@
  *  - 弹「诊断结果对话框」展示原图 + 标注图 + 结构化结果
  */
 import { computed, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import {
   Aim,
   DataAnalysis,
   Search,
   UploadFilled,
   View,
-  Refresh,
 } from '@element-plus/icons-vue'
 
 import { DiagnosisApi } from '@/api'

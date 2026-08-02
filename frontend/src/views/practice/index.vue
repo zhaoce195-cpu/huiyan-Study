@@ -2,7 +2,6 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft } from '@element-plus/icons-vue'
 import { PracticeApi } from '@/api'
 import { useUserStore } from '@/stores/user'
 
@@ -11,8 +10,6 @@ const userStore = useUserStore()
 
 type TabName = 'pick' | 'history' | 'stats'
 
-const userInfo = computed(() => userStore.userInfo)
-const role = computed(() => userStore.role)
 const isStudent = computed(() => userStore.isTrainee)
 const isTeacher = computed(() => userStore.isDoctor || userStore.isAdmin)
 
@@ -163,7 +160,6 @@ onMounted(async () => {
   fetchStats(isTeacher.value ? 'all' : 'me')
 })
 
-const goBack = () => router.push('/')
 </script>
 
 <template>

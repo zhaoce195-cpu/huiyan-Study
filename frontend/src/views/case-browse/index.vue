@@ -3,21 +3,14 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Back,
-  Search,
-  Refresh,
-  RefreshLeft,
   View,
-  Picture,
   Promotion,
   Share,
-  Box,
-  Document,
   Check,
   UploadFilled,
   Delete
 } from '@element-plus/icons-vue'
-import { CaseBrowseApi, CaseImageApi, LoginApi } from '@/api'
+import { CaseBrowseApi, CaseImageApi } from '@/api'
 import type { PageResult } from '@/utils/request'
 import { useTrainingJoinStore } from '@/stores/training-join'
 import { useUserStore } from '@/stores/user'
@@ -30,7 +23,6 @@ import { CASE_BROWSE_FILTER } from '@/utils/filter-presets'
 
 type Item = CaseBrowseApi.CaseBrowseItem
 type Detail = CaseBrowseApi.CaseBrowseDetail
-type FrontRole = LoginApi.FrontRole
 
 const router = useRouter()
 const route = useRoute()
@@ -38,10 +30,7 @@ const joinStore = useTrainingJoinStore()
 const userStore = useUserStore()
 
 /* ========== 角色 ========== */
-const currentRole = computed<FrontRole | ''>(() => userStore.role)
 
-const isAdmin = computed(() => userStore.isAdmin)
-const isTeacher = computed(() => userStore.isDoctor)
 const canArchive = computed(() => userStore.canManage)
 
 /* ========== 列表与筛选 ========== */
@@ -289,9 +278,6 @@ const onSelectionChange = (rows: Item[]) => {
   selectedRows.value = rows
 }
 
-const clearSelection = () => {
-  selectedRows.value = []
-}
 
 const onBatchDelete = async () => {
   if (!canArchive.value) {
@@ -357,7 +343,6 @@ const creatorRoleText = (r: string) => {
   return r || '—'
 }
 
-const goBack = () => router.push('/')
 
 onMounted(() => {
   if (route.query?.onlyIncomplete === '1' || route.query?.onlyIncomplete === 'true') {
@@ -573,6 +558,15 @@ const onShareSubmit = (row: Item) => {
                 阅片（{{ row.imageCount }} 张）
               </el-button>
               <el-button
+                text
+                type="info"
+                size="small"
+                :disabled="row.imageCount === 0"
+                @click="openPreview(row)"
+              >
+                看图
+              </el-button>
+              <el-button
                 v-if="canArchive"
                 text
                 size="small"
@@ -581,6 +575,17 @@ const onShareSubmit = (row: Item) => {
                 @click="openImageUpload(row)"
               >
                 补传影像
+              </el-button>
+              <!-- 归档 / 恢复：后端与处理函数一直都在，只是从未接上按钮，
+                   导致这个功能全系统没有任何入口（遗留清单 D-008） -->
+              <el-button
+                v-if="canArchive"
+                text
+                size="small"
+                :type="row.archiveStatus === 'ARCHIVED' ? 'success' : 'danger'"
+                @click="onArchiveToggle(row)"
+              >
+                {{ row.archiveStatus === 'ARCHIVED' ? '恢复' : '归档' }}
               </el-button>
               <el-button
                 v-if="canArchive"

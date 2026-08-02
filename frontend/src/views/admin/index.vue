@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { Back, Bell, OfficeBuilding, Collection, Document, DataAnalysis, Upload, Promotion, Reading } from '@element-plus/icons-vue'
-import { LoginApi } from '@/api'
+import { Bell, OfficeBuilding, Collection, Document, DataAnalysis, Upload, Promotion, Reading } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import NoticesSection from './sections/NoticesSection.vue'
 import DepartmentsSection from './sections/DepartmentsSection.vue'
@@ -13,19 +11,11 @@ import IdridImportSection from './sections/IdridImportSection.vue'
 import OrganizationApplicationsSection from './sections/OrganizationApplicationsSection.vue'
 import TeachingReviewSection from './sections/TeachingReviewSection.vue'
 
-type FrontRole = LoginApi.FrontRole
 
-const router = useRouter()
-const goBack = () => router.push('/')
 const userStore = useUserStore()
 
-const currentRole = computed<FrontRole | ''>(() => userStore.role)
-const currentUserName = computed<string>(
-  () => userStore.userInfo.name || userStore.userInfo.username || ''
-)
 
 const isAdmin = computed(() => userStore.isAdmin)
-const isTeacher = computed(() => userStore.isDoctor)
 const canManage = computed(() => userStore.canManage)
 
 const activeTab = ref('notices')

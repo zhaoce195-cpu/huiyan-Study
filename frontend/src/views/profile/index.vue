@@ -8,12 +8,11 @@ import {
   type FormRules,
   type UploadRequestOptions
 } from 'element-plus'
-import { Back, Lock, User, Setting, Picture, Camera } from '@element-plus/icons-vue'
+import { Lock, User, Setting, Picture, Camera } from '@element-plus/icons-vue'
 import { LoginApi } from '@/api'
 import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
-const goBack = () => router.push('/')
 const userStore = useUserStore()
 
 /* ========== 当前用户信息 ========== */

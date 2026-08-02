@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, Plus, Search } from '@element-plus/icons-vue'
+import { Plus, Search } from '@element-plus/icons-vue'
 
 import { LearningApi } from '@/api'
 import { useUserStore } from '@/stores/user'
@@ -20,9 +20,6 @@ const userStore = useUserStore()
 
 /* ========== 用户与权限 ========== */
 const userInfo = computed(() => userStore.userInfo)
-const role = computed(() => userStore.role)
-const isStudent = computed(() => userStore.isTrainee)
-const isTeacher = computed(() => userStore.isDoctor)
 const isAdmin = computed(() => userStore.isAdmin)
 const canManage = computed(() => userStore.canManage)
 
@@ -255,7 +252,6 @@ const onTabChange = (name: string | number) => {
   if (name === 'notes' && noteData.value.length === 0) fetchNotes()
 }
 
-const goBack = () => router.push('/')
 
 const tagListOf = (s: string) =>
   (s || '').split(',').map((t) => t.trim()).filter(Boolean)

@@ -3,14 +3,10 @@ import { computed, onActivated, onBeforeUnmount, onDeactivated, onMounted, react
 import { useRouter } from 'vue-router'
 import {
   ElMessage,
-  ElMessageBox,
-  type UploadRawFile,
-  type UploadUserFile
+  ElMessageBox
 } from 'element-plus'
 import {
   Back,
-  UploadFilled,
-  Search,
   Refresh,
   Document,
   DataAnalysis,
@@ -289,101 +285,15 @@ const onDiagnosisDone = (_payload: any) => {
   fetchStats()
 }
 
-/* ================== 上传 ================== */
+/* ================== 上传 ==================
+ * 拖拽上传区（drop-zone）在某次界面调整中被移除，只剩下 CSS 与一批
+ * 处理函数、状态变量成为孤儿。此处已随类型检查清理一并移除，
+ * 该功能的重建见遗留清单 D-008。
+ */
 
-const fileList = ref<UploadUserFile[]>([])
-const uploadProgress = reactive({
-  visible: false,
-  percent: 0,
-  current: '',
-  total: 0,
-  done: 0
-})
 
-const beforeUpload = (file: UploadRawFile) => {
-  const ok = /image\/(jpeg|jpg|png|bmp)/i.test(file.type)
-  if (!ok) ElMessage.warning(`${file.name} 不是受支持的眼底图格式`)
-  const sizeMB = file.size / 1024 / 1024
-  if (sizeMB > 20) {
-    ElMessage.warning(`${file.name} 超过 20MB 上限`)
-    return false
-  }
-  return ok
-}
 
-const doUpload = async (rawFiles: File[]) => {
-  if (rawFiles.length === 0) return
-  if (!canManage.value) {
-    ElMessage.warning('当前角色为只读模式，无法上传眼底图（仅医师 / 管理员可上传）')
-    fileList.value = []
-    return
-  }
-  uploadProgress.visible = true
-  uploadProgress.total = rawFiles.length
-  uploadProgress.done = 0
-  uploadProgress.percent = 0
-  uploadProgress.current = rawFiles[0]?.name || ''
 
-  try {
-    await ScreeningApi.batchUploadFundus(rawFiles, undefined, (e) => {
-      if (!e.total) return
-      uploadProgress.percent = Math.round((e.loaded / e.total) * 100)
-      const idx = Math.min(
-        rawFiles.length - 1,
-        Math.floor((e.loaded / e.total) * rawFiles.length)
-      )
-      uploadProgress.current = rawFiles[idx]?.name || ''
-      uploadProgress.done = idx
-    })
-    uploadProgress.percent = 100
-    uploadProgress.done = rawFiles.length
-    ElMessage.success(`已上传 ${rawFiles.length} 张眼底图，AI 分析中…`)
-    await fetchList(true)
-    await fetchStats()
-  } catch (e: any) {
-    ElMessage.error(e?.message || '上传失败，请检查网络或后端服务')
-  } finally {
-    setTimeout(() => (uploadProgress.visible = false), 600)
-    fileList.value = []
-  }
-}
-
-const onFileChange = (file: UploadUserFile, all: UploadUserFile[]) => {
-  if (!file.raw) return
-  if (!beforeUpload(file.raw as UploadRawFile)) return
-  // 当用户多选一次性进来时，等收齐后再批量上传
-  const ready = all.filter((f) => f.raw && beforeUpload(f.raw as UploadRawFile))
-  // 若 element-plus 调用频繁，仅在最后一个回调时触发一次
-  if (ready.length === all.length) {
-    doUpload(ready.map((f) => f.raw as File))
-  }
-}
-
-const handleDrop = (e: DragEvent) => {
-  e.preventDefault()
-  if (!canManage.value) {
-    ElMessage.warning('当前角色为只读模式，无法上传眼底图')
-    return
-  }
-  const items = e.dataTransfer?.items
-  if (!items) return
-  const collected: File[] = []
-  const promises: Promise<void>[] = []
-  for (let i = 0; i < items.length; i++) {
-    const item = items[i]
-    if (item.kind !== 'file') continue
-    const entry = (item as any).webkitGetAsEntry?.()
-    if (entry) promises.push(walkEntry(entry, collected))
-    else {
-      const f = item.getAsFile()
-      if (f) collected.push(f)
-    }
-  }
-  Promise.all(promises).then(() => {
-    const valid = collected.filter((f) => beforeUpload(f as UploadRawFile))
-    doUpload(valid)
-  })
-}
 
 const walkEntry = (entry: any, out: File[]): Promise<void> =>
   new Promise((resolve) => {
@@ -400,7 +310,6 @@ const walkEntry = (entry: any, out: File[]): Promise<void> =>
     } else resolve()
   })
 
-const onDragOver = (e: DragEvent) => e.preventDefault()
 
 /* ================== 报告预览 / 导出 ================== */
 

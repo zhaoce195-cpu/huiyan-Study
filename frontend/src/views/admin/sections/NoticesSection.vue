@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Plus, Refresh, Search, Edit, Delete, View, Bell } from '@element-plus/icons-vue'
 import { CommonApi } from '@/api'
 
@@ -208,36 +208,7 @@ const fetchInbox = async () => {
   }
 }
 
-const markRead = async (item: CommonApi.NotificationItem) => {
-  if (item.read) return
-  try {
-    await CommonApi.markNotificationRead([item.id])
-    item.read = true
-    inboxUnread.value = Math.max(0, inboxUnread.value - 1)
-  } catch {
-    /* ignore */
-  }
-}
-const markAllRead = async () => {
-  if (inboxUnread.value === 0) {
-    ElMessage.info('暂无未读通知')
-    return
-  }
-  try {
-    await CommonApi.markAllNotificationsRead()
-    inbox.value.forEach((n) => (n.read = true))
-    inboxUnread.value = 0
-  } catch {
-    /* ignore */
-  }
-}
 
-const inboxTypeLabel: Record<CommonApi.NotificationItem['type'], string> = {
-  system: '系统',
-  screening: '筛查',
-  training: '培训',
-  refer: '转诊'
-}
 
 onMounted(() => {
   if (props.canManage) fetchList()

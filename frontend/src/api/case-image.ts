@@ -66,6 +66,22 @@ export interface IdridImportParams {
   skipExisting?: boolean
 }
 
+export interface BackfillPatientParams {
+  /** 只补空字段 */
+  onlyEmpty?: boolean
+  /** 强制覆盖已有的模拟患者信息（筛查病例始终不受影响） */
+  overwrite?: boolean
+}
+
+export interface BackfillPatientResult {
+  trainingTotal: number
+  trainingFilled: number
+  /** 恒为 0：筛查病例对应真实受检者，不生成也不覆盖 */
+  screeningTotal: number
+  screeningFilled: number
+  caseSnFilled: number
+}
+
 export interface IdridImportResult {
   importedCases: number
   appendedImages: number
@@ -173,5 +189,18 @@ export const importIdrid = (params: IdridImportParams) =>
   })
 
 /* ========== 一键补齐旧病例的模拟患者信息 ========== */
-// 已移除：前端没有任何按钮调用此 API；后端端点 /admin/import/backfill-patient-info 同步下线
+
+/**
+ * 补齐教学病例的模拟患者信息。
+ *
+ * 此前这个函数被删掉了，但管理后台的按钮一直留着 —— 点了必定报错，
+ * 功能从未可用（遗留清单 D-001）。现补回实现，后端路由同步补齐。
+ *
+ * 训练病例来自公开数据集，本就没有患者身份；筛查病例对应真实受检者，
+ * 一律不生成也不覆盖。
+ */
+export const backfillPatientInfo = (params: BackfillPatientParams) =>
+  http.post<BackfillPatientResult>('/admin/import/backfill-patient', params, {
+    showError: true
+  })
 
