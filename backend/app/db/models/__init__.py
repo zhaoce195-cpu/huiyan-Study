@@ -99,3 +99,6 @@ from app.db.models.lti_platform import (  # noqa: F401
     LtiNonce,
     LtiPlatform,
 )
+
+# ===== 公告已读记录（原先存进程内存，重启即丢失） =====
+from app.db.models.notice_read import NoticeRead  # noqa: F401

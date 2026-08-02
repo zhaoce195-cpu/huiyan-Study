@@ -3,18 +3,20 @@
 - 后端只有一张 biz_notice 表，承担两类前端语义：
     a) 后台公告管理（CRUD）
     b) "我的通知"（按 visible_roles 过滤，再叠加用户已读集合）
-- 已读集合使用进程内字典存储，重启后丢失。生产可换 Redis：键 user_id:notice_id
+- 已读集合落库到 biz_notice_read。原先存进程内字典，重启即丢失、
+  多副本各存一份 —— 对收件箱来说那等于功能不成立。
 """
 
-import threading
 from datetime import datetime
-from typing import Dict, List, Optional, Set
+from typing import List, Optional, Set
 
 from fastapi import HTTPException, status
 from sqlalchemy import desc, or_
 from sqlalchemy.orm import Session
 
-from app.db.models import Notice, NoticeStatusEnum, User
+from sqlalchemy.exc import IntegrityError
+
+from app.db.models import Notice, NoticeRead, NoticeStatusEnum, User
 from app.schemas.common import (
     NoticeOut,
     NoticePageOut,
@@ -23,30 +25,35 @@ from app.schemas.common import (
     NotificationListOut,
 )
 
-# ====================== 已读状态（进程内）======================
-
-_read_lock = threading.Lock()
-# user_id → set(notice_id)
-_read_set: Dict[int, Set[int]] = {}
-
-
-def _read_get(user_id: int) -> Set[int]:
-    with _read_lock:
-        return set(_read_set.get(user_id, set()))
+# ====================== 已读状态（落库）======================
+#
+# 原先存在进程内存的字典里：后端一重启所有人的已读全部丢失，
+# 多副本部署时每个进程各存一份。对收件箱来说这不是性能取舍 ——
+# 标记已读的唯一意义就是它下次还在。
 
 
-def _read_mark(user_id: int, ids: List[int]) -> None:
+def _read_get(db: Session, user_id: int) -> Set[int]:
+    rows = db.query(NoticeRead.notice_id).filter(NoticeRead.user_id == user_id).all()
+    return {r[0] for r in rows}
+
+
+def _read_mark(db: Session, user_id: int, ids: List[int]) -> None:
     if not ids:
         return
-    with _read_lock:
-        s = _read_set.setdefault(user_id, set())
-        for i in ids:
-            s.add(int(i))
-
-
-def _read_mark_all(user_id: int, ids: List[int]) -> None:
-    with _read_lock:
-        _read_set[user_id] = set(int(i) for i in ids)
+    have = _read_get(db, user_id)
+    added = False
+    for nid in ids:
+        if nid in have:
+            continue
+        db.add(NoticeRead(user_id=user_id, notice_id=int(nid)))
+        added = True
+    if added:
+        try:
+            db.commit()
+        except IntegrityError:
+            # 并发下同一条可能被重复插入，唯一约束会挡住。
+            # 这不是错误：目标状态（已读）本就已经达成。
+            db.rollback()
 
 
 # ====================== 工具 ======================
@@ -225,7 +232,7 @@ class NoticeService:
             .all()
         )
 
-        read_ids = _read_get(user.id)
+        read_ids = _read_get(db, user.id)
         items: List[NotificationItemOut] = []
         unread = 0
         for r in rows:
@@ -245,7 +252,7 @@ class NoticeService:
         existing_ids = [
             r.id for r in db.query(Notice.id).filter(Notice.id.in_(ids)).all()
         ]
-        _read_mark(user.id, existing_ids)
+        _read_mark(db, user.id, existing_ids)
 
     @staticmethod
     def mark_all_read(db: Session, user: User) -> None:
@@ -253,7 +260,7 @@ class NoticeService:
             r.id for r in db.query(Notice.id)
             .filter(Notice.status == NoticeStatusEnum.PUBLISHED.value).all()
         ]
-        _read_mark_all(user.id, all_ids)
+        _read_mark(db, user.id, all_ids)
 
 
 def _parse_dt(s: Optional[str]) -> Optional[datetime]:

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Plus, Refresh, Search, Edit, Delete, View, Bell } from '@element-plus/icons-vue'
 import { CommonApi } from '@/api'
 
@@ -209,6 +209,48 @@ const fetchInbox = async () => {
 }
 
 
+const markRead = async (item: CommonApi.NotificationItem) => {
+  if (item.read) return
+  try {
+    await CommonApi.markNotificationRead([item.id])
+    item.read = true
+    inboxUnread.value = Math.max(0, inboxUnread.value - 1)
+  } catch {
+    /* 静默：标记失败不影响阅读内容本身 */
+  }
+}
+
+const markAllRead = async () => {
+  if (inboxUnread.value === 0) {
+    ElMessage.info('暂无未读消息')
+    return
+  }
+  try {
+    await CommonApi.markAllNotificationsRead()
+    inbox.value.forEach((n) => (n.read = true))
+    inboxUnread.value = 0
+    ElMessage.success('已全部标为已读')
+  } catch (e: any) {
+    ElMessage.error(e?.message || '操作失败')
+  }
+}
+
+// 用函数而不是直接索引：后端将来新增消息类型时，前端拿到的是
+// 一个字典里没有的字符串，直接索引会得到 undefined 并渲染成空白。
+// 这里回退到原始值，至少还能看出是什么类型。
+const INBOX_TYPE: Record<string, { label: string; tag: string }> = {
+  system: { label: '系统', tag: 'info' },
+  screening: { label: '筛查', tag: 'warning' },
+  training: { label: '培训', tag: 'success' },
+  refer: { label: '转诊', tag: 'danger' }
+}
+const inboxTypeLabel = (t: string) => INBOX_TYPE[t]?.label || t
+const inboxTypeTag = (t: string) => INBOX_TYPE[t]?.tag || 'info'
+
+const onInboxPage = (p: number) => {
+  inboxPage.page = p
+  fetchInbox()
+}
 
 onMounted(() => {
   if (props.canManage) fetchList()
@@ -218,23 +260,76 @@ onMounted(() => {
 
 <template>
   <div class="notices-section">
-    <!-- 我的消息盒子（已改造为「机构权限申请」占位，公告改走登录弹窗） -->
+    <!-- 我的消息：按 visible_roles 过滤后的站内消息，点行即标记已读。
+         已读状态落在 biz_notice_read，重启不丢。
+         机构权限申请等工作流将来以新的消息类型汇入同一收件箱，
+         而不是再开一块独立面板。 -->
     <div class="card inbox-card">
       <div class="card-header">
         <div class="card-title">
           <el-icon><Bell /></el-icon>
           我的消息
+          <el-tag v-if="inboxUnread > 0" size="small" type="danger" class="ml8">
+            {{ inboxUnread }} 条未读
+          </el-tag>
+          <span v-else class="muted ml8">全部已读</span>
+        </div>
+        <div class="card-actions">
+          <el-button :icon="Refresh" size="small" @click="fetchInbox">刷新</el-button>
+          <el-button
+            size="small"
+            type="primary"
+            :disabled="inboxUnread === 0"
+            @click="markAllRead"
+          >
+            全部标为已读
+          </el-button>
         </div>
       </div>
-      <div class="placeholder">
-        <div class="placeholder-icon">
-          <el-icon><Bell /></el-icon>
-        </div>
-        <div class="placeholder-title">机构权限申请功能开发中，敬请期待</div>
-        <div class="placeholder-desc">
-          后续注册用户申请加入机构、绑定科室的工作流将在此模块统一接入。
-        </div>
+
+      <el-table
+        v-loading="inboxLoading"
+        :data="inbox"
+        size="small"
+        :row-class-name="({ row }: any) => (row.read ? '' : 'unread-row')"
+        @row-click="markRead"
+      >
+        <el-table-column label="类型" width="80">
+          <template #default="{ row }">
+            <el-tag size="small" :type="(inboxTypeTag(row.type) as any)">
+              {{ inboxTypeLabel(row.type) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="标题" min-width="180">
+          <template #default="{ row }">
+            <span :class="{ bold: !row.read }">{{ row.title }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="content" label="内容" min-width="260" show-overflow-tooltip />
+        <el-table-column prop="createdAt" label="时间" width="170" />
+        <el-table-column label="状态" width="80">
+          <template #default="{ row }">
+            <span :class="row.read ? 'muted' : 'unread-dot'">
+              {{ row.read ? '已读' : '未读' }}
+            </span>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <div v-if="inbox.length === 0 && !inboxLoading" class="empty-hint">
+        暂无消息
       </div>
+
+      <el-pagination
+        v-if="inboxTotal > inboxPage.pageSize"
+        class="pager"
+        layout="prev, pager, next"
+        :current-page="inboxPage.page"
+        :page-size="inboxPage.pageSize"
+        :total="inboxTotal"
+        @current-change="onInboxPage"
+      />
     </div>
 
     <!-- 公告管理 -->
@@ -485,6 +580,28 @@ onMounted(() => {
 }
 :deep(.unread-row) td {
   background: #fff7e6 !important;
+}
+/* 未读行整行可点，点一下即标记已读 —— 需要有可点的暗示 */
+:deep(.unread-row) {
+  cursor: pointer;
+}
+.bold {
+  font-weight: 600;
+  color: #1d2129;
+}
+.unread-dot {
+  color: #f56c6c;
+  font-weight: 600;
+}
+.empty-hint {
+  padding: 28px 0;
+  text-align: center;
+  color: #86909c;
+  font-size: 13px;
+}
+.pager {
+  margin-top: 12px;
+  justify-content: flex-end;
 }
 .nd-head h3 {
   margin: 8px 0 6px;
