@@ -9,7 +9,15 @@
     python init_data.py
 """
 
+import sys
 from datetime import datetime
+
+# 中文 Windows 控制台默认 GBK，脚本里的 ✔ 之类字符会直接抛
+# UnicodeEncodeError 并中断初始化 —— 表建了一半，看着像脚本有 bug。
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
 
 from app.core.security import hash_password
 from app.db.base import Base
@@ -31,10 +39,37 @@ DEFAULT_USERS = [
 ]
 
 
+def _stamp_if_needed() -> None:
+    """
+    把新建的库纳入 alembic 管理。
+
+    只 create_all 不 stamp，库就停在「有表、但 alembic 不知道它到哪一版」
+    的状态：之后执行 upgrade 会从头重跑所有迁移，而那些迁移针对的是
+    早期表结构，必然报错。这正是遗留清单 D-004 的成因。
+    """
+    from pathlib import Path
+
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import inspect
+
+    from app.core.config import settings
+
+    if "alembic_version" in inspect(engine).get_table_names():
+        return
+    base = Path(__file__).resolve().parent
+    cfg = Config(str(base / "alembic.ini"))
+    cfg.set_main_option("script_location", str(base / "alembic"))
+    cfg.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+    command.stamp(cfg, "head")
+    print("    ✔ 已纳入 alembic 管理（stamp head）")
+
+
 def main() -> None:
     print(f"[{datetime.now()}] 1. 创建表结构 …")
     Base.metadata.create_all(bind=engine)
     print("    ✔ 表结构已就绪")
+    _stamp_if_needed()
 
     db = SessionLocal()
     try:
