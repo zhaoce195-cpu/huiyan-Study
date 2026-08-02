@@ -20,6 +20,19 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _updated_at_default() -> str:
+    """
+    updated_at 的 server_default，按当前方言取值。
+
+    只有 MySQL 支持 ON UPDATE CURRENT_TIMESTAMP。写死它会让整条迁移链
+    在 SQLite 上跑不到底 —— 而迁移链能不能跑到底，正是首次部署时
+    才会暴露的问题。
+    """
+    if op.get_bind().dialect.name == "mysql":
+        return "CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"
+    return "CURRENT_TIMESTAMP"
+
+
 def upgrade() -> None:
     op.create_table(
         "biz_teaching_share",
@@ -38,7 +51,13 @@ def upgrade() -> None:
         sa.Column("reviewed_at", sa.DateTime(), nullable=True, comment="审核时间"),
         sa.Column("teacher_id", sa.Integer(), nullable=False, comment="分享教师ID"),
         sa.Column("created_at", sa.DateTime(), nullable=True, server_default=sa.text("CURRENT_TIMESTAMP"), comment="创建时间"),
-        sa.Column("updated_at", sa.DateTime(), nullable=True, server_default=sa.text("CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP"), comment="更新时间"),
+        # ON UPDATE CURRENT_TIMESTAMP 是 MySQL 专有语法，SQLite 直接报
+        # 「near "ON": syntax error」，整条迁移链在 SQLite 上跑不到底。
+        # 按方言取值：MySQL 保持原样（已升级的环境结果不变），
+        # 其他方言只给 CURRENT_TIMESTAMP —— 更新时间本来就由
+        # TimestampMixin 在 Python 侧维护，不依赖数据库触发。
+        sa.Column("updated_at", sa.DateTime(), nullable=True,
+                  server_default=sa.text(_updated_at_default()), comment="更新时间"),
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(["teaching_case_id"], ["biz_training_case.id"], ondelete="SET NULL"),
         sa.ForeignKeyConstraint(["reviewer_id"], ["sys_user.id"], ondelete="SET NULL"),
