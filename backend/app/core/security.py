@@ -24,10 +24,21 @@ def hash_password(plain_password: str) -> str:
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """校验明文密码与库中哈希值是否一致"""
+    """
+    校验明文密码与库中哈希值是否一致。
+
+    哈希无法识别时返回 False，而不是让异常冒上去。
+    这类记录确实存在：LTI / 统一身份创建的账号故意不设可用口令，
+    历史脏数据也可能留下非 bcrypt 的值。让 passlib 抛出去的话，
+    有人拿这类账号尝试登录会得到 500 而不是「密码错误」——
+    既暴露了账号存在与否，也让日志里堆满无意义的异常。
+    """
     if not plain_password or not hashed_password:
         return False
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except Exception:
+        return False
 
 
 # ---------- JWT 工具 ----------

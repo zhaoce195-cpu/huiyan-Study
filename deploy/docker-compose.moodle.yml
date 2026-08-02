@@ -1,0 +1,111 @@
+# Moodle 教学中台
+#
+# 方案决策二：以 Moodle 作为教学中台，慧眼作为 LTI 1.3 工具挂进去。
+# 课程、班级、成绩册、考勤这些教学管理能力由 Moodle 承担，
+# 慧眼只做它不可替代的部分——影像判读训练与评分。
+#
+# 起停：
+#   docker compose -f deploy/docker-compose.moodle.yml up -d
+#
+# 首次启动较慢（Moodle 要建表并跑安装），耐心等 healthcheck 变绿。
+
+services:
+  moodle-db:
+    image: mariadb:10.11
+    container_name: huiyan-moodle-db
+    restart: unless-stopped
+    environment:
+      # Moodle 要求这几项，utf8mb4 + row format 是官方要求，别改
+      MARIADB_CHARACTER_SET: utf8mb4
+      MARIADB_COLLATE: utf8mb4_unicode_ci
+      MARIADB_DATABASE: moodle
+      MARIADB_USER: moodle
+      # 开发用口令。生产必须由 .env 覆盖，且不要提交进仓库
+      MARIADB_PASSWORD: ${MOODLE_DB_PASSWORD:-moodle-local-dev}
+      MARIADB_ROOT_PASSWORD: ${MOODLE_DB_ROOT_PASSWORD:-root-local-dev}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      # Moodle 的大表需要 Barracuda + DYNAMIC，否则建表会因行长超限失败
+      - --innodb-file-per-table=1
+      - --innodb-default-row-format=dynamic
+    volumes:
+      - moodle-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+  moodle:
+    # ⚠ 冻结镜像，不再有安全更新。
+    # Bitnami 于 2025 年把免费镜像迁到 bitnamilegacy 并停止维护，
+    # bitnami/moodle 现已没有可拉取的公开标签。
+    # 这个镜像可用于开发与联调，但上生产前必须换掉，三选一：
+    #   1. 订阅 Bitnami Secure Images（继续用同一套环境变量）；
+    #   2. 基于 moodlehq/moodle-php-apache 自建镜像，自己跟进 Moodle 版本；
+    #   3. 院方已有 Moodle 时直接对接，本文件只用于本地联调。
+    # 详见 deploy/moodle/README.md。
+    image: bitnamilegacy/moodle:5.0.2
+    container_name: huiyan-moodle
+    restart: unless-stopped
+    depends_on:
+      moodle-db:
+        condition: service_healthy
+    environment:
+      MOODLE_DATABASE_TYPE: mariadb
+      MOODLE_DATABASE_HOST: moodle-db
+      MOODLE_DATABASE_PORT_NUMBER: "3306"
+      MOODLE_DATABASE_NAME: moodle
+      MOODLE_DATABASE_USER: moodle
+      MOODLE_DATABASE_PASSWORD: ${MOODLE_DB_PASSWORD:-moodle-local-dev}
+
+      MOODLE_USERNAME: ${MOODLE_ADMIN_USER:-admin}
+      MOODLE_PASSWORD: ${MOODLE_ADMIN_PASSWORD:-Moodle-local-dev-1}
+      MOODLE_EMAIL: ${MOODLE_ADMIN_EMAIL:-admin@example.com}
+      MOODLE_SITE_NAME: 慧眼 · 医学教育与能力评估平台
+
+      # 站点地址必须与浏览器实际访问的一致。
+      # 不一致时 LTI 启动会失败：平台按 wwwroot 组装跳转地址，
+      # 对不上就跳到一个打不开的域名，且报错信息毫无提示性。
+      MOODLE_HOST: ${MOODLE_HOST:-localhost:8081}
+      MOODLE_REVERSEPROXY: ${MOODLE_REVERSEPROXY:-no}
+      MOODLE_SSLPROXY: ${MOODLE_SSLPROXY:-no}
+
+      BITNAMI_DEBUG: "false"
+      ALLOW_EMPTY_PASSWORD: "no"
+    ports:
+      - "${MOODLE_PORT:-8081}:8080"
+    volumes:
+      - moodle-data:/bitnami/moodle
+      - moodle-datadir:/bitnami/moodledata
+    healthcheck:
+      # 这个镜像里没有 curl 也没有 wget，只有 PHP。用 curl 写健康检查
+      # 会一直失败并把容器判成 unhealthy —— 而 Moodle 其实好好地在跑，
+      # 排查时极容易误判成「Moodle 起不来」。
+      #
+      # 不跟随跳转：登录页 303 到 wwwroot（对外的 8081），
+      # 而容器内部只监听 8080，跟过去必然连不上 ——
+      # 表现成「健康检查失败」，但 Moodle 其实完全正常。
+      # 能返回 2xx/3xx 就说明 Apache + PHP + Moodle 这条链是通的。
+      test:
+        - CMD
+        - php
+        - -r
+        - |
+          $$c = curl_init('http://localhost:8080/login/index.php');
+          curl_setopt($$c, CURLOPT_NOBODY, true);
+          curl_setopt($$c, CURLOPT_TIMEOUT, 8);
+          curl_exec($$c);
+          $$code = curl_getinfo($$c, CURLINFO_HTTP_CODE);
+          exit($$code >= 200 && $$code < 400 ? 0 : 1);
+      interval: 30s
+      timeout: 10s
+      # Moodle 首次安装耗时长，重试次数给足；给少了会被反复重启拖垮
+      retries: 40
+      start_period: 300s
+
+volumes:
+  moodle-db-data:
+  moodle-data:
+  moodle-datadir:

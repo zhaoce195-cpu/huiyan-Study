@@ -463,6 +463,42 @@ def _is_teacher_or_admin(user: User) -> bool:
     return code in (RoleEnum.TEACHER.value, RoleEnum.ADMIN.value)
 
 
+def _passback_to_lms(db: Session, user: User, record: PracticeSession) -> None:
+    """
+    把成绩回传到 LMS 的作业栏（LTI AGS）。
+
+    失败不影响提交：成绩已经在本系统落库了，回传是集成问题，
+    不该让学员的提交跟着失败。但结果必须记进审计 ——
+    默默失败会让教师以为分数已经进作业栏了，
+    等到期末对分才发现，那时已经无从追溯。
+    """
+    from app.db.models import LtiLaunch
+    from app.services import lti_service
+
+    launch = (
+        db.query(LtiLaunch)
+        .filter(LtiLaunch.user_id == user.id)
+        .order_by(desc(LtiLaunch.id))
+        .first()
+    )
+    if not launch:
+        return
+    try:
+        result = lti_service.post_score(
+            db, launch,
+            score=float(record.score_total or 0),
+            max_score=100.0,
+            comment=f"练习 #{record.id}",
+        )
+    except Exception as exc:
+        result = f"回传异常：{exc}"
+
+    OpLogService.record(
+        db, user=user, module="lti", action="score_passback",
+        detail=f"练习会话 #{record.id} 成绩 {record.score_total} → {result}",
+    )
+
+
 def _replay_or_reject(record: PracticeSession, request_id: str) -> PracticeOut:
     """
     会话已不是草稿时，判断这是「同一次提交的重试」还是「另一次提交」。
@@ -767,6 +803,8 @@ class PracticeService:
                 ),
             ),
         )
+
+        _passback_to_lms(db, user, record)
         return _to_out(record)
 
     # ---------- 教师点评 ----------

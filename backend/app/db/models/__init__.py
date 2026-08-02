@@ -92,3 +92,10 @@ from app.db.models.teaching_share import (  # noqa: F401
     ShareSourceEnum,
     ShareStatusEnum,
 )
+
+# ===== LTI 1.3 平台对接（慧眼作为 Tool，Moodle 等 LMS 作为 Platform） =====
+from app.db.models.lti_platform import (  # noqa: F401
+    LtiLaunch,
+    LtiNonce,
+    LtiPlatform,
+)

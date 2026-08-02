@@ -121,6 +121,14 @@ class Settings(BaseSettings):
     CSU_EYES_RESULT_SUBDIR: str = "csu"
 
     # ---------- Orthanc / DICOMweb ----------
+    # LTI 1.3：平台要按固定地址回调（redirect_uri 必须与注册时一致），
+    # 不能靠请求头推断。反向代理后面 request.base_url 拿到的是内网地址，
+    # 平台按它跳转会直接失败，所以这里必须显式配。
+    PUBLIC_BASE_URL: str = ""
+    # 前端地址。开发期前后端不同端口，启动完成后要跳到前端而不是后端；
+    # 留空则回落到 PUBLIC_BASE_URL（前后端同域部署时正确）。
+    FRONTEND_BASE_URL: str = ""
+
     # 影像层改造（方案决策三「全量 DICOM 化」）：
     # 影像经 DICOMweb 读取，不再由前端拼接静态文件路径。
     # 关闭时全部回退到旧的文件路径方案，便于灰度切换。

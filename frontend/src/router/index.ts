@@ -23,6 +23,14 @@ const routes: RouteRecordRaw[] = [
   },
 
   {
+    // LTI 启动落地页：从 Moodle 等 LMS 进来时的第一站。
+    // public 是必须的 —— 此刻本系统还没有登录态，令牌正要在这里落地。
+    path: '/lti-entry',
+    name: 'LtiEntry',
+    component: () => import('@/views/login/lti-entry.vue'),
+    meta: { title: '正在进入', public: true }
+  },
+  {
     // Cornerstone3D 技术验证页（替换阅片内核前的最小验证，非正式功能）
     path: '/spike/cornerstone',
     name: 'CornerstoneSpike',
