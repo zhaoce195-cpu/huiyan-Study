@@ -56,6 +56,10 @@ CATEGORY_TEXT = {
 
 DIFFICULTY_TEXT = {"EASY": "入门", "MEDIUM": "中级", "HARD": "高级"}
 
+# 标注分算法当前版本。改公式时必须同步 +1，否则新旧分数混在一起
+# 就再也分不清某个成绩是按哪套规则算出来的。
+SCORE_RULE_VERSION = 2
+
 DR_GRADE_TEXT = {
     "0": "0 级 无 DR",
     "1": "1 级 轻度 NPDR",
@@ -247,8 +251,21 @@ def _score(
     iou_avg = (iou_sum / iou_cnt) if iou_cnt else 0.0
     accuracy = (recall / len(gold_anns)) if gold_anns else (1.0 if not student_anns else 0.0)
 
-    # 标注得分：召回率 70% + 平均 IoU 30%
-    score_annotation = round(accuracy * 70.0 + iou_avg * 30.0, 2)
+    # 标注得分：召回率 70% + 平均 IoU 30%。
+    #
+    # 但没有任何框可以比对时（iou_cnt == 0），IoU 这一项什么也没度量，
+    # 却仍旧占着 30% 的权重 —— 学员在「无病灶病例」上完全答对，
+    # 标注分也只有 70，总分被压到 85。全库 88 例里有 82 例没有金标准
+    # 标注框，这不是边角情况而是主路径（遗留清单 D-002）。
+    #
+    # 此时把 IoU 的权重并回召回率，即只按「该找的都找到了、
+    # 不该标的没乱标」计分。其余情况一律不变：
+    #   · 有金标准但学员没标 → accuracy 为 0，仍得 0 分
+    #   · 无金标准但学员乱标 → accuracy 为 0，仍得 0 分
+    if iou_cnt == 0:
+        score_annotation = round(accuracy * 100.0, 2)
+    else:
+        score_annotation = round(accuracy * 70.0 + iou_avg * 30.0, 2)
 
     # ----- 3. 诊断书写 -----
     keywords: List[str] = []
@@ -376,6 +393,7 @@ def _to_out(record: PracticeSession) -> PracticeOut:
         student_diagnosis=record.student_diagnosis or "",
         student_diagnosis_form=record.student_diagnosis_form or {},
         scoring_mode=record.scoring_mode or "keyword",
+        score_rule_version=record.score_rule_version or 1,
         student_annotations=record.student_annotations or [],
         student_measurements=record.student_measurements or [],
         viewport=record.viewport_snapshot,
@@ -767,6 +785,7 @@ class PracticeService:
 
         record.student_diagnosis_form = params.diagnosis or None
         record.scoring_mode = result.get("scoring_mode", "keyword")
+        record.score_rule_version = SCORE_RULE_VERSION
         record.score_total = result["score_total"]
         record.score_grade = result["score_grade"]
         record.score_annotation = result["score_annotation"]

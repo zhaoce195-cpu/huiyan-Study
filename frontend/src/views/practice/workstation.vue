@@ -457,6 +457,15 @@ watch(currentImageIndex, () => {
             <el-tag size="small" :type="record?.scoringMode === 'structured' ? 'success' : 'info'">
               {{ record?.scoringMode === 'structured' ? '结构化评分' : '关键词评分（旧口径）' }}
             </el-tag>
+            <!-- 旧版标注分规则在无病灶病例上把总分封顶到 85，
+                 与新记录不可直接比较，须标出来 -->
+            <el-tooltip
+              v-if="(record?.scoreRuleVersion || 1) < 2"
+              content="该成绩按旧版标注分规则计算：无金标准标注框的病例上，全对也只有 70 分，总分封顶 85。与新记录不可直接比较。"
+              placement="top"
+            >
+              <el-tag size="small" type="warning">旧版标注分规则</el-tag>
+            </el-tooltip>
           </h3>
           <div class="score-grid">
             <div class="score-item">

@@ -158,25 +158,21 @@ def test_not_applicable_case_redistributes_grade_weight():
     assert r["score_total"] > naive
 
 
-def test_known_issue_no_gold_annotation_caps_annotation_score_at_70():
+def test_no_gold_annotation_no_longer_caps_the_score():
     """
-    【既有缺陷·固化现状，非本次引入】
+    【D-002 已修复】无金标准标注框的病例，全对应当拿满分。
 
-    标注分公式为 accuracy * 70 + iou_avg * 30。
-    当病例没有任何金标准标注（正常眼底、无病灶病例）时：
-        accuracy = 1.0（没有漏标）
-        iou_avg  = 0.0（没有框可算 IoU）
-    → 标注分恒为 70，学员即使完全答对也拿不到满分，
-      连带 DR 病例全对时总分只有 85。
+    原公式 accuracy*70 + iou_avg*30 在没有框可比时，IoU 项什么也没度量
+    却仍占 30% 权重，导致标注分恒为 70、总分被压到 85。
+    全库 88 例里有 82 例没有标注框 —— 这是主路径，不是边角情况。
 
-    本测试用于固化该行为并使其可见；修复需要调整评分口径，
-    会影响历史成绩可比性，应单独评估后再改。
+    修正：无框可比时把 IoU 的权重并回召回率。
     """
     r = _score_case("3", "3")
-    assert r["score_annotation"] == 70.0
+    assert r["score_annotation"] == 100.0
     assert r["score_grade"] == 100.0
     assert r["score_diagnosis"] == 100.0
-    assert r["score_total"] == 85.0, "全对却拿不到满分，属既有评分缺陷"
+    assert r["score_total"] == 100.0, "无病灶病例全对应当满分"
 
 
 # --------------------------------------------------------------------------
@@ -226,3 +222,50 @@ def test_two_modes_never_mix():
     )
     assert result["scoring_mode"] == "structured"
     assert result["score_diagnosis"] == 100.0, "自由文本不应拉低结构化得分"
+
+
+# --------------------------------------------------------------------------
+# D-002 修正的边界：只放宽「无从度量」的情形，不放宽「答错」
+# --------------------------------------------------------------------------
+
+def _score_with_anns(gold_grade, student_grade, student_anns, gold_anns=None):
+    from app.services.practice_service import _score
+    from app.schemas.practice import PracticeAnnotation, Point2D
+    case = FakeCase(gold_grade)
+    case.gold_annotations = gold_anns or []
+    anns = [
+        PracticeAnnotation(
+            id=f"S{i}", tool="rect", label=a["label"],
+            points=[Point2D(x=a["x"], y=a["y"]),
+                    Point2D(x=a["x"] + 50, y=a["y"] + 50)],
+        )
+        for i, a in enumerate(student_anns)
+    ]
+    result, _ = _score(case, student_grade, case.gold_diagnosis, anns)
+    return result
+
+
+def test_marking_lesions_on_a_clean_case_still_scores_zero():
+    """
+    无金标准框 ≠ 怎么标都给分。学员在没有病灶的图上乱标，
+    仍是全部误报，标注分应为 0 —— 修正放宽的是「无从度量」，
+    不是「答错」。
+    """
+    r = _score_with_anns("3", "3", [{"label": "出血", "x": 10, "y": 10}])
+    assert r["score_annotation"] == 0.0
+
+
+def test_missing_all_gold_lesions_still_scores_zero():
+    """
+    有金标准框但学员一个没标：同样是 iou_cnt == 0，
+    但召回率为 0，标注分必须仍是 0，不能被新分支放行。
+    """
+    gold = [{"type": "rect", "label": "出血", "x": 10, "y": 10, "w": 40, "h": 40}]
+    r = _score_with_anns("3", "3", [], gold_anns=gold)
+    assert r["score_annotation"] == 0.0
+
+
+def test_normal_case_with_no_marks_gets_full_annotation_score():
+    """该找的没有、也确实没标 → 满分"""
+    r = _score_with_anns("3", "3", [])
+    assert r["score_annotation"] == 100.0

@@ -71,6 +71,11 @@ export interface PracticeRecord {
   studentDiagnosisForm?: Record<string, any>
   /** 这份成绩按哪套口径判的：keyword 旧自由文本 / structured 结构化 */
   scoringMode?: 'keyword' | 'structured'
+  /**
+   * 标注分算法版本。1 与 2 的分数不可直接横向比较：
+   * 版本 1 在没有金标准标注框的病例上，全对也只有 70 分（总分封顶 85）。
+   */
+  scoreRuleVersion?: number
   studentAnnotations: PracticeAnnotation[]
   studentMeasurements: PracticeAnnotation[]
   viewport: Record<string, any> | null

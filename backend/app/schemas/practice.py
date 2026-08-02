@@ -173,6 +173,9 @@ class PracticeOut(_CamelModel):
     # 这份成绩按哪套口径判的。存量记录是 keyword，新记录是 structured，
     # 分数不可直接横向比较，界面上要说清楚
     scoring_mode: str = "keyword"
+    # 标注分算法版本。1 与 2 的分数不可直接横向比较：
+    # 版本 1 在没有金标准标注框的病例上，全对也只有 70 分。
+    score_rule_version: int = 1
     student_annotations: List[Dict[str, Any]] = Field(default_factory=list)
     student_measurements: List[Dict[str, Any]] = Field(default_factory=list)
     viewport: Optional[Dict[str, Any]] = None

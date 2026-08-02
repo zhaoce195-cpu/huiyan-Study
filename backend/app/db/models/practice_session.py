@@ -71,6 +71,16 @@ class PracticeSession(Base, TimestampMixin):
         String(16), nullable=False, default="keyword",
         comment="评分口径：keyword / structured",
     )
+    # 标注分算法版本。
+    #   1 = 原公式 accuracy*70 + iou*30，无框可比时 IoU 项仍占 30% 权重，
+    #       导致无病灶病例上全对也只有 70 分
+    #   2 = 无框可比时把 IoU 权重并回召回率
+    # 历史记录保留版本 1 的分数，不重算：重算会让学员的成绩单
+    # 在他毫不知情的情况下变动。版本号让两批分数可区分、可解释。
+    score_rule_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1,
+        comment="标注分算法版本：1 原公式 / 2 修正无框可比时的权重",
+    )
 
     # 提交幂等键：客户端一次提交动作生成一个，重试时原样带回。
     # 真正要防的不是「多出一条记录」（状态机已经拦住了），而是
