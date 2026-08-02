@@ -286,9 +286,9 @@ const onDiagnosisDone = (_payload: any) => {
 }
 
 /* ================== 上传 ==================
- * 拖拽上传区（drop-zone）在某次界面调整中被移除，只剩下 CSS 与一批
- * 处理函数、状态变量成为孤儿。此处已随类型检查清理一并移除，
- * 该功能的重建见遗留清单 D-008。
+ * 上传能力已抽成 DiagnosisUpload 组件（含拖拽），本页只负责挂载。
+ * 抽离时旧的处理函数与状态变量留在了这里成为孤儿，
+ * 已随类型检查清理一并移除。
  */
 
 
@@ -1289,47 +1289,9 @@ onBeforeUnmount(stopPoll)
   gap: 20px;
   margin-bottom: 20px;
 }
-.drop-zone {
-  border: 2px dashed #c5d8ff;
-  border-radius: 10px;
-  background: linear-gradient(180deg, #f7faff 0%, #ffffff 100%);
-  transition: 0.2s;
-  position: relative;
-}
-.drop-zone:hover {
-  border-color: #1677ff;
-  background: #f0f6ff;
-}
-.drop-zone-disabled {
-  border-style: dashed;
-  border-color: #e5e6eb;
-  background: #fafbfc;
-  cursor: not-allowed;
-}
-.drop-zone-disabled:hover {
-  border-color: #e5e6eb;
-  background: #fafbfc;
-}
-.drop-content.readonly {
-  opacity: 0.85;
-}
-.muted-icon {
-  color: #c9cdd4 !important;
-}
-.drop-zone :deep(.el-upload),
-.drop-zone :deep(.el-upload-dragger) {
-  width: 100%;
-  background: transparent;
-  border: none;
-  display: block;
-}
 .drop-content {
   padding: 36px 20px;
   text-align: center;
-}
-.upload-icon {
-  font-size: 56px;
-  color: #1677ff;
 }
 .drop-title {
   margin: 12px 0 6px;
@@ -1343,11 +1305,6 @@ onBeforeUnmount(stopPoll)
   margin-bottom: 14px;
 }
 
-.upload-progress {
-  padding: 12px 20px 18px;
-  border-top: 1px dashed #d8e3fb;
-  background: #f7faff;
-}
 .up-row {
   display: flex;
   align-items: center;
@@ -1367,12 +1324,6 @@ onBeforeUnmount(stopPoll)
   font-weight: 600;
 }
 
-.upload-tips {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 12px 0;
-}
 .tip-item {
   display: flex;
   align-items: center;
