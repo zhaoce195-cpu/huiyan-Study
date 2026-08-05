@@ -164,6 +164,36 @@ def _classify_4xx(status_code: int, message: str, url: str) -> HTTPException:
     )
 
 
+# 连通性预检的超时。推理本身慢是正常的，但「连得上却永不回数据」
+# 应当立刻判定，而不是让用户干等。
+PREFLIGHT_TIMEOUT = 4.0
+
+
+def preflight() -> Optional[str]:
+    """
+    上游是否可用。返回 None 表示可用，否则返回给用户看的原因。
+
+    为什么需要这一步：推理服务经 SSH 反向隧道映射到本机端口，隧道断掉后
+    端口仍在监听（sshd 照常 accept），TCP 连得上、HTTP 永远不回数据。
+    此时不做预检，请求会一路耗到 90 秒超时、再重试一次，用户在界面上
+    干等近三分钟才看到失败 —— 那三分钟里他不知道是在算还是已经坏了。
+    """
+    base = (settings.CSU_EYES_BASE_URL or "").rstrip("/")
+    if not base:
+        return "未配置算法服务地址"
+    try:
+        requests.get(f"{base}/", timeout=PREFLIGHT_TIMEOUT)
+        return None
+    except requests.exceptions.Timeout:
+        # 连得上但不回话 —— 隧道断了的典型形态
+        return "算法服务无响应（推理通道可能已断开），请联系管理员"
+    except requests.exceptions.ConnectionError:
+        return "算法服务未启动或网络不通"
+    except Exception:
+        # 其它异常（如返回了非预期内容）不代表不可用，放行让正式请求去判断
+        return None
+
+
 def _post_form_sync(
     url: str,
     *,
@@ -171,8 +201,16 @@ def _post_form_sync(
     data: Optional[Dict[str, str]] = None,
     timeout: float = 90.0,
 ) -> dict:
+    reason = preflight()
+    if reason:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=reason,
+        )
+
     last_err: Optional[Exception] = None
-    # 仅 5xx / 网络错误重试一次；4xx 直接抛出
+    # 仅 5xx / 网络错误重试一次；4xx 直接抛出。
+    # 注意超时不重试：既然已经等满一个超时周期，再等一遍只是把
+    # 用户的等待时间翻倍，结果不会变。
     for attempt in range(2):
         try:
             resp = requests.post(
@@ -205,6 +243,15 @@ def _post_form_sync(
             continue
         except HTTPException:
             raise
+        except requests.exceptions.Timeout as e:
+            # 超时不重试：已经等满一个超时周期，再来一遍只是把用户的
+            # 等待时间翻倍，而结果不会变。此前正是这一条让用户在界面上
+            # 干等了近三分钟（90 秒 × 2）。
+            logger.warning("[csu-eyes] timeout, not retrying: %s", e)
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail=f"算法服务响应超时（已等待 {timeout:.0f} 秒），请稍后重试",
+            )
         except requests.RequestException as e:
             last_err = e
             logger.warning("[csu-eyes] network attempt %d: %s", attempt + 1, e)

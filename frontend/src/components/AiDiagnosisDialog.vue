@@ -46,9 +46,15 @@ const studentGradeNum = computed<number | null>(() => {
 /** 热力图查看：original / heatmap 切换 */
 const showHeat = ref<{ left: boolean; right: boolean }>({ left: true, right: true })
 
+const elapsed = ref(0)
+let elapsedTimer: ReturnType<typeof setInterval> | null = null
+
 const fetchOrRun = async (force = false) => {
   loading.value = true
   errMsg.value = ''
+  elapsed.value = 0
+  if (elapsedTimer) clearInterval(elapsedTimer)
+  elapsedTimer = setInterval(() => { elapsed.value += 1 }, 1000)
   try {
     if (!force) {
       const cached = await TrainingApi.getAiDiagnosis(props.caseId)
@@ -63,6 +69,7 @@ const fetchOrRun = async (force = false) => {
       e?.msg || e?.message || 'AI 算法服务暂不可用，请稍后重试'
   } finally {
     loading.value = false
+    if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null }
   }
 }
 
@@ -96,7 +103,12 @@ const close = () => emit('update:visible', false)
   >
     <!-- 加载中 -->
     <div v-if="loading" v-loading="true" class="ai-loading">
-      正在调用眼科算法服务推理（约 5~30 秒）…
+      <div>正在调用眼科算法服务推理…</div>
+      <!-- 显示真实已用时长：此前写死「约 5~30 秒」，
+           而服务异常时实际会等到超时，提示本身反而在误导 -->
+      <div class="ai-loading-sub">
+        已等待 {{ elapsed }} 秒{{ elapsed > 30 ? ' · 超过预期，可能是算法服务响应缓慢' : '' }}
+      </div>
     </div>
 
     <!-- 失败 -->
@@ -239,6 +251,12 @@ const close = () => emit('update:visible', false)
 </template>
 
 <style scoped>
+.ai-loading-sub {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #86909c;
+}
+
 .ai-loading {
   height: 220px;
   display: flex;
