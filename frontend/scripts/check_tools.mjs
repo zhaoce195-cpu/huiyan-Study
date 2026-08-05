@@ -89,6 +89,34 @@ for (const [dx, dy] of [[-60, -40], [0, 0], [60, -40]]) {
 check('角度测量', (await annCount('Angle')) > gBefore,
       `标注数 ${gBefore} → ${await annCount('Angle')}`)
 
+// ---- 标注绘制：节点是否可见、测量是否被画两遍 ----
+const painted = () => page.evaluate(() => {
+  const c = document.querySelector('canvas.overlay')
+  const d = c?.getContext('2d')?.getImageData(0, 0, c.width, c.height).data
+  let n = 0
+  if (d) for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++
+  return n
+})
+
+// 多边形：只点第一下，画布上就该有东西（此前一片空白）
+await setTool('polygon'); await page.waitForTimeout(400)
+const blank = await painted()
+await page.mouse.click(cx - 60, cy - 40)
+await page.waitForTimeout(500)
+const oneNode = await painted()
+check('多边形首点即可见', oneNode > blank + 20, `非透明像素 ${blank} → ${oneNode}`)
+
+// 再点两下形成三角，然后点回首点闭合
+await page.mouse.move(cx + 60, cy - 40); await page.mouse.click(cx + 60, cy - 40)
+await page.waitForTimeout(300)
+await page.mouse.move(cx, cy + 50); await page.mouse.click(cx, cy + 50)
+await page.waitForTimeout(300)
+const annBefore = await page.evaluate(() => window.__annCount?.() ?? -1)
+await page.mouse.move(cx - 60, cy - 40); await page.mouse.click(cx - 60, cy - 40)
+await page.waitForTimeout(600)
+const annAfter = await page.evaluate(() => window.__annCount?.() ?? -1)
+check('点回首点可闭合多边形', annAfter > annBefore, `标注数 ${annBefore} → ${annAfter}`)
+
 if (errs.length) {
   console.log('页面错误:'); errs.slice(0, 4).forEach((e) => console.log('  ' + e))
 }

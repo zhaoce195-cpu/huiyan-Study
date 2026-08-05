@@ -163,6 +163,7 @@ onMounted(async () => {
     ;(window as any).__csTools = tools
     // 供工具交互自检切换当前工具
     ;(window as any).__setTool = (t: string) => { tool.value = t as any }
+    ;(window as any).__annCount = () => annotations.value.length
   } catch {
     /* 忽略 */
   }

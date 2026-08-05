@@ -340,6 +340,16 @@ const setActiveCornerstoneTool = (t: ToolName) => {
 
 const drawing = ref(false)
 const currentPoints = ref<{ x: number; y: number }[]>([])
+/** 多边形绘制中光标所在的影像坐标，用于橡皮筋预览 */
+const hoverPoint = ref<{ x: number; y: number } | null>(null)
+
+/** 光标是否落在首点附近（屏幕距离），用于「点回首点闭合」 */
+const CLOSE_RADIUS = 10
+const nearFirstPoint = (px: number, py: number): boolean => {
+  if (currentPoints.value.length < 3) return false
+  const first = pixelToCanvas(currentPoints.value[0].x, currentPoints.value[0].y)
+  return Math.hypot(first.x - px, first.y - py) <= CLOSE_RADIUS
+}
 const currentLabel = ref(LESION_LABELS[0].value)
 
 const syncOverlaySize = () => {
@@ -401,7 +411,16 @@ const redrawOverlay = () => {
   // 已落地的标注
   if (effectiveLayers.value.my) {
     props.annotations.forEach((a) => drawAnnotation(ctx, a))
-    props.measurements.forEach((m) => drawMeasurement(ctx, m))
+    // 只画 Cornerstone3D 自己没在画的那些测量。
+    //
+    // 内置 Length / Angle 工具会自行渲染手柄与数值；overlay 若再画一遍，
+    // 一条测量就有两套端点，看起来像「点一次出现两个点」。
+    // 但从数据库恢复的历史测量并不在 Cornerstone3D 的标注状态里，
+    // 那些仍然要由 overlay 负责画出来。
+    const live = liveAnnotationUids()
+    props.measurements.forEach((m) => {
+      if (!live.has(m.id)) drawMeasurement(ctx, m)
+    })
   }
 
   // 正在绘制的临时图形
@@ -409,13 +428,50 @@ const redrawOverlay = () => {
     const tmp: AnnotationItem = {
       id: '_tmp',
       tool: props.tool === 'eraser' ? 'rect' : props.tool === 'pan' ? 'rect' : (props.tool as any),
-      points: currentPoints.value,
+      // 多边形把光标位置作为临时末点，形成跟随鼠标的橡皮筋
+      points:
+        props.tool === 'polygon' && hoverPoint.value
+          ? [...currentPoints.value, hoverPoint.value]
+          : currentPoints.value,
       label: currentLabel.value,
       color: colorOf(currentLabel.value),
       layer: 'primary'
     }
     drawAnnotation(ctx, tmp, true)
+
+    // 满足闭合条件时把首点高亮出来，告诉用户「点这里就能收尾」
+    if (props.tool === 'polygon' && currentPoints.value.length >= 3) {
+      const f = pixelToCanvas(currentPoints.value[0].x, currentPoints.value[0].y)
+      ctx.save()
+      ctx.beginPath()
+      ctx.arc(f.x, f.y, CLOSE_RADIUS, 0, Math.PI * 2)
+      ctx.strokeStyle = '#00e676'
+      ctx.lineWidth = 2
+      ctx.setLineDash([3, 3])
+      ctx.stroke()
+      ctx.restore()
+    }
   }
+}
+
+/** 顶点标记。首点画大一圈：多边形要靠点回首点来闭合，得让它显眼 */
+const drawNode = (
+  ctx: CanvasRenderingContext2D,
+  p: { x: number; y: number },
+  color: string,
+  isFirst = false
+) => {
+  const r = isFirst ? 6 : 4
+  ctx.save()
+  ctx.setLineDash([])
+  ctx.beginPath()
+  ctx.arc(p.x, p.y, r, 0, Math.PI * 2)
+  ctx.fillStyle = '#fff'
+  ctx.fill()
+  ctx.lineWidth = 2
+  ctx.strokeStyle = color
+  ctx.stroke()
+  ctx.restore()
 }
 
 const drawAnnotation = (
@@ -433,7 +489,12 @@ const drawAnnotation = (
   const pts = ann.points.map((p) => pixelToCanvas(p.x, p.y))
 
   if (ann.tool === 'rect') {
-    if (pts.length < 2) return
+    // 只有一个点时也要看得见：否则用户按下鼠标后画面毫无反应，
+    // 会以为工具没生效
+    if (pts.length < 2) {
+      drawNode(ctx, pts[0], color)
+      return
+    }
     const x1 = pts[0].x
     const y1 = pts[0].y
     const x2 = pts[1].x
@@ -444,15 +505,29 @@ const drawAnnotation = (
     const h = Math.abs(y2 - y1)
     ctx.fillRect(x, y, w, h)
     ctx.strokeRect(x, y, w, h)
-  } else if (ann.tool === 'polygon' || ann.tool === 'pen' || ann.tool === 'freehand') {
-    ctx.beginPath()
-    ctx.moveTo(pts[0].x, pts[0].y)
-    pts.slice(1).forEach((p) => ctx.lineTo(p.x, p.y))
-    if (ann.tool === 'polygon' && !preview) {
-      ctx.closePath()
-      ctx.fill()
+    // 四角节点：让用户看清框到底落在哪，也便于确认是否画歪
+    for (const p of [{ x, y }, { x: x + w, y }, { x, y: y + h }, { x: x + w, y: y + h }]) {
+      drawNode(ctx, p, color)
     }
-    ctx.stroke()
+  } else if (ann.tool === 'polygon' || ann.tool === 'pen' || ann.tool === 'freehand') {
+    if (pts.length >= 2) {
+      ctx.beginPath()
+      ctx.moveTo(pts[0].x, pts[0].y)
+      pts.slice(1).forEach((p) => ctx.lineTo(p.x, p.y))
+      if (ann.tool === 'polygon' && !preview) {
+        ctx.closePath()
+        ctx.fill()
+      }
+      ctx.stroke()
+    }
+    // 多边形逐点点击，必须能看到已落的每个点。
+    // 此前单点时 moveTo 后直接 stroke，画布上什么都不出现，
+    // 用户以为第一次点击没生效。
+    if (ann.tool === 'polygon') {
+      pts.forEach((p, i) => drawNode(ctx, p, color, i === 0))
+    } else if (preview && pts.length === 1) {
+      drawNode(ctx, pts[0], color)
+    }
   }
 
   if (!preview && pts.length > 0 && ann.label) {
@@ -548,6 +623,23 @@ const drawGoldAnnotation = (ctx: CanvasRenderingContext2D, ann: AnnotationItem) 
   }
 }
 
+/** 当前由 Cornerstone3D 自行渲染的测量标注 UID */
+const liveAnnotationUids = (): Set<string> => {
+  const out = new Set<string>()
+  const getAnns = csTools?.annotation?.state?.getAnnotations
+  if (typeof getAnns !== 'function' || !elementRef.value) return out
+  for (const toolName of ['Length', 'Angle']) {
+    try {
+      for (const a of getAnns(toolName, elementRef.value) || []) {
+        if (a?.annotationUID) out.add(a.annotationUID)
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return out
+}
+
 const drawMeasurement = (ctx: CanvasRenderingContext2D, m: AnnotationItem) => {
   if (m.points.length < 2) return
   const pts = m.points.map((p) => pixelToCanvas(p.x, p.y))
@@ -603,6 +695,11 @@ const onMouseDown = (e: MouseEvent) => {
     if (!drawing.value) {
       drawing.value = true
       currentPoints.value = [pixel]
+    } else if (nearFirstPoint(px, py)) {
+      // 点回首点即闭合。此前只能靠双击，界面上没有任何提示，
+      // 用户不知道怎么收尾
+      finalizeAnnotation()
+      return
     } else {
       currentPoints.value.push(pixel)
     }
@@ -630,11 +727,9 @@ const onMouseMove = (e: MouseEvent) => {
   } else if (props.tool === 'pen' || props.tool === 'freehand') {
     currentPoints.value.push(pixel)
   } else if (props.tool === 'polygon') {
-    // 多边形预览跟随鼠标
-    if (currentPoints.value.length >= 1) {
-      currentPoints.value = [...currentPoints.value]
-      // 不入栈，只重绘
-    }
+    // 橡皮筋：让最后一段跟着光标走，用户才知道下一笔会落在哪。
+    // 此前这里只是原样复制数组，等于什么都没做。
+    hoverPoint.value = pixel
   }
   redrawOverlay()
 }
@@ -682,6 +777,7 @@ const finalizeAnnotation = () => {
   emit('update:annotations', [...props.annotations, ann])
   drawing.value = false
   currentPoints.value = []
+  hoverPoint.value = null
   redrawOverlay()
 }
 
