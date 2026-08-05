@@ -151,8 +151,19 @@ export const ensureCornerstone3D = (): Promise<CoreBundle> => {
   corePromise = (async () => {
     const cornerstone = await import('@cornerstonejs/core')
     const dicomImageLoader = await import('@cornerstonejs/dicom-image-loader')
+    const cornerstoneTools = await import('@cornerstonejs/tools')
 
     await cornerstone.init()
+
+    // 工具库必须在任何元素被 enable 之前初始化。
+    //
+    // init() 注册的是「元素启用时给它绑定工具事件」的监听器。若某个元素
+    // 先于 init 被 enable，它就永远错过那次绑定 —— 之后 addTool、
+    // setToolActive 全部「成功」，工具组里也查得到 Pan=Active，
+    // 但鼠标事件到不了工具：平移、缩放、窗位、测量通通没反应，且不报错。
+    //
+    // 放在这里而不是组件里，就是为了保证它先于组件创建 RenderingEngine。
+    await cornerstoneTools.init()
 
     dicomImageLoader.init({
       maxWebWorkers: Math.min(navigator.hardwareConcurrency || 2, 4),

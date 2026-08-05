@@ -153,6 +153,20 @@ onMounted(async () => {
     if (toolOk) check('切换工具 / 清空', true)
   }
 
+  // 把内核暴露出来，便于用真实鼠标事件验证工具是否生效。
+  // 只在这个自检页做，正式页面不挂全局对象。
+  try {
+    const cs = await import('@/utils/cornerstone3d')
+    const core = await cs.ensureCornerstone3D()
+    ;(window as any).__cs = core.cornerstone
+    const tools = await import('@cornerstonejs/tools')
+    ;(window as any).__csTools = tools
+    // 供工具交互自检切换当前工具
+    ;(window as any).__setTool = (t: string) => { tool.value = t as any }
+  } catch {
+    /* 忽略 */
+  }
+
   result.passed = result.checks.every((c: any) => c.pass)
   ok.value = result.passed
   ;(window as any).__stationCheck = result

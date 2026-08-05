@@ -15,6 +15,8 @@
     前端类型检查    必须为 0 —— 这是唯一能挡住「孤儿代码」的自动手段
     前端构建        类型过了不代表能打包
     阅片内核自检    需要 vite 在 5178；坐标算错、影像没解码都能通过编译
+    阅片工具交互    需要 vite 在 5178；真的拖一下鼠标看视口有没有动 ——
+                    「工具注册成功」不等于「工具能用」
     PACS 对照巡检   需要 Orthanc；失配意味着 DICOM 能力正在静默降级
 """
 
@@ -98,6 +100,7 @@ def main() -> int:
     # 阅片内核自检（需 vite）
     if args.quick:
         gate("阅片内核自检", True, "", 0, skipped=True)
+        gate("阅片工具交互", True, "", 0, skipped=True)
     elif service_up("http://127.0.0.1:5178/"):
         # 前一步的 vite build 会让 dev server 重新预构建依赖，
         # 紧接着跑会拿到还没就绪的模块，表现为 WebGL 报
@@ -114,8 +117,16 @@ def main() -> int:
             if code == 0:
                 break
         gate("阅片内核自检", code == 0, "" if code == 0 else out, secs)
+
+        # 工具是否真的响应鼠标。单验「切换工具不抛异常」是不够的 ——
+        # 曾经工具组里 Pan=Active、addTool/setToolActive 全成功，
+        # 鼠标事件却到不了工具，回归到生产才被发现。
+        code, out, secs = run(["node", "scripts/check_tools.mjs", "5178"],
+                              FRONTEND, shell=True)
+        gate("阅片工具交互", code == 0, "" if code == 0 else out, secs)
     else:
         gate("阅片内核自检（vite 未在 5178 运行）", True, "", 0, skipped=True)
+        gate("阅片工具交互（vite 未在 5178 运行）", True, "", 0, skipped=True)
 
     # PACS 对照巡检（需 Orthanc）
     if args.quick:

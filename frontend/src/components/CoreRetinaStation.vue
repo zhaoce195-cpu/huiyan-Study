@@ -121,6 +121,10 @@ const CS_TOOL_OF: Partial<Record<ToolName, string>> = {
 
 const setupTools = async () => {
   csTools = await import('@cornerstonejs/tools')
+
+  // 注意：tools 的 init() 在 ensureCornerstone3D() 里做，不在这里。
+  // 它必须早于任何元素被 enable —— 而本函数是在 enableElement 之后
+  // 才被调用的，放在这里就晚了。详见 utils/cornerstone3d.ts。
   const {
     PanTool, ZoomTool, WindowLevelTool, LengthTool, AngleTool,
     StackScrollTool, ToolGroupManager, Enums: csToolsEnums
