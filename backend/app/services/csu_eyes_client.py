@@ -181,8 +181,14 @@ def preflight() -> Optional[str]:
     base = (settings.CSU_EYES_BASE_URL or "").rstrip("/")
     if not base:
         return "未配置算法服务地址"
+    # 探真正会用到的 API 前缀，不要探根路径。
+    #
+    # 实测过一次教训：探 `GET /` 时上游有响应，判定「可用」放行，
+    # 而正式的 `POST /api/v1/...` 依旧挂到 90 秒超时 ——
+    # 预检等于没做。反向代理/隧道往往只有部分路径是通的。
     try:
-        requests.get(f"{base}/", timeout=PREFLIGHT_TIMEOUT)
+        requests.head(f"{base}/api/v1", timeout=PREFLIGHT_TIMEOUT,
+                      allow_redirects=False)
         return None
     except requests.exceptions.Timeout:
         # 连得上但不回话 —— 隧道断了的典型形态
@@ -190,7 +196,8 @@ def preflight() -> Optional[str]:
     except requests.exceptions.ConnectionError:
         return "算法服务未启动或网络不通"
     except Exception:
-        # 其它异常（如返回了非预期内容）不代表不可用，放行让正式请求去判断
+        # 其它异常（如该路径本就返回 405）不代表不可用，
+        # 放行让正式请求去判断
         return None
 
 

@@ -27,7 +27,7 @@ def files():
 # --------------------------------------------------------------------------
 
 def test_preflight_passes_when_service_answers(monkeypatch):
-    monkeypatch.setattr(client.requests, "get", lambda *a, **k: object())
+    monkeypatch.setattr(client.requests, "head", lambda *a, **k: object())
     assert client.preflight() is None
 
 
@@ -36,7 +36,7 @@ def test_preflight_detects_dead_tunnel(monkeypatch):
     def _timeout(*a, **k):
         raise requests.exceptions.Timeout()
 
-    monkeypatch.setattr(client.requests, "get", _timeout)
+    monkeypatch.setattr(client.requests, "head", _timeout)
     reason = client.preflight()
     assert reason and "无响应" in reason
 
@@ -45,7 +45,7 @@ def test_preflight_detects_refused(monkeypatch):
     def _refused(*a, **k):
         raise requests.exceptions.ConnectionError()
 
-    monkeypatch.setattr(client.requests, "get", _refused)
+    monkeypatch.setattr(client.requests, "head", _refused)
     reason = client.preflight()
     assert reason and ("未启动" in reason or "不通" in reason)
 
@@ -58,7 +58,7 @@ def test_preflight_does_not_block_on_unexpected_response(monkeypatch):
     def _weird(*a, **k):
         raise ValueError("unexpected")
 
-    monkeypatch.setattr(client.requests, "get", _weird)
+    monkeypatch.setattr(client.requests, "head", _weird)
     assert client.preflight() is None
 
 
@@ -120,3 +120,22 @@ def test_network_error_is_still_retried_once(monkeypatch, files):
     with pytest.raises(HTTPException):
         client._post_form_sync("http://x/api/v1/p", files=files, timeout=5)
     assert len(attempts) == 2
+
+
+def test_preflight_never_reaches_real_network(monkeypatch):
+    """
+    守住打桩本身：预检若改用了别的方法名（比如 get 改成 head），
+    旧的桩就失效、单测会去连真实的算法服务 —— 那会让测试
+    在有网时慢、在断网时假失败，而且掩盖真正的断言。
+
+    这里把所有出网方法都换成会炸的桩：预检只要碰到网络就立刻暴露。
+    """
+    def _boom(*a, **k):
+        raise AssertionError("单测不应发起真实网络请求")
+
+    for name in ("get", "head", "post", "request"):
+        monkeypatch.setattr(client.requests, name, _boom)
+
+    # 预检把未知异常视为「无法判定」而放行，所以返回 None；
+    # 关键是它没有把 AssertionError 泄漏出去，也没有真的联网
+    assert client.preflight() is None

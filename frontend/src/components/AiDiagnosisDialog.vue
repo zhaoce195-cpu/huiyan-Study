@@ -107,7 +107,9 @@ const close = () => emit('update:visible', false)
       <!-- 显示真实已用时长：此前写死「约 5~30 秒」，
            而服务异常时实际会等到超时，提示本身反而在误导 -->
       <div class="ai-loading-sub">
-        已等待 {{ elapsed }} 秒{{ elapsed > 30 ? ' · 超过预期，可能是算法服务响应缓慢' : '' }}
+        已等待 {{ elapsed }} 秒{{
+          elapsed > 30 ? ' · 超过预期，算法服务可能不可用，最多再等 ' + Math.max(0, 45 - elapsed) + ' 秒' : ''
+        }}
       </div>
     </div>
 

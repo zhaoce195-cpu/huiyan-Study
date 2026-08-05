@@ -116,7 +116,14 @@ class Settings(BaseSettings):
     #   —— 由 .env 里的 CSU_EYES_BASE_URL 覆盖本默认值；公网部署保持 9050 不变
     # 注意：9080 是静态门户站点（GET 方便浏览，POST 会 405），API 必须用 9050/5000
     CSU_EYES_BASE_URL: str = "http://113.219.243.122:9050"
-    CSU_EYES_TIMEOUT_SEC: int = 90
+    # 单次推理超时。正常推理约 5~30 秒（界面上也是这么写的），
+    # 45 秒已相当宽裕。
+    #
+    # 原值 90 秒过长：算法服务经 SSH 反向隧道映射，隧道断掉时端口仍在
+    # 监听、TCP 连得上但永不回数据，用户会对着转圈干等一分半。
+    # 上游是间歇性的，短超时的连通性预检未必每次都能检出，
+    # 所以这个上限本身必须是可接受的等待时长。
+    CSU_EYES_TIMEOUT_SEC: int = 45
     # 推理结果中的 base64 图（heatmap/overlay）落盘到 /static/csu/
     CSU_EYES_RESULT_SUBDIR: str = "csu"
 
