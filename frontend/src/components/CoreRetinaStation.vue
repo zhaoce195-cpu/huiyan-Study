@@ -343,6 +343,30 @@ const currentPoints = ref<{ x: number; y: number }[]>([])
 /** 多边形绘制中光标所在的影像坐标，用于橡皮筋预览 */
 const hoverPoint = ref<{ x: number; y: number } | null>(null)
 
+/**
+ * 顶点拖拽。
+ *
+ * 画完的框往往需要微调 —— 此前只能擦掉重画，一个多边形重来一次
+ * 要点七八下。这里支持抓住任一顶点拖动改形。
+ */
+const HANDLE_RADIUS = 8
+const dragging = ref<{ annIndex: number; ptIndex: number } | null>(null)
+
+/** 命中哪个标注的哪个顶点。倒序遍历：后画的在上层，应优先抓到 */
+const hitHandle = (px: number, py: number) => {
+  const list = props.annotations
+  for (let i = list.length - 1; i >= 0; i--) {
+    const pts = list[i].points || []
+    for (let j = pts.length - 1; j >= 0; j--) {
+      const c = pixelToCanvas(pts[j].x, pts[j].y)
+      if (Math.hypot(c.x - px, c.y - py) <= HANDLE_RADIUS) {
+        return { annIndex: i, ptIndex: j }
+      }
+    }
+  }
+  return null
+}
+
 /** 光标是否落在首点附近（屏幕距离），用于「点回首点闭合」 */
 const CLOSE_RADIUS = 10
 const nearFirstPoint = (px: number, py: number): boolean => {
@@ -527,6 +551,10 @@ const drawAnnotation = (
       pts.forEach((p, i) => drawNode(ctx, p, color, i === 0))
     } else if (preview && pts.length === 1) {
       drawNode(ctx, pts[0], color)
+    } else if (!preview) {
+      // 手绘/自由曲线点很密，全画会糊成一片，只标出两端
+      drawNode(ctx, pts[0], color)
+      if (pts.length > 1) drawNode(ctx, pts[pts.length - 1], color)
     }
   }
 
@@ -688,6 +716,16 @@ const onMouseDown = (e: MouseEvent) => {
     return
   }
 
+  // 先看是不是抓住了已有图形的顶点。放在新建之前判断：
+  // 否则想调整一个框，反而会在它上面又画一个新的。
+  if (!drawing.value) {
+    const hit = hitHandle(px, py)
+    if (hit) {
+      dragging.value = hit
+      return
+    }
+  }
+
   if (props.tool === 'rect' || props.tool === 'pen' || props.tool === 'freehand') {
     drawing.value = true
     currentPoints.value = [pixel]
@@ -708,12 +746,34 @@ const onMouseDown = (e: MouseEvent) => {
 }
 
 const onMouseMove = (e: MouseEvent) => {
+  // 顶点拖拽优先于其它一切
+  if (dragging.value) {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const pixel = canvasToPixel(e.clientX - rect.left, e.clientY - rect.top)
+    const next = props.annotations.map((a, i) => {
+      if (i !== dragging.value!.annIndex) return a
+      const pts = a.points.slice()
+      pts[dragging.value!.ptIndex] = pixel
+      return { ...a, points: pts }
+    })
+    emit('update:annotations', next)
+    redrawOverlay()
+    return
+  }
+
   // 视口相关变化时重绘 overlay
   if (!isCustomTool() && enabled.value) {
     redrawOverlay()
     readViewport()
     return
   }
+  // 悬停在顶点上给出可抓取的光标：没有这个提示，用户不会想到能拖
+  if (!drawing.value && overlayRef.value) {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    overlayRef.value.style.cursor =
+      hitHandle(e.clientX - r.left, e.clientY - r.top) ? 'grab' : ''
+  }
+
   if (!drawing.value) return
 
   const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
@@ -735,6 +795,10 @@ const onMouseMove = (e: MouseEvent) => {
 }
 
 const onMouseUp = (_e: MouseEvent) => {
+  if (dragging.value) {
+    dragging.value = null
+    return
+  }
   if (effectiveReadonly.value || !isCustomTool()) return
   if (props.tool === 'polygon') return // polygon 由双击结束
   if (!drawing.value) return

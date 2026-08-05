@@ -239,7 +239,77 @@ const clearAll = async () => {
   canvasState.redoStack = []
   // 同步清掉内置 Length / Angle 工具的标注状态，防止重绘时被 syncCornerstoneMeasurements 回填
   readingCanvasRef.value?.clearAllTools?.()
+  // 清空也要落盘：否则刷新之后被清掉的标注又回来了，
+  //「清空重来」就成了假动作
+  scheduleAutosave()
 }
+
+
+/* ========== 自动暂存 ==========
+ *
+ * 阅片过程中标注只存在于内存，刷新即丢 —— 学员画了二十分钟，
+ * 误触刷新就全没了。这里做防抖自动暂存。
+ *
+ * 三条边界：
+ *   · 只暂存草稿态与被驳回态。已提交/已通过的记录是审核依据，
+ *     不能被后台的自动保存悄悄改掉；
+ *   · 只在用户真的改过之后才存，避免刚进页面就写一次空草稿；
+ *   · 失败不打扰用户，只在状态条上如实显示「未暂存」。
+ */
+const AUTOSAVE_DELAY = 2500
+const autosaveState = ref<'idle' | 'saving' | 'saved' | 'failed'>('idle')
+const autosaveAt = ref('')
+let autosaveTimer: ReturnType<typeof setTimeout> | null = null
+let dirty = false
+
+/** 当前记录是否允许被自动暂存覆盖 */
+const canAutosave = computed(() => {
+  // 与画布的 readonly 判断保持一致：只读时不该产生任何写入
+  if (!canAnnotate.value || reviewMode.value) return false
+  const st = existingRecord.value?.status
+  return !st || st === 'DRAFT' || st === 'REJECTED'
+})
+
+const doAutosave = async () => {
+  if (!source.value || !canAutosave.value || !dirty) return
+  autosaveState.value = 'saving'
+  try {
+    const out = await ReadingApi.saveReading({
+      caseId: source.value.caseId,
+      imageIndex: currentImageIndex.value,
+      imageUrl: currentImage.value,
+      annotations: canvasState.annotations,
+      measurements: canvasState.measurements,
+      viewport: canvasState.viewport,
+      layers: canvasState.layers,
+      note: existingRecord.value?.note || '',
+      diagnosis: existingRecord.value?.diagnosis || {},
+      submit: false
+    })
+    existingRecord.value = out
+    dirty = false
+    autosaveState.value = 'saved'
+    autosaveAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+  } catch {
+    // 不弹窗：自动暂存失败不该打断阅片，但要让用户看得见
+    autosaveState.value = 'failed'
+  }
+}
+
+const scheduleAutosave = () => {
+  dirty = true
+  if (!canAutosave.value) return
+  if (autosaveTimer) clearTimeout(autosaveTimer)
+  autosaveTimer = setTimeout(doAutosave, AUTOSAVE_DELAY)
+}
+
+const autosaveText = computed(() => {
+  if (!canAutosave.value) return ''
+  if (autosaveState.value === 'saving') return '暂存中…'
+  if (autosaveState.value === 'failed') return '未暂存（网络异常）'
+  if (autosaveState.value === 'saved') return `已暂存 ${autosaveAt.value}`
+  return ''
+})
 
 const onAnnotationsChange = (next: AnnotationItem[]) => {
   canvasState.history.push({
@@ -249,6 +319,7 @@ const onAnnotationsChange = (next: AnnotationItem[]) => {
   if (canvasState.history.length > 50) canvasState.history.shift()
   canvasState.redoStack = []
   canvasState.annotations = next
+  scheduleAutosave()
 }
 
 const onMeasurementsChange = (next: AnnotationItem[]) => {
@@ -259,6 +330,7 @@ const onMeasurementsChange = (next: AnnotationItem[]) => {
   if (canvasState.history.length > 50) canvasState.history.shift()
   canvasState.redoStack = []
   canvasState.measurements = next
+  scheduleAutosave()
 }
 
 const onResetView = () => {
@@ -308,14 +380,23 @@ const fetchExistingDraft = async () => {
     const d = await ReadingApi.getLatestDraft(caseId.value, currentImageIndex.value)
     if (d) {
       existingRecord.value = d
-      // 自动恢复 DRAFT 标注
-      if (d.status === 'DRAFT') {
-        canvasState.annotations = (d.annotations || []) as AnnotationItem[]
-        canvasState.measurements = (d.measurements || []) as AnnotationItem[]
-        if (d.viewport) canvasState.viewport = d.viewport
-        if (d.layers) canvasState.layers = d.layers
-        ElMessage.info('已恢复上次未保存的阅片草稿')
+      // 不论草稿还是已提交，都把上次的成果读回来。
+      //
+      // 此前只在 status === 'DRAFT' 时恢复，导致「保存并提交之后再进来，
+      // 画布一片空白」—— 数据一直在库里，只是没被读出来，
+      // 用户会以为提交把自己的标注弄丢了。
+      canvasState.annotations = (d.annotations || []) as AnnotationItem[]
+      canvasState.measurements = (d.measurements || []) as AnnotationItem[]
+      if (d.viewport) canvasState.viewport = d.viewport
+      if (d.layers) canvasState.layers = d.layers
+
+      const label: Record<string, string> = {
+        DRAFT: '已恢复上次未提交的阅片草稿',
+        SUBMITTED: '已载入你提交的阅片记录（待审核）',
+        REVIEWED: '已载入你提交的阅片记录（已通过）',
+        REJECTED: '已载入被驳回的阅片记录，请按审核意见修改后重新提交'
       }
+      ElMessage.info(label[d.status] || '已载入上次的阅片记录')
     }
   } catch {
     /* 忽略 */
@@ -698,6 +779,15 @@ const openNote = () => {
         >
           {{ readingStatusText }}
         </el-tag>
+        <!-- 自动暂存状态：让用户看得见「已经存住了」，
+             也在存不上时如实告知，而不是默默丢失 -->
+        <span
+          v-if="autosaveText"
+          class="autosave-hint"
+          :class="{ bad: autosaveState === 'failed' }"
+        >
+          {{ autosaveText }}
+        </span>
         <el-button
           v-if="canAnnotate && !reviewMode"
           type="primary"
@@ -942,6 +1032,15 @@ const openNote = () => {
 </template>
 
 <style scoped>
+.autosave-hint {
+  margin-left: 10px;
+  font-size: 12px;
+  color: #86909c;
+}
+.autosave-hint.bad {
+  color: #f56c6c;
+}
+
 .reading-page {
   height: 100vh;
   display: flex;

@@ -164,6 +164,7 @@ onMounted(async () => {
     // 供工具交互自检切换当前工具
     ;(window as any).__setTool = (t: string) => { tool.value = t as any }
     ;(window as any).__annCount = () => annotations.value.length
+    ;(window as any).__annList = () => annotations.value
   } catch {
     /* 忽略 */
   }

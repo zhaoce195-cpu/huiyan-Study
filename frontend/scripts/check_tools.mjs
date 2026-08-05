@@ -117,6 +117,35 @@ await page.waitForTimeout(600)
 const annAfter = await page.evaluate(() => window.__annCount?.() ?? -1)
 check('点回首点可闭合多边形', annAfter > annBefore, `标注数 ${annBefore} → ${annAfter}`)
 
+// ---- 顶点拖拽：抓住已画矩形的角点拖动，坐标应真的改变 ----
+await setTool('rect'); await page.waitForTimeout(400)
+await page.mouse.move(cx - 80, cy - 60); await page.mouse.down()
+await page.mouse.move(cx + 40, cy + 30, { steps: 8 }); await page.mouse.up()
+await page.waitForTimeout(600)
+
+const cornerBefore = await page.evaluate(() => {
+  const a = window.__annList?.()?.slice(-1)[0]
+  return a ? { x: Math.round(a.points[1].x), y: Math.round(a.points[1].y) } : null
+})
+if (cornerBefore) {
+  // 抓住第二个点（右下角）拖走
+  await page.mouse.move(cx + 40, cy + 30)
+  await page.mouse.down()
+  await page.mouse.move(cx + 110, cy + 90, { steps: 10 })
+  await page.mouse.up()
+  await page.waitForTimeout(600)
+}
+const cornerAfter = await page.evaluate(() => {
+  const a = window.__annList?.()?.slice(-1)[0]
+  return a ? { x: Math.round(a.points[1].x), y: Math.round(a.points[1].y) } : null
+})
+const moved = cornerBefore && cornerAfter &&
+  (Math.abs(cornerAfter.x - cornerBefore.x) > 5 || Math.abs(cornerAfter.y - cornerBefore.y) > 5)
+check('拖拽顶点改变图形', !!moved,
+      cornerBefore && cornerAfter
+        ? `角点 (${cornerBefore.x},${cornerBefore.y}) → (${cornerAfter.x},${cornerAfter.y})`
+        : '取不到标注')
+
 if (errs.length) {
   console.log('页面错误:'); errs.slice(0, 4).forEach((e) => console.log('  ' + e))
 }
