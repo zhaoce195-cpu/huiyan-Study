@@ -21,6 +21,28 @@ export interface FilterFieldSchema {
   /** daterange 专用：把数组 [start,end] 拆到 modelValue 的两个键 */
   startKey?: string
   endKey?: string
+  /**
+   * 何时禁用本字段：拿到当前整份筛选值，返回 true 则禁用。
+   * DynamicFilter 会在禁用时顺手清空该字段，避免留下一个看不见却仍在生效的条件。
+   */
+  disabledWhen?: (values: Record<string, any>) => boolean
+  /** 禁用时鼠标悬停给出的解释 */
+  disabledHint?: string
+}
+
+/**
+ * DR 分级只对糖网和正常眼底有意义。
+ *
+ * AMD / 青光眼 / 高血压视网膜这些非 DR 病种，库里 gold_dr_grade 存的是空串
+ * 「不适用」（见后端 common/dr_grade.py：「不适用」与「0 级无 DR」是两个不同结论）。
+ * 所以「病种 = 黄斑变性 + DR 等级 = 任意值」这个组合永远筛不出东西 ——
+ * 用户测试报告 D-3：「选了黄斑还是可以选择 DR 严重等级，逻辑不对」。
+ */
+export const DR_GRADED_CATEGORIES = ['DR', 'NORMAL']
+
+export const isDrGradeNotApplicable = (category: unknown): boolean => {
+  const c = String(category ?? '').trim().toUpperCase()
+  return c !== '' && !DR_GRADED_CATEGORIES.includes(c)
 }
 
 export interface FilterSchema {
@@ -185,6 +207,8 @@ export const CASE_BROWSE_FILTER: FilterSchema = {
         { label: '3 级', value: '3' },
         { label: '4 级', value: '4' },
       ],
+      disabledWhen: (v) => isDrGradeNotApplicable(v.category),
+      disabledHint: '所选病种不做 DR 分级（DR 分级仅适用于糖网与正常眼底）',
     },
     {
       key: 'difficulty',

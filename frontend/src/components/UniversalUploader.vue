@@ -15,7 +15,7 @@
  */
 import { computed, ref } from 'vue'
 import { ElMessage, ElUpload, ElIcon, ElButton } from 'element-plus'
-import type { UploadRawFile } from 'element-plus'
+import type { UploadFile, UploadRawFile } from 'element-plus'
 import { UploadFilled } from '@element-plus/icons-vue'
 import { CommonApi } from '@/api'
 
@@ -105,13 +105,26 @@ const validate = (raw: UploadRawFile | File): File | null => {
   return f
 }
 
-const beforeUpload = async (raw: UploadRawFile) => {
+/**
+ * el-upload 在 auto-upload=false 时根本不会走 before-upload（那是上传流程的钩子），
+ * 只会触发 on-change。此前把收集逻辑挂在 before-upload 上，导致选完文件毫无反应。
+ * 这里统一改用 on-change：拿 uploadFile.raw 即原始 File，处理完清掉内部列表，
+ * 否则同一个文件第二次选不会再触发。
+ */
+const uploadRef = ref<InstanceType<typeof ElUpload> | null>(null)
+
+const onFileChange = async (uploadFile: UploadFile) => {
+  const raw = uploadFile.raw
+  // 处理完就清空内部列表：show-file-list 为 false，留着只会无限堆积
+  uploadRef.value?.clearFiles?.()
+  if (!raw) return
+
   const file = validate(raw)
-  if (!file) return false
+  if (!file) return
 
   if (!props.autoUpload) {
     emit('select', file)
-    return false  // 阻止 el-upload 自动 POST
+    return
   }
 
   uploading.value = true
@@ -126,17 +139,17 @@ const beforeUpload = async (raw: UploadRawFile) => {
   } finally {
     uploading.value = false
   }
-  return false
 }
 </script>
 
 <template>
   <el-upload
+    ref="uploadRef"
     class="universal-uploader"
     :class="`uu-${variant}`"
     :show-file-list="false"
     :auto-upload="false"
-    :before-upload="beforeUpload"
+    :on-change="onFileChange"
     :multiple="multiple"
     :accept="acceptAttr"
     :disabled="disabled || uploading"

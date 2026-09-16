@@ -236,10 +236,13 @@ const runBackfill = async (overwrite = false) => {
               placeholder="例如：D:\huiyan cloude\IDRID多病灶\IDRID多病灶"
               clearable
             >
-              <template #prepend>本地绝对路径</template>
+              <template #prepend>服务器绝对路径</template>
             </el-input>
             <div class="hint">
-              该目录需为后端服务器本机可访问的绝对路径。导入会把文件复制到
+              <strong>这是后端服务器上的路径，不是你这台电脑上的路径。</strong>
+              数据集要先放到服务器上（容器部署时还需挂载进容器），填你本机的目录会提示找不到。
+              目录下应包含「1. Original Images」「2. All Segmentation Groundtruths」
+              「3. IDRID_4_lesion_processed」三个子目录。导入会把文件复制到
               <code>backend/app/static/training/idrid/</code> 下并按 role 分目录。
             </div>
           </el-form-item>

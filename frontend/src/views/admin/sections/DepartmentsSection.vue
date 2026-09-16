@@ -52,6 +52,10 @@ const onHospitalChange = () => {
   fetchDepts()
 }
 
+/** 列表里直接显示医院名，光给一个 ID 没人认得出是哪家 */
+const hospitalName = (id: number | string): string =>
+  hospitals.value.find((h) => String(h.id) === String(id))?.name || `医院 #${id}`
+
 /* ========== 新建 / 编辑 ========== */
 
 const editVisible = ref(false)
@@ -59,6 +63,8 @@ const editLoading = ref(false)
 const editFormRef = ref<FormInstance>()
 const editForm = reactive<CommonApi.DepartmentSaveParams & { id?: number | string }>({
   id: undefined,
+  // 留空 = 全院通用科室，所有医院都能看到
+  hospitalId: undefined,
   code: '',
   name: '',
   shortName: '',
@@ -75,6 +81,8 @@ const isEditing = () => editForm.id != null
 
 const openCreate = () => {
   editForm.id = undefined
+  // 顺手带上左侧正在筛选的医院，避免建完发现归错了地方
+  editForm.hospitalId = (selectedHospitalId.value as number) || undefined
   editForm.code = ''
   editForm.name = ''
   editForm.shortName = ''
@@ -87,6 +95,7 @@ const openCreate = () => {
 }
 const openEdit = (d: Department) => {
   editForm.id = d.id
+  editForm.hospitalId = (d.hospitalId as number) ?? undefined
   editForm.code = ''
   editForm.name = d.name
   editForm.shortName = ''
@@ -105,6 +114,7 @@ const submitEdit = async () => {
     editLoading.value = true
     try {
       const payload: CommonApi.DepartmentSaveParams = {
+        hospitalId: editForm.hospitalId ?? undefined,
         code: editForm.code || undefined,
         name: editForm.name,
         shortName: editForm.shortName || undefined,
@@ -232,10 +242,10 @@ onMounted(() => {
         <el-table-column type="index" label="#" width="56" />
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="name" label="科室名称" min-width="240" />
-        <el-table-column prop="hospitalId" label="所属医院 ID" width="120">
+        <el-table-column prop="hospitalId" label="所属医院" min-width="180">
           <template #default="{ row }">
-            <span v-if="row.hospitalId != null">{{ row.hospitalId }}</span>
-            <span v-else class="muted">—</span>
+            <span v-if="row.hospitalId != null">{{ hospitalName(row.hospitalId) }}</span>
+            <el-tag v-else size="small" effect="plain">全院通用</el-tag>
           </template>
         </el-table-column>
         <el-table-column v-if="canManage" label="操作" width="180" fixed="right">
@@ -258,8 +268,27 @@ onMounted(() => {
       :close-on-click-modal="false"
     >
       <el-form ref="editFormRef" :model="editForm" :rules="editRules" label-width="100px">
+        <el-form-item label="所属医院">
+          <el-select
+            v-model="editForm.hospitalId"
+            placeholder="留空 = 全院通用"
+            clearable
+            style="width: 100%"
+          >
+            <el-option
+              v-for="h in hospitals"
+              :key="String(h.id)"
+              :label="h.name"
+              :value="h.id"
+            />
+          </el-select>
+          <div class="form-hint">
+            选定医院后，该科室只在这家医院下可见；留空则所有医院通用。
+          </div>
+        </el-form-item>
         <el-form-item label="科室编码">
           <el-input v-model="editForm.code" maxlength="32" placeholder="可留空" />
+          <div class="form-hint">同一医院内不可重复，不同医院可以重名。</div>
         </el-form-item>
         <el-form-item label="科室名称" prop="name">
           <el-input v-model="editForm.name" maxlength="64" />
@@ -319,6 +348,12 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.form-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #86909c;
+  line-height: 1.6;
 }
 .muted {
   color: #86909c;

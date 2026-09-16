@@ -387,6 +387,10 @@ class TrainingService:
 
     @staticmethod
     def mark_case_done(db: Session, user: User, case_id: str) -> None:
+        """
+        ⚠️ 已废弃：写入 TrainingRecord，而该表已无活跃写入方（前端不调这个端点）。
+        学员提交实际走 PracticeService / ReadingService。详见 db/models/training_record.py。
+        """
         case = _get_case_or_404(db, case_id)
 
         record: Optional[TrainingRecord] = (
@@ -496,6 +500,11 @@ class TrainingService:
         params: SubmitAnnotationParams,
         persist: bool,
     ) -> IoUResult:
+        """
+        ⚠️ persist=True 分支写入 TrainingRecord —— 该表已无活跃写入方，前端不调这个端点，
+        学员提交实际走 PracticeService。纯算 IoU（persist=False）仍然有效。
+        详见 db/models/training_record.py。
+        """
         case = _get_case_or_404(db, params.case_id)
         gold = _annotations_from_gold(case)
 
@@ -601,6 +610,10 @@ class TrainingService:
 
     @staticmethod
     def stats(db: Session, user: User) -> TrainingStats:
+        """
+        ⚠️ 已废弃：聚合 TrainingRecord，该表为空，本方法恒返回 0。
+        学员真实完成量请用 CommonService.study_hours（聚合 PracticeSession + ReadingAnnotation）。
+        """
         total_cases: int = (
             db.query(func.count(TrainingCase.id))
             .filter(TrainingCase.is_published == True)  # noqa: E712

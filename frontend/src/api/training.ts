@@ -172,6 +172,11 @@ export interface AiDiagnosisResult {
   right: AiEyeResult
   /** 单图病例（左右眼同一张图） */
   singleEye: boolean
+  /**
+   * 该画哪几张眼别卡：left=左眼OS / right=右眼OD / ou=双眼单图。
+   * 老接口没有这个字段时回退成双眼，保持向后兼容。
+   */
+  eyeCards?: Array<'left' | 'right' | 'ou'>
   /** 金标准 DR 分级（青光眼为空） */
   goldGrade: number | null
   /** 金标准展示文本（病种无关） */

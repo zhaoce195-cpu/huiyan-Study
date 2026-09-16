@@ -67,7 +67,22 @@ const typeColor: Record<string, string> = {
         <span class="stat">
           <el-icon><view /></el-icon>{{ resource.viewCount }}
         </span>
-        <span class="stat">
+        <!--
+          星号以前只是个统计数字，但用户就是冲着它去点的（测试报告：「收藏的
+          星号点不了」）。真正的收藏按钮在下面一排，这里让星号也能点，
+          省得看着像坏的。
+        -->
+        <span
+          v-if="showFavoriteToggle !== false"
+          class="stat stat-clickable"
+          :class="{ 'is-fav': resource.isFavorited }"
+          :title="resource.isFavorited ? '取消收藏' : '收藏'"
+          @click="emit('toggle-fav', resource)"
+        >
+          <el-icon><component :is="resource.isFavorited ? StarFilled : Star" /></el-icon>
+          {{ resource.favoriteCount }}
+        </span>
+        <span v-else class="stat">
           <el-icon><star /></el-icon>{{ resource.favoriteCount }}
         </span>
         <span v-if="resource.publisherName" class="publisher">
@@ -196,6 +211,16 @@ const typeColor: Record<string, string> = {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+.stat-clickable {
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.stat-clickable:hover {
+  color: var(--el-color-warning);
+}
+.stat-clickable.is-fav {
+  color: var(--el-color-warning);
 }
 .publisher {
   margin-left: auto;

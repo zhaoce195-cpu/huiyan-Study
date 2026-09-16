@@ -51,6 +51,8 @@ class DepartmentOut(_CamelModel):
 
 
 class DepartmentSaveParams(_CamelModel):
+    # 不传 = 全院通用科室（所有医院都能看到）
+    hospital_id: Optional[int] = None
     code: Optional[str] = Field(None, max_length=32)
     name: str = Field(..., min_length=1, max_length=64)
     short_name: Optional[str] = Field(None, max_length=32)

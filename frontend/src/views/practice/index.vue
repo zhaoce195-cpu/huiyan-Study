@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { PracticeApi } from '@/api'
 import { useUserStore } from '@/stores/user'
+import { isDrGradeNotApplicable } from '@/utils/filter-presets'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -22,6 +23,16 @@ const filterForm = ref({
   difficulty: '',
   drLevel: undefined as number | undefined,
   excludeDone: true
+})
+
+/**
+ * DR 分级只对糖网和正常眼底有意义，AMD / 青光眼这些病种库里存的是「不适用」。
+ * 选了黄斑还让人挑 DR 等级，只会得到一个永远抽不到病例的组合
+ *（用户测试报告 D-3）。禁用并清空。
+ */
+const drLevelDisabled = computed(() => isDrGradeNotApplicable(filterForm.value.category))
+watch(drLevelDisabled, (off) => {
+  if (off) filterForm.value.drLevel = undefined
 })
 
 const randomCase = ref<PracticeApi.CaseBriefForPractice | null>(null)
@@ -207,7 +218,9 @@ onMounted(async () => {
                 <el-form-item label="DR 级">
                   <el-select
                     v-model="filterForm.drLevel"
-                    placeholder="全部"
+                    :placeholder="drLevelDisabled ? '该病种不适用' : '全部'"
+                    :disabled="drLevelDisabled"
+                    :title="drLevelDisabled ? 'DR 分级仅适用于糖网与正常眼底' : ''"
                     clearable
                     style="width: 160px"
                   >

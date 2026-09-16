@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
@@ -75,10 +75,19 @@ def _resolve_static_file(url: str) -> Optional[Path]:
     return candidate if candidate.is_file() else None
 
 
-def _pick_eye_images(case: TrainingCase) -> Tuple[Optional[str], Optional[str]]:
+def _pick_eye_images(
+    case: TrainingCase,
+) -> Tuple[Optional[str], Optional[str], List[str]]:
     """
-    从 image_paths JSON 取 (左眼OS_url, 右眼OD_url)。
-    仅一侧 / 仅 OU 时返回同一张（单图病例）。
+    从 image_paths JSON 取 (左眼OS_url, 右眼OD_url, 要展示的眼别卡)。
+
+    left / right 两个 URL 仍然都会填满 —— 算法接口 predict_twoeyes 要求两张图，
+    单侧病例只能把同一张送两遍。但**展示**必须按真实眼别来：eye_cards 告诉前端
+    该画几张卡、标什么眼别。
+
+    只有 OD 的病例，以前 `left = os_url or ou_url or od_url` 会回退到右眼图，
+    于是一张右眼眼底照被标成「左眼 OS」，还配一个由它算出来的假左眼分级
+    （2026-08 用户测试报告 D-2：「数据库明明只有一张右眼的，但显示是双眼」）。
     """
     paths = case.image_paths if isinstance(case.image_paths, dict) else {}
 
@@ -92,7 +101,18 @@ def _pick_eye_images(case: TrainingCase) -> Tuple[Optional[str], Optional[str]]:
 
     left = os_url or ou_url or od_url
     right = od_url or ou_url or os_url
-    return left, right
+
+    if os_url and od_url:
+        cards = ["left", "right"]          # 真正的双眼病例
+    elif os_url:
+        cards = ["left"]                   # 只有左眼
+    elif od_url:
+        cards = ["right"]                  # 只有右眼
+    elif ou_url:
+        cards = ["ou"]                     # 一张双眼图，画一张卡即可
+    else:
+        cards = []                         # 无影像，上层会拦
+    return left, right, cards
 
 
 def _get_case(db: Session, case_id: str) -> TrainingCase:
@@ -122,6 +142,7 @@ def _to_out(
     left_url: str,
     right_url: str,
     single_eye: bool,
+    eye_cards: List[str],
     cached: bool,
 ) -> AiDiagnosisOut:
     inferred_at = rec.updated_at or rec.created_at
@@ -162,6 +183,7 @@ def _to_out(
             left=_eye(left_url, rec.left_heatmap_path or ""),
             right=_eye(right_url, rec.right_heatmap_path or ""),
             single_eye=single_eye,
+            eye_cards=eye_cards,
             gold_grade=None,
             gold_label=gold_diag,
             agree_with_gold=agree,
@@ -197,6 +219,7 @@ def _to_out(
             heatmap_url=rec.right_heatmap_path or "",
         ),
         single_eye=single_eye,
+        eye_cards=eye_cards,
         gold_grade=gold,
         gold_label=(f"DR {gold} 级" if gold is not None else ""),
         agree_with_gold=(overall == gold) if gold is not None else None,
@@ -225,12 +248,13 @@ class TrainingAiService:
         )
         if rec is None:
             return None
-        left_url, right_url = _pick_eye_images(case)
+        left_url, right_url, eye_cards = _pick_eye_images(case)
         return _to_out(
             case, rec,
             left_url=left_url or "",
             right_url=right_url or "",
             single_eye=(left_url == right_url),
+            eye_cards=eye_cards,
             cached=True,
         )
 
@@ -250,14 +274,14 @@ class TrainingAiService:
             .filter(TrainingAiResult.case_id == case.id)
             .first()
         )
-        left_url, right_url = _pick_eye_images(case)
+        left_url, right_url, eye_cards = _pick_eye_images(case)
         single_eye = left_url == right_url
 
         if rec is not None and not force:
             return _to_out(
                 case, rec,
                 left_url=left_url or "", right_url=right_url or "",
-                single_eye=single_eye, cached=True,
+                single_eye=single_eye, eye_cards=eye_cards, cached=True,
             )
 
         if not left_url or not right_url:
@@ -315,7 +339,7 @@ class TrainingAiService:
             return _to_out(
                 case, rec,
                 left_url=left_url, right_url=right_url,
-                single_eye=single_eye, cached=False,
+                single_eye=single_eye, eye_cards=eye_cards, cached=False,
             )
 
         # ========== 其它（DR）：双眼分级 ==========
@@ -367,7 +391,7 @@ class TrainingAiService:
         return _to_out(
             case, rec,
             left_url=left_url, right_url=right_url,
-            single_eye=single_eye, cached=False,
+            single_eye=single_eye, eye_cards=eye_cards, cached=False,
         )
 
     # -------- 教师端：AI 智能建案 --------
@@ -478,7 +502,7 @@ class TrainingAiService:
             ai=_to_out(
                 case, rec,
                 left_url=left_url, right_url=right_url,
-                single_eye=False, cached=False,
+                single_eye=False, eye_cards=["left", "right"], cached=False,
             ),
         )
 

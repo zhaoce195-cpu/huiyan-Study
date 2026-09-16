@@ -43,3 +43,9 @@ backend/*.db.bak-*
 # 由 scripts/convert_cases_to_dicom.py 从源影像生成，可随时重跑；
 # 体积大且属派生数据，不入库（权威副本在 Orthanc）
 backend/app/static/dicom/
+
+# ---- 辅助工具缓存与归档包 ----
+.claude/
+.pytest_cache/
+*.tar.gz
+

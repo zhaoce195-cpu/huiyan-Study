@@ -258,3 +258,24 @@ a {
 .el-table th.el-table__cell.is-leaf {
   border-bottom: 1px solid var(--ap-l-hairline);
 }
+
+/* ==========================================================
+ * 界面字体大小（个人中心 · 偏好设置）
+ *
+ * 全站字号绝大多数是硬编码 px，改 root font-size 不会有任何可见效果，
+ * 所以这里整体缩放。放在 html 上，body 和 teleport 到 body 的
+ * 弹窗 / 下拉 / 消息条都在同一个缩放上下文里，定位不会错位。
+ * 逻辑在 utils/appearance.ts。
+ * ========================================================== */
+html {
+  zoom: var(--hy-app-zoom, 1);
+}
+html[data-font-size='small'] {
+  --hy-app-zoom: 0.9;
+}
+html[data-font-size='normal'] {
+  --hy-app-zoom: 1;
+}
+html[data-font-size='large'] {
+  --hy-app-zoom: 1.15;
+}

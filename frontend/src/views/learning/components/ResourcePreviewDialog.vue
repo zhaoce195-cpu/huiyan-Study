@@ -94,7 +94,17 @@ const goExternal = () => {
       <div class="meta-line">
         <el-tag size="small" type="primary">{{ resource.resourceTypeText }}</el-tag>
         <el-tag size="small" effect="plain">浏览 {{ resource.viewCount }}</el-tag>
-        <el-tag size="small" effect="plain">收藏 {{ resource.favoriteCount }}</el-tag>
+        <!-- 同 ResourceCard：这个收藏标签也做成可点，底部按钮保留 -->
+        <el-tag
+          size="small"
+          class="fav-tag"
+          :effect="resource.isFavorited ? 'dark' : 'plain'"
+          :type="resource.isFavorited ? 'warning' : 'info'"
+          :title="resource.isFavorited ? '取消收藏' : '收藏'"
+          @click="toggleFav"
+        >
+          收藏 {{ resource.favoriteCount }}
+        </el-tag>
         <span v-if="resource.publisherName" class="publisher">
           上传者：{{ resource.publisherName }}
         </span>
@@ -167,6 +177,9 @@ const goExternal = () => {
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
+}
+.fav-tag {
+  cursor: pointer;
 }
 .publisher {
   margin-left: 6px;

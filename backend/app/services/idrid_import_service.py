@@ -185,11 +185,30 @@ def run_idrid_import(
 ) -> IdridImportResult:
     src_root = Path(source_path) if source_path else DEFAULT_IDRID_ROOT
     if not src_root.exists():
-        raise FileNotFoundError(f"IDRiD 源目录不存在：{src_root}")
+        # 管理员常把自己电脑上的路径填进来（测试报告：「填了正确的本地路径，
+        # 系统提示找不到」）。这个路径是在**服务端**解析的，说清楚，
+        # 免得对着一个确实存在的本地目录反复重试。
+        raise FileNotFoundError(
+            f"服务端找不到该目录：{src_root}\n"
+            "注意：这里填的是**运行后端的服务器上**的路径，不是你本机的路径；"
+            "数据集需要先放到服务器上（容器部署时还要挂载进容器）。\n"
+            f"未填写时使用的默认路径为：{DEFAULT_IDRID_ROOT}\n"
+            "目录下应当包含：「1. Original Images」「2. All Segmentation Groundtruths」"
+            "「3. IDRID_4_lesion_processed」三个子目录。"
+        )
 
     src_img_root = src_root / "1. Original Images"
     src_gt_root = src_root / "2. All Segmentation Groundtruths"
     src_proc_root = src_root / "3. IDRID_4_lesion_processed"
+    missing = [
+        p.name for p in (src_img_root, src_gt_root, src_proc_root) if not p.exists()
+    ]
+    if missing:
+        # 目录在、但结构不对时，早点说清缺哪个，比跑到一半报空结果强
+        raise FileNotFoundError(
+            f"源目录 {src_root} 下缺少子目录：{'、'.join(missing)}。"
+            "请确认填的是 IDRiD 数据集的根目录。"
+        )
 
     dest_root, url_prefix = _dest_root()
     # 子目录：originals + 9 个 role

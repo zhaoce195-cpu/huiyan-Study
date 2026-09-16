@@ -9,7 +9,11 @@ import App from './App.vue'
 import router from './router'
 import { useUserStore } from './stores/user'
 import { drGradeColor } from './utils/dr-format'
+import { initAppearance } from './utils/appearance'
 import './styles/var.css'
+
+// 字号偏好先于挂载生效，避免默认字号闪一下再跳到用户设置
+initAppearance()
 
 const app = createApp(App)
 

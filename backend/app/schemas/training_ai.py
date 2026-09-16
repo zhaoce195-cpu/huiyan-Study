@@ -44,6 +44,13 @@ class AiDiagnosisOut(_CamelModel):
     left: AiEyeResult = Field(default_factory=AiEyeResult, description="左眼 OS")
     right: AiEyeResult = Field(default_factory=AiEyeResult, description="右眼 OD")
     single_eye: bool = Field(False, description="是否单图病例（左右眼使用同一张图）")
+    # 前端据此决定渲染几张卡、怎么标注眼别。
+    # 以前写死渲染 left + right 两张，只有 OD 的病例会把右眼片子标成「左眼 OS」——
+    # 把右眼影像当左眼展示是错误信息，不是显示瑕疵。
+    eye_cards: list[str] = Field(
+        default_factory=lambda: ["left", "right"],
+        description="要展示的眼别卡：left=左眼OS / right=右眼OD / ou=双眼单图",
+    )
 
     # 教学对比
     gold_grade: Optional[int] = Field(None, description="金标准 DR 分级（青光眼为空）")

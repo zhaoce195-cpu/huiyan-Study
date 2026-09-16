@@ -28,6 +28,11 @@ import type {
   AnnotationItem
 } from './types'
 
+// keep-alive exclude 按组件名匹配，而 <script setup> 默认用文件名推断（这里会是
+// 'index'），对不上就会被缓存 —— 再次进入不走 onMounted，route.query 里没有
+// caseId 的兜底逻辑也就不执行，页面直接报「缺少 caseId 参数」。显式命名。
+defineOptions({ name: 'Reading' })
+
 type FrontRole = LoginApi.FrontRole
 type ImageSource = ReadingApi.ImageSource
 type ReadingRecord = ReadingApi.ReadingRecord

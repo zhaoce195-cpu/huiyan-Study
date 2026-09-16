@@ -219,8 +219,8 @@ class TeachingService:
             data = share.desensitized_data or {}
             from app.services.case_sn import generate_case_sn
             new_case = TrainingCase(
-                case_no=generate_case_sn("T"),
-                case_sn=generate_case_sn("CASE"),
+                case_no=generate_case_sn(db, prefix="T"),
+                case_sn=generate_case_sn(db, prefix="CASE"),
                 title=data.get("title", "教学病例"),
                 description=data.get("description", ""),
                 category=data.get("category", "DR"),

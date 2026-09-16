@@ -15,8 +15,7 @@ import {
   Fold,
   Expand,
   MoreFilled,
-  MagicStick,
-  DataAnalysis
+  MagicStick
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useLogout } from '@/composables/useLogout'
@@ -136,10 +135,11 @@ const roleBadge = computed(() => {
             <el-icon><magic-stick /></el-icon>
             <template #title>AI 智能建案</template>
           </el-menu-item>
-          <el-menu-item index="/screening">
-            <el-icon><data-analysis /></el-icon>
-            <template #title>AI 批量筛查端</template>
-          </el-menu-item>
+          <!--
+            体检筛查端已停用（见 stores/user.ts 的 canAccessScreening），
+            入口留着只会让管理员 / 教师点进去被 ScreeningPortal 弹回并提示
+            「无访问权限」。要重新开放时，把这里和首页卡片一起恢复。
+          -->
         </el-menu-item-group>
 
         <!-- 管理员 · 平台管理 -->

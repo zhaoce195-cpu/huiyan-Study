@@ -208,6 +208,8 @@ const loadImage = async (url: string) => {
   }
 
   const seq = ++loadSeq
+  // 换图 = 换一套测量，上一张图报上去的 UID 不能再用来判断「被删了」
+  reportedUids = new Set()
   loading.value = true
   try {
     // wadors 加载器不会自己去取元数据，必须先注册；
@@ -893,6 +895,9 @@ const worldToPixel = (world: number[]): { x: number; y: number } => {
   return p ? { x: p[0], y: p[1] } : { x: 0, y: 0 }
 }
 
+/** 已经同步给上层的测量 UID —— 用来区分「刚画的」和「上层删掉的」 */
+let reportedUids = new Set<string>()
+
 const syncCornerstoneMeasurements = () => {
   if (!elementRef.value || !csTools) return
   const getAnns = csTools.annotation?.state?.getAnnotations
@@ -946,9 +951,47 @@ const syncCornerstoneMeasurements = () => {
     })
   })
 
+  reportedUids = new Set(measurements.map((m) => m.id))
+
   if (measurements.length !== props.measurements.length) {
     emit('update:measurements', measurements)
   }
+}
+
+
+/**
+ * 上层把某条测量从数组里删掉之后，Cornerstone 内部的 Length / Angle 标注状态还在，
+ * 下一次 IMAGE_RENDERED 会被 syncCornerstoneMeasurements 原样回填 —— 表现就是
+ * 「右下角列表删了、橡皮擦了、撤销了，线都还在，刷新浏览器才消失」。
+ * 这里按 UID 把内部状态一并删掉。
+ *
+ * 只删「曾经同步上去、现在不见了」的那些：刚画完还没来得及 sync 的新标注不在
+ * reportedUids 里，不能误伤。
+ */
+const pruneRemovedToolAnnotations = () => {
+  const state = csTools?.annotation?.state
+  if (!state || !elementRef.value || reportedUids.size === 0) return
+
+  const kept = new Set(props.measurements.map((m) => m.id))
+  let removed = false
+  for (const uid of reportedUids) {
+    if (kept.has(uid)) continue
+    try {
+      state.removeAnnotation(uid)
+      removed = true
+    } catch {
+      /* ignore */
+    }
+  }
+  if (!removed) return
+
+  reportedUids = new Set([...reportedUids].filter((u) => kept.has(u)))
+  try {
+    viewport?.render()
+  } catch {
+    /* ignore */
+  }
+  redrawOverlay()
 }
 
 /* =========================================================
@@ -977,6 +1020,7 @@ const clearAllTools = () => {
   }
 
   // 2. 重置自定义 overlay 的临时绘制状态
+  reportedUids = new Set()
   drawing.value = false
   currentPoints.value = []
 
@@ -1085,6 +1129,13 @@ watch(
   () => [props.annotations, props.measurements, effectiveLayers.value, props.goldAnnotations],
   () => redrawOverlay(),
   { deep: true }
+)
+
+// 上层删掉测量后，把 Cornerstone 内部对应的 Length / Angle 标注也删掉，
+// 否则下一帧就被回填回来。只看 id 列表，避免 deep 比较的开销。
+watch(
+  () => props.measurements.map((m) => m.id).join('|'),
+  () => pruneRemovedToolAnnotations()
 )
 </script>
 

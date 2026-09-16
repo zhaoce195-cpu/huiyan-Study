@@ -19,6 +19,9 @@ import AiDiagnosisDialog from '@/components/AiDiagnosisDialog.vue'
 import DiagnosisForm from '@/views/reading/components/DiagnosisForm.vue'
 import type { ToolName, AnnotationItem, CanvasState } from '@/views/reading/types'
 
+// 同 reading：显式命名，保证 TrainingPortal 的 keep-alive exclude 能匹配上
+defineOptions({ name: 'PracticeWorkstation' })
+
 const route = useRoute()
 const router = useRouter()
 

@@ -12,18 +12,30 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import desc, func
+from sqlalchemy import desc, func, or_
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.models import (
     Department,
-    RecordStatusEnum,
+    PracticeSession,
+    PracticeStatusEnum,
+    ReadingAnnotation,
+    ReadingStatusEnum,
     Role,
     RoleEnum,
     TrainingCase,
-    TrainingRecord,
     User,
+)
+
+# 「已完成」的口径：草稿不算，提交过就算（教师点评与否不影响完成事实）
+_PRACTICE_DONE = (
+    PracticeStatusEnum.SUBMITTED.value,
+    PracticeStatusEnum.REVIEWED.value,
+)
+_READING_DONE = (
+    ReadingStatusEnum.SUBMITTED.value,
+    ReadingStatusEnum.REVIEWED.value,
 )
 from app.schemas.common import (
     DepartmentOut,
@@ -185,25 +197,70 @@ class CommonService:
     # ---------- 科室 ----------
 
     @staticmethod
+    def _assert_hospital_exists(hospital_id: Optional[int]) -> None:
+        """医院目前是 _HOSPITALS 里的静态清单，挡一下不存在的 id"""
+        if hospital_id is None:
+            return
+        if not any(h["id"] == hospital_id for h in _HOSPITALS):
+            raise HTTPException(400, detail=f"医院不存在：{hospital_id}")
+
+    @staticmethod
+    def _assert_code_free(
+        db: Session,
+        *,
+        code: str,
+        hospital_id: Optional[int],
+        exclude_id: Optional[int] = None,
+    ) -> None:
+        """
+        编码在「同一医院内」唯一。全院通用科室（hospital_id 为 NULL）之间也要
+        互不重复 —— 数据库的 UNIQUE 约束对多个 NULL 是放行的，所以这里补一道。
+        """
+        q = db.query(Department.id).filter(
+            Department.code == code,
+            Department.hospital_id.is_(None)
+            if hospital_id is None
+            else Department.hospital_id == hospital_id,
+        )
+        if exclude_id is not None:
+            q = q.filter(Department.id != exclude_id)
+        if q.first():
+            where = "全院通用科室中" if hospital_id is None else f"该医院（#{hospital_id}）下"
+            raise HTTPException(409, detail=f"{where}已存在科室编码：{code}")
+
+    @staticmethod
     def list_departments(
         db: Session,
-        hospital_id: Optional[int] = None,  # 当前未做医院-科室关联，预留
+        hospital_id: Optional[int] = None,
     ) -> List[DepartmentOut]:
-        rows: List[Department] = (
-            db.query(Department)
-            .filter(Department.is_active == True)  # noqa: E712
-            .order_by(Department.sort_order.asc(), Department.id.asc())
-            .all()
-        )
+        """
+        指定医院时，返回「该医院的科室 + 全院通用科室」；不指定时返回全部。
+
+        原先无论选哪家医院都返回同一份全局清单（测试报告：在 ID 2 的医院建的
+        科室，切到别的医院也看得到）。
+        """
+        q = db.query(Department).filter(Department.is_active == True)  # noqa: E712
+        if hospital_id is not None:
+            q = q.filter(
+                or_(
+                    Department.hospital_id == hospital_id,
+                    Department.hospital_id.is_(None),
+                )
+            )
+        rows: List[Department] = q.order_by(
+            Department.sort_order.asc(), Department.id.asc()
+        ).all()
         return [
-            DepartmentOut(id=r.id, name=r.name, hospital_id=hospital_id)
+            DepartmentOut(id=r.id, name=r.name, hospital_id=r.hospital_id)
             for r in rows
         ]
 
     @staticmethod
     def create_department(db: Session, params: DepartmentSaveParams) -> DepartmentOut:
+        CommonService._assert_hospital_exists(params.hospital_id)
         # code 缺省自动生成 DEPT_<id>
         d = Department(
+            hospital_id=params.hospital_id,
             code=(params.code or "").strip().upper() or f"DEPT_{int(datetime.now().timestamp())}",
             name=params.name,
             short_name=params.short_name or "",
@@ -213,24 +270,27 @@ class CommonService:
             is_active=bool(params.is_active),
             remark=params.remark or "",
         )
-        # 唯一性
-        if db.query(Department).filter(Department.code == d.code).first():
-            raise HTTPException(409, detail=f"科室编码已存在：{d.code}")
+        CommonService._assert_code_free(db, code=d.code, hospital_id=d.hospital_id)
         db.add(d)
         db.commit()
         db.refresh(d)
-        return DepartmentOut(id=d.id, name=d.name)
+        return DepartmentOut(id=d.id, name=d.name, hospital_id=d.hospital_id)
 
     @staticmethod
     def update_department(db: Session, dept_id: int, params: DepartmentSaveParams) -> DepartmentOut:
         d = db.query(Department).filter(Department.id == dept_id).first()
         if not d:
             raise HTTPException(404, detail=f"科室不存在：{dept_id}")
-        if params.code:
-            new_code = params.code.strip().upper()
-            if new_code != d.code and db.query(Department).filter(Department.code == new_code).first():
-                raise HTTPException(409, detail=f"科室编码已存在：{new_code}")
-            d.code = new_code
+        CommonService._assert_hospital_exists(params.hospital_id)
+        new_hospital_id = params.hospital_id
+        new_code = params.code.strip().upper() if params.code else d.code
+        # 换医院或换编码都可能撞已有科室，一起校验
+        if new_code != d.code or new_hospital_id != d.hospital_id:
+            CommonService._assert_code_free(
+                db, code=new_code, hospital_id=new_hospital_id, exclude_id=d.id
+            )
+        d.hospital_id = new_hospital_id
+        d.code = new_code
         d.name = params.name
         d.short_name = params.short_name or ""
         d.leader = params.leader or ""
@@ -240,7 +300,7 @@ class CommonService:
         d.remark = params.remark or ""
         db.commit()
         db.refresh(d)
-        return DepartmentOut(id=d.id, name=d.name)
+        return DepartmentOut(id=d.id, name=d.name, hospital_id=d.hospital_id)
 
     @staticmethod
     def delete_department(db: Session, dept_id: int) -> None:
@@ -268,22 +328,36 @@ class CommonService:
             .scalar()
         ) or 0
 
-        total_records: int = (
-            db.query(func.count(TrainingRecord.id))
-            .filter(TrainingRecord.status != RecordStatusEnum.DRAFT.value)
+        # 这几项原先聚合 TrainingRecord —— 那张表早已没有任何写入方
+        # （training_service 里的写入路径前端根本不调），于是总提交数、平均 IoU、
+        # 通过率全都恒为 0。学员实际提交落在 PracticeSession（自主练习）和
+        # ReadingAnnotation（阅片工作台），这里改成聚合真正在写的两张表。
+        practice_records: int = (
+            db.query(func.count(PracticeSession.id))
+            .filter(PracticeSession.status.in_(_PRACTICE_DONE))
             .scalar()
         ) or 0
+        reading_records: int = (
+            db.query(func.count(ReadingAnnotation.id))
+            .filter(ReadingAnnotation.status.in_(_READING_DONE))
+            .scalar()
+        ) or 0
+        total_records = practice_records + reading_records
 
-        avg_iou = db.query(func.avg(TrainingRecord.iou_avg)).filter(
-            TrainingRecord.status != RecordStatusEnum.DRAFT.value
+        # IoU 与是否通过只有练习记录才有，分母也只能是练习提交数
+        avg_iou = db.query(func.avg(PracticeSession.iou_avg)).filter(
+            PracticeSession.status.in_(_PRACTICE_DONE)
         ).scalar()
 
         passed_cnt: int = (
-            db.query(func.count(TrainingRecord.id))
-            .filter(TrainingRecord.is_passed == 1)
+            db.query(func.count(PracticeSession.id))
+            .filter(
+                PracticeSession.status.in_(_PRACTICE_DONE),
+                PracticeSession.is_passed == True,  # noqa: E712
+            )
             .scalar()
         ) or 0
-        pass_rate = round(passed_cnt / total_records, 4) if total_records else 0.0
+        pass_rate = round(passed_cnt / practice_records, 4) if practice_records else 0.0
 
         # 难度分布
         diff_rows = (
@@ -361,26 +435,51 @@ class CommonService:
 
         user_ids = [u.id for u in users]
 
-        # 一次性聚合
+        # 原先聚合的 TrainingRecord 没有任何写入方，三列恒为 0
+        #（用户测试报告：「学员页面显示已有练习和提交记录，但管理页面显示完成病例为 0」）。
+        # 学时与 IoU 只有练习记录才有这两个字段；完成病例则要把阅片提交也算进来，
+        # 否则学员在阅片工作台交的那些又会漏掉 —— 两张表的 case_id 都指向
+        # biz_training_case.id，可以直接按病例去重取并集。
         agg_rows = (
             db.query(
-                TrainingRecord.user_id,
-                func.coalesce(func.sum(TrainingRecord.duration_seconds), 0),
-                func.count(func.distinct(TrainingRecord.case_id)),
-                func.coalesce(func.avg(TrainingRecord.iou_avg), 0),
+                PracticeSession.user_id,
+                func.coalesce(func.sum(PracticeSession.duration_seconds), 0),
+                func.coalesce(func.avg(PracticeSession.iou_avg), 0),
             )
-            .filter(TrainingRecord.user_id.in_(user_ids))
-            .group_by(TrainingRecord.user_id)
+            .filter(
+                PracticeSession.user_id.in_(user_ids),
+                PracticeSession.status.in_(_PRACTICE_DONE),
+            )
+            .group_by(PracticeSession.user_id)
             .all()
         )
         stat_map = {
-            uid: (int(secs or 0), int(case_cnt or 0), float(avg or 0.0))
-            for uid, secs, case_cnt, avg in agg_rows
+            uid: (int(secs or 0), float(avg or 0.0))
+            for uid, secs, avg in agg_rows
         }
+
+        # 完成病例 = 练习已提交 ∪ 阅片已提交，按 (user, case) 去重
+        done_pairs: set = set()
+        for model, done_status in (
+            (PracticeSession, _PRACTICE_DONE),
+            (ReadingAnnotation, _READING_DONE),
+        ):
+            rows = (
+                db.query(model.user_id, model.case_id)
+                .filter(model.user_id.in_(user_ids), model.status.in_(done_status))
+                .distinct()
+                .all()
+            )
+            done_pairs.update(rows)
+
+        case_count_map: Dict[int, int] = {}
+        for uid, _case_id in done_pairs:
+            case_count_map[uid] = case_count_map.get(uid, 0) + 1
 
         items: List[StudyHoursItem] = []
         for u in users:
-            secs, case_cnt, avg_iou = stat_map.get(u.id, (0, 0, 0.0))
+            secs, avg_iou = stat_map.get(u.id, (0, 0.0))
+            case_cnt = case_count_map.get(u.id, 0)
             items.append(StudyHoursItem(
                 user_id=u.id,
                 username=u.username,

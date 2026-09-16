@@ -127,6 +127,8 @@ export interface NoticeSaveParams {
 /* === 科室管理 === */
 
 export interface DepartmentSaveParams {
+  /** 所属医院；不传 = 全院通用科室（所有医院可见） */
+  hospitalId?: number
   code?: string
   name: string
   shortName?: string

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ElMessage,
@@ -11,6 +11,7 @@ import {
 import { Lock, User, Setting, Picture, Camera } from '@element-plus/icons-vue'
 import { LoginApi } from '@/api'
 import { useUserStore } from '@/stores/user'
+import { applyFontSize } from '@/utils/appearance'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -216,12 +217,16 @@ const fetchSetting = async () => {
   try {
     const s = await LoginApi.getUserSetting()
     Object.assign(setting, s)
+    applyFontSize(setting.fontSize)
   } catch {
     /* 后端不可达时使用默认值 */
   } finally {
     settingLoading.value = false
   }
 }
+
+// 字号即时预览：选完就能看出区别，不用先保存再猜有没有生效
+watch(() => setting.fontSize, (v) => applyFontSize(v))
 
 const submitSetting = async () => {
   settingSaving.value = true
@@ -236,6 +241,9 @@ const submitSetting = async () => {
       notifySound: setting.notifySound
     })
     Object.assign(setting, s)
+    applyFontSize(setting.fontSize)
+    // 原来保存完悄无声息，用户只能靠刷新去猜存没存上
+    ElMessage.success('配置已保存')
   } catch {
     /* 已弹错误提示 */
   } finally {
@@ -403,38 +411,20 @@ onMounted(() => {
           </template>
           <div class="card" v-loading="settingLoading">
             <el-form label-width="120px" style="max-width: 560px">
-              <el-form-item label="界面主题">
-                <el-radio-group v-model="setting.theme">
-                  <el-radio-button value="light">浅色</el-radio-button>
-                  <el-radio-button value="dark">深色</el-radio-button>
-                  <el-radio-button value="auto">跟随系统</el-radio-button>
-                </el-radio-group>
-              </el-form-item>
+              <!--
+                界面主题 / 界面语言 / 消息通知开关暂时下线。
+                这三块后端存得下，但前端从来没有消费过：全站没有暗色主题实现、
+                没引入任何 i18n、通知开关也没有任何代码读取，改了必然「没反应」
+                （三份用户测试报告都点名了这条）。等真正实现时再放出来，
+                后端接口和字段保持不变，恢复只需要把这几段取消注释。
+              -->
               <el-form-item label="字体大小">
                 <el-radio-group v-model="setting.fontSize">
                   <el-radio-button value="small">小</el-radio-button>
                   <el-radio-button value="normal">中</el-radio-button>
                   <el-radio-button value="large">大</el-radio-button>
                 </el-radio-group>
-              </el-form-item>
-              <el-form-item label="界面语言">
-                <el-select v-model="setting.language" style="width: 200px">
-                  <el-option label="简体中文" value="zh-CN" />
-                  <el-option label="English" value="en-US" />
-                </el-select>
-              </el-form-item>
-              <el-divider content-position="left">消息通知</el-divider>
-              <el-form-item label="站内消息">
-                <el-switch v-model="setting.notifyMessage" />
-              </el-form-item>
-              <el-form-item label="邮件通知">
-                <el-switch v-model="setting.notifyEmail" />
-              </el-form-item>
-              <el-form-item label="短信通知">
-                <el-switch v-model="setting.notifySms" />
-              </el-form-item>
-              <el-form-item label="提示音">
-                <el-switch v-model="setting.notifySound" />
+                <div class="setting-hint">选中即时生效，保存后下次登录仍沿用</div>
               </el-form-item>
               <el-form-item>
                 <el-button
@@ -595,6 +585,13 @@ onMounted(() => {
   border-top: none;
   border-radius: 0 0 12px 12px;
   padding: 24px 28px;
+}
+
+.setting-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #86909c;
+  line-height: 1.6;
 }
 
 .tab-label {

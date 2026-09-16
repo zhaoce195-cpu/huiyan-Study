@@ -17,7 +17,7 @@
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
-import type { UploadRawFile } from 'element-plus'
+import type { UploadFile, UploadInstance } from 'element-plus'
 
 import { CaseImageApi } from '@/api'
 
@@ -43,6 +43,7 @@ const dialogVisible = computed({
   set: (v) => emit('update:visible', v)
 })
 
+const uploadRef = ref<UploadInstance | null>(null)
 const role = ref<CaseImageRole>('original')
 const eye = ref<EyeSide>('OU')
 const files = ref<File[]>([])
@@ -73,15 +74,25 @@ watch(
   { immediate: true }
 )
 
-const beforeAdd = (file: UploadRawFile): boolean => {
+/**
+ * auto-upload=false 时 el-upload 不走 before-upload（那是上传流程的钩子），
+ * 只会触发 on-change，所以这里挂 on-change，否则「添加文件」选完毫无反应、
+ * 待上传数一直是 0。
+ */
+const onFileChange = (uploadFile: UploadFile): void => {
+  const file = uploadFile.raw
+  // 处理完清掉内部列表，否则同一个文件第二次选不会再触发 change
+  uploadRef.value?.clearFiles?.()
+  if (!file) return
+
   const ext = (file.name.split('.').pop() || '').toLowerCase()
   if (!ALLOWED_EXT.includes(ext)) {
     ElMessage.warning(`仅支持 ${ALLOWED_EXT.join(' / ')}`)
-    return false
+    return
   }
   if (file.size / 1024 / 1024 > MAX_SIZE_MB) {
     ElMessage.warning(`单文件不超过 ${MAX_SIZE_MB}MB`)
-    return false
+    return
   }
   files.value.push(file as File)
   // tif 浏览器无法直接预览
@@ -90,7 +101,6 @@ const beforeAdd = (file: UploadRawFile): boolean => {
   } else {
     previews.value.push(URL.createObjectURL(file))
   }
-  return false // 阻止 el-upload 自动上传
 }
 
 const removeFile = (i: number) => {
@@ -161,8 +171,9 @@ const onSubmit = async () => {
       <el-form-item label="影像文件">
         <div class="upload-area">
           <el-upload
+            ref="uploadRef"
             :show-file-list="false"
-            :before-upload="beforeAdd"
+            :on-change="onFileChange"
             :auto-upload="false"
             multiple
             accept=".png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff"

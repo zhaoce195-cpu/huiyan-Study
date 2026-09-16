@@ -8,7 +8,16 @@
  * 主题适配：仅使用 Element Plus tokens，浅/深主题自动跟随
  */
 import { computed, type Component } from 'vue'
-import { ElButton, ElInput, ElSelect, ElOption, ElDatePicker, ElSwitch, ElIcon } from 'element-plus'
+import {
+  ElButton,
+  ElInput,
+  ElSelect,
+  ElOption,
+  ElDatePicker,
+  ElSwitch,
+  ElIcon,
+  ElTooltip,
+} from 'element-plus'
 import {
   Search,
   Calendar,
@@ -53,8 +62,42 @@ const ICON_MAP: Record<string, Component> = {
   User,
 }
 
+/**
+ * 就地改绑定对象，而不是 emit 一个全新对象。
+ *
+ * 之前每次输入都 emit `{ ...modelValue, key: val }`，父组件 `v-model="filter"`
+ * 会把 `filter` 整个换成这个**普通对象** —— reactive 代理没了，此后视图再也不
+ * 跟着更新：输入框打字不显示、退格无效，只有别的东西（比如翻页）触发一次重渲染
+ * 才把攒下的文本刷出来。
+ *
+ * 就地 mutate 能保住父组件的 reactive/ref 代理；再把同一个对象 emit 回去，
+ * v-model 的赋值就成了「赋回自己」，语义完整且无副作用。
+ */
+const commit = () => emit('update:modelValue', props.modelValue)
+
 const setVal = (key: string, val: any) => {
-  emit('update:modelValue', { ...props.modelValue, [key]: val })
+  props.modelValue[key] = val
+  // 改了一个字段可能让别的字段变成不适用（比如病种换成 AMD 后 DR 分级失效），
+  // 顺手把它们清掉：留一个禁用但仍在生效的条件，用户只会看到「怎么什么都搜不到」
+  clearDisabledFields()
+  commit()
+}
+
+const isDisabled = (f: FilterFieldSchema): boolean =>
+  typeof f.disabledWhen === 'function' ? !!f.disabledWhen(props.modelValue) : false
+
+const clearDisabledFields = () => {
+  props.schema.fields.forEach((f) => {
+    if (!isDisabled(f)) return
+    if (f.type === 'daterange' || f.type === 'datetimerange') {
+      if (f.startKey) props.modelValue[f.startKey] = ''
+      if (f.endKey) props.modelValue[f.endKey] = ''
+    } else if (f.type === 'switch') {
+      props.modelValue[f.key] = false
+    } else {
+      props.modelValue[f.key] = ''
+    }
+  })
 }
 
 /** 取 daterange 在 modelValue 中的当前值，组合成 [start, end] */
@@ -68,30 +111,24 @@ const getRange = (f: FilterFieldSchema): string[] => {
 
 const setRange = (f: FilterFieldSchema, range: any) => {
   if (!f.startKey || !f.endKey) return
-  const next = { ...props.modelValue }
-  if (Array.isArray(range) && range.length === 2) {
-    next[f.startKey] = range[0] || ''
-    next[f.endKey] = range[1] || ''
-  } else {
-    next[f.startKey] = ''
-    next[f.endKey] = ''
-  }
-  emit('update:modelValue', next)
+  const ok = Array.isArray(range) && range.length === 2
+  props.modelValue[f.startKey] = ok ? range[0] || '' : ''
+  props.modelValue[f.endKey] = ok ? range[1] || '' : ''
+  commit()
 }
 
 const resetAll = () => {
-  const next: Record<string, any> = {}
   props.schema.fields.forEach((f) => {
-    if (f.type === 'daterange') {
-      if (f.startKey) next[f.startKey] = ''
-      if (f.endKey) next[f.endKey] = ''
+    if (f.type === 'daterange' || f.type === 'datetimerange') {
+      if (f.startKey) props.modelValue[f.startKey] = ''
+      if (f.endKey) props.modelValue[f.endKey] = ''
     } else if (f.type === 'switch') {
-      next[f.key] = false
+      props.modelValue[f.key] = false
     } else {
-      next[f.key] = ''
+      props.modelValue[f.key] = ''
     }
   })
-  emit('update:modelValue', next)
+  commit()
   emit('reset')
 }
 
@@ -136,24 +173,31 @@ const widthOf = (f: FilterFieldSchema): string => {
       </el-input>
 
       <!-- 下拉选择 -->
-      <el-select
+      <el-tooltip
         v-else-if="f.type === 'select'"
-        :model-value="modelValue[f.key] || ''"
-        :placeholder="f.label"
-        clearable
-        :multiple="!!f.multiple"
-        size="small"
-        :style="{ width: widthOf(f) }"
-        @update:model-value="(v) => setVal(f.key, v)"
-        @change="onSubmit"
+        :disabled="!isDisabled(f) || !f.disabledHint"
+        :content="f.disabledHint"
+        placement="top"
       >
-        <el-option
-          v-for="opt in f.options"
-          :key="String(opt.value)"
-          :label="opt.label"
-          :value="opt.value"
-        />
-      </el-select>
+        <el-select
+          :model-value="modelValue[f.key] || ''"
+          :placeholder="isDisabled(f) ? '不适用' : f.label"
+          clearable
+          :disabled="isDisabled(f)"
+          :multiple="!!f.multiple"
+          size="small"
+          :style="{ width: widthOf(f) }"
+          @update:model-value="(v) => setVal(f.key, v)"
+          @change="onSubmit"
+        >
+          <el-option
+            v-for="opt in f.options"
+            :key="String(opt.value)"
+            :label="opt.label"
+            :value="opt.value"
+          />
+        </el-select>
+      </el-tooltip>
 
       <!-- 日期 / 日期时间 区间 -->
       <el-date-picker

@@ -46,6 +46,27 @@ const studentGradeNum = computed<number | null>(() => {
 /** 热力图查看：original / heatmap 切换 */
 const showHeat = ref<{ left: boolean; right: boolean }>({ left: true, right: true })
 
+/**
+ * 该画哪几张眼别卡。
+ *
+ * 以前写死 ['left','right']，只有右眼影像的病例会把那张右眼片子同时画成
+ * 「左眼 OS」，还挂一个由它算出来的假左眼分级 —— 把右眼当左眼展示是错误信息。
+ * 现在按后端给的真实眼别渲染；老接口没有该字段时回退成双眼。
+ */
+type EyeCard = 'left' | 'right' | 'ou'
+const eyeCards = computed<EyeCard[]>(
+  () => (result.value?.eyeCards?.length ? result.value.eyeCards : ['left', 'right']) as EyeCard[]
+)
+
+/** 眼别卡取哪一侧的数据：ou 是同一张图，取右眼即可 */
+const sideOf = (card: EyeCard): 'left' | 'right' => (card === 'left' ? 'left' : 'right')
+
+const EYE_TITLE: Record<EyeCard, string> = {
+  left: '左眼 OS',
+  right: '右眼 OD',
+  ou: '双眼 OU（单图）',
+}
+
 const elapsed = ref(0)
 let elapsedTimer: ReturnType<typeof setInterval> | null = null
 
@@ -176,32 +197,36 @@ const close = () => emit('update:visible', false)
       </div>
 
       <el-alert
-        v-if="result.singleEye"
+        v-if="eyeCards.length === 1"
         type="info"
         :closable="false"
         show-icon
-        title="该病例为单图病例，左右眼使用同一张眼底图送检"
+        :title="
+          eyeCards[0] === 'ou'
+            ? '该病例只有一张双眼眼底图，AI 按该图给出结论'
+            : `该病例只有${eyeCards[0] === 'left' ? '左' : '右'}眼影像，另一侧无数据、不作展示`
+        "
         style="margin-bottom: 12px"
       />
 
-      <!-- 双眼热力图 -->
-      <div class="eye-grid">
+      <!-- 眼别热力图：按病例实际存在的眼别渲染 -->
+      <div class="eye-grid" :class="{ 'single-card': eyeCards.length === 1 }">
         <div
-          v-for="side in (['left', 'right'] as const)"
-          :key="side"
+          v-for="card in eyeCards"
+          :key="card"
           class="eye-card"
         >
           <div class="eye-head">
             <span class="eye-title">
-              {{ side === 'left' ? '左眼 OS' : '右眼 OD' }}
-              <el-tag :type="gradeTag(result[side].grade)" size="small" effect="dark">
-                {{ result[side].label || ('DR ' + result[side].grade + ' 级') }}
+              {{ EYE_TITLE[card] }}
+              <el-tag :type="gradeTag(result[sideOf(card)].grade)" size="small" effect="dark">
+                {{ result[sideOf(card)].label || ('DR ' + result[sideOf(card)].grade + ' 级') }}
               </el-tag>
             </span>
             <el-radio-group
-              v-model="showHeat[side]"
+              v-model="showHeat[sideOf(card)]"
               size="small"
-              :disabled="!result[side].heatmapUrl"
+              :disabled="!result[sideOf(card)].heatmapUrl"
             >
               <el-radio-button :value="false">原图</el-radio-button>
               <el-radio-button :value="true">热力图</el-radio-button>
@@ -210,8 +235,14 @@ const close = () => emit('update:visible', false)
           <el-image
             class="eye-img"
             fit="contain"
-            :src="showHeat[side] && result[side].heatmapUrl ? result[side].heatmapUrl : result[side].imageUrl"
-            :preview-src-list="[result[side].imageUrl, result[side].heatmapUrl].filter(Boolean)"
+            :src="
+              showHeat[sideOf(card)] && result[sideOf(card)].heatmapUrl
+                ? result[sideOf(card)].heatmapUrl
+                : result[sideOf(card)].imageUrl
+            "
+            :preview-src-list="
+              [result[sideOf(card)].imageUrl, result[sideOf(card)].heatmapUrl].filter(Boolean)
+            "
             preview-teleported
           >
             <template #error>
@@ -337,6 +368,12 @@ const close = () => emit('update:visible', false)
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+/* 单眼病例只有一张卡，撑满整行会太大，居中收窄 */
+.eye-grid.single-card {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 50%;
+  margin: 0 auto;
 }
 .eye-card {
   border: 1px solid var(--el-border-color-lighter);

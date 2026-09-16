@@ -1,5 +1,18 @@
 """
 学员实训记录表
+
+⚠️ 已废弃（2026-08）：这张表**没有任何活跃写入方**，线上是空表。
+
+  仅 training_service 的 submit_annotation / mark_case_done 会写它，而这两个
+  端点前端从未调用过。学员的实际提交落在：
+      - 自主练习   → PracticeSession（biz_practice_session）
+      - 阅片工作台 → ReadingAnnotation（biz_reading_annotation）
+
+  统计口径曾经聚合本表，导致管理端「完成病例 / 学时 / 通过率」恒为 0
+  （2026-08 用户测试报告 D-1），现已改为聚合上面两张表。
+
+  新增统计或报表请勿再读本表。表与端点暂时保留，等确认无外部调用方后再清理。
+
 - 一名学员对一份 TrainingCase 的一次提交
 - 同一 case + user 可有多条记录（多次练习），通过 attempt_no 区分
 - 评分由后端比对学员答案与金标准（IoU、分级一致性等）后写入
