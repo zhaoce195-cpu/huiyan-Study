@@ -88,6 +88,10 @@ class User(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, comment="账号是否启用"
     )
+    must_change_password: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False,
+        comment="下次登录是否必须改密（管理员重置临时密码后置 True）",
+    )
     last_login_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, nullable=True, comment="最近登录时间"
     )

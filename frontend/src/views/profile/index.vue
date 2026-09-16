@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
   ElMessage,
   ElMessageBox,
@@ -8,13 +8,19 @@ import {
   type FormRules,
   type UploadRequestOptions
 } from 'element-plus'
-import { Lock, User, Setting, Picture, Camera } from '@element-plus/icons-vue'
+import { Lock, User, Setting, Picture, Camera, Bell } from '@element-plus/icons-vue'
 import { LoginApi } from '@/api'
 import { useUserStore } from '@/stores/user'
 import { applyFontSize } from '@/utils/appearance'
+import NotificationInbox from '@/views/notices/NotificationInbox.vue'
 
 const router = useRouter()
+const route = useRoute()
 const userStore = useUserStore()
+
+const forcePwd = computed(
+  () => route.query.forcePwd === '1' || !!userStore.userInfo.mustChangePassword
+)
 
 /* ========== 当前用户信息 ========== */
 
@@ -42,7 +48,7 @@ const fetchProfile = async () => {
 
 /* ========== 基本资料 ========== */
 
-const activeTab = ref<'profile' | 'password' | 'setting'>('profile')
+const activeTab = ref<'profile' | 'password' | 'setting' | 'notices'>('profile')
 
 const profileFormRef = ref<FormInstance>()
 const profileLoading = ref(false)
@@ -177,6 +183,21 @@ const submitPassword = async () => {
       pwdForm.oldPassword = ''
       pwdForm.newPassword = ''
       pwdForm.confirmPassword = ''
+      userStore.setUser({
+        ...(userInfo.value as LoginApi.UserInfo),
+        mustChangePassword: false
+      })
+      if (forcePwd.value) {
+        await ElMessageBox.alert('密码已更新，请使用新密码重新登录', '修改成功', {
+          confirmButtonText: '去登录',
+          type: 'success'
+        })
+        localStorage.removeItem('huiyan_token')
+        localStorage.removeItem('huiyan_refresh_token')
+        userStore.clear()
+        router.replace('/login')
+        return
+      }
       try {
         await ElMessageBox.confirm('密码已更新，是否立即重新登录？', '提示', {
           confirmButtonText: '重新登录',
@@ -250,6 +271,26 @@ const submitSetting = async () => {
     settingSaving.value = false
   }
 }
+
+watch(forcePwd, (v) => {
+  if (v) activeTab.value = 'password'
+}, { immediate: true })
+
+watch(
+  () => route.query.tab,
+  (tab) => {
+    if (forcePwd.value) return
+    if (tab === 'notices') activeTab.value = 'notices'
+  },
+  { immediate: true }
+)
+
+watch(activeTab, (v) => {
+  if (forcePwd.value && v !== 'password') {
+    activeTab.value = 'password'
+    ElMessage.warning('请先修改临时密码')
+  }
+})
 
 onMounted(() => {
   fetchProfile()
@@ -353,6 +394,14 @@ onMounted(() => {
             <span class="tab-label"><el-icon><Lock /></el-icon>修改密码</span>
           </template>
           <div class="card">
+            <el-alert
+              v-if="forcePwd"
+              type="warning"
+              :closable="false"
+              show-icon
+              title="管理员为该账号生成了临时密码，必须先改密才能继续使用系统。"
+              style="margin-bottom: 16px"
+            />
             <el-form
               ref="pwdFormRef"
               :model="pwdForm"
@@ -403,6 +452,13 @@ onMounted(() => {
               style="max-width: 520px"
             />
           </div>
+        </el-tab-pane>
+
+        <el-tab-pane name="notices">
+          <template #label>
+            <span class="tab-label"><el-icon><Bell /></el-icon>通知</span>
+          </template>
+          <NotificationInbox />
         </el-tab-pane>
 
         <el-tab-pane name="setting">

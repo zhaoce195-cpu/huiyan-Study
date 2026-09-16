@@ -12,11 +12,13 @@ const props = defineProps<{
   loading: boolean
   data: Detail | null
   canArchive: boolean
+  canEditGold?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'update:visible', v: boolean): void
   (e: 'join-training', row: Detail): void
+  (e: 'edit-gold', row: Detail): void
   (e: 'preview-images', images: string[]): void
 }>()
 
@@ -103,7 +105,15 @@ const genderText = (g: string) => {
               {{ data.archiveStatus === 'ARCHIVED' ? '已归档' : '在用' }}
             </el-tag>
             <el-tag
-              v-if="data.isTrainCase"
+              v-if="!data.isPublished"
+              type="warning"
+              size="small"
+              effect="plain"
+            >
+              草稿 · 未发布
+            </el-tag>
+            <el-tag
+              v-else-if="data.isTrainCase"
               type="success"
               size="small"
               effect="dark"
@@ -170,6 +180,12 @@ const genderText = (g: string) => {
             <span v-if="data.clinicalInfo">{{ data.clinicalInfo }}</span>
             <span v-else class="muted">—</span>
           </el-descriptions-item>
+          <el-descriptions-item label="金标准分级">
+            {{ data.drGradeText || (data.goldDrGrade ? `${data.goldDrGrade} 级` : '—') }}
+          </el-descriptions-item>
+          <el-descriptions-item label="及格分">
+            {{ data.passScore ?? 60 }} 分
+          </el-descriptions-item>
           <el-descriptions-item label="金标准诊断" :span="2">
             <span v-if="data.goldDiagnosis">{{ data.goldDiagnosis }}</span>
             <span v-else class="muted">—</span>
@@ -222,6 +238,13 @@ const genderText = (g: string) => {
 
     <template #footer>
       <el-button @click="close">关闭</el-button>
+      <el-button
+        v-if="canEditGold && data"
+        type="warning"
+        @click="emit('edit-gold', data)"
+      >
+        {{ data.isPublished ? '修订金标准' : '完善金标准' }}
+      </el-button>
       <el-button
         :icon="Picture"
         :disabled="!data || data.imageCount === 0"

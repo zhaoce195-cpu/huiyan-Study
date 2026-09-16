@@ -109,6 +109,20 @@ class IdridImportResult(_CamelModel):
     elapsed_sec: float = 0.0
     dry_run: bool = False
     sample_case_sns: List[str] = Field(default_factory=list)
+    source_path: str = ""
+
+
+class IdridProbeResult(_CamelModel):
+    """探测服务器约定目录是否已放好数据集，不写库。"""
+    source_path: str = ""
+    default_path: str = ""
+    exists: bool = False
+    ready: bool = False
+    missing_subdirs: List[str] = Field(default_factory=list)
+    image_count: int = 0
+    train_count: int = 0
+    test_count: int = 0
+    hint: str = ""
 
 
 __all__ = [
@@ -118,6 +132,9 @@ __all__ = [
     "IncompletePage",
     "IdridImportParams",
     "IdridImportResult",
+    "IdridProbeResult",
+    "BackfillPatientParams",
+    "BackfillPatientResult",
     "CaseImageRoleLiteral",
     "CaseTableLiteral",
 ]

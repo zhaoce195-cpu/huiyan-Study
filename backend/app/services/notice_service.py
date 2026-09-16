@@ -41,19 +41,20 @@ def _read_mark(db: Session, user_id: int, ids: List[int]) -> None:
     if not ids:
         return
     have = _read_get(db, user_id)
-    added = False
-    for nid in ids:
-        if nid in have:
-            continue
-        db.add(NoticeRead(user_id=user_id, notice_id=int(nid)))
-        added = True
-    if added:
-        try:
-            db.commit()
-        except IntegrityError:
-            # 并发下同一条可能被重复插入，唯一约束会挡住。
-            # 这不是错误：目标状态（已读）本就已经达成。
-            db.rollback()
+    new_ids = [int(nid) for nid in ids if nid not in have]
+    if not new_ids:
+        return
+    for nid in new_ids:
+        db.add(NoticeRead(user_id=user_id, notice_id=nid))
+    # 「我已知晓」首次记已读时阅读量 +1；重复标记不再加
+    for n in db.query(Notice).filter(Notice.id.in_(new_ids)).all():
+        n.view_count = (n.view_count or 0) + 1
+    try:
+        db.commit()
+    except IntegrityError:
+        # 并发下同一条可能被重复插入，唯一约束会挡住。
+        # 这不是错误：目标状态（已读）本就已经达成。
+        db.rollback()
 
 
 # ====================== 工具 ======================
@@ -90,13 +91,22 @@ def _notice_to_notification(n: Notice) -> NotificationItemOut:
         "TRAINING": "training",
         "EXAM": "training",
     }
+    publisher_name = ""
+    if n.publisher:
+        publisher_name = n.publisher.real_name or n.publisher.username or ""
+    created = (n.publish_at or n.created_at)
+    created_s = created.strftime("%Y-%m-%d %H:%M:%S") if created else ""
     return NotificationItemOut(
         id=n.id,
         type=type_map.get(n.notice_type, "system"),  # type: ignore[arg-type]
         title=n.title,
-        content=n.summary or n.content[:120],
+        content=n.summary or (n.content[:120] if n.content else ""),
+        body=n.content or n.summary or "",
         read=False,  # 由调用者根据 read_set 覆盖
-        created_at=(n.publish_at or n.created_at).strftime("%Y-%m-%d %H:%M:%S") if (n.publish_at or n.created_at) else "",
+        is_top=bool(n.is_top),
+        publisher_name=publisher_name,
+        publish_at=n.publish_at.strftime("%Y-%m-%d %H:%M:%S") if n.publish_at else created_s,
+        created_at=created_s,
     )
 
 

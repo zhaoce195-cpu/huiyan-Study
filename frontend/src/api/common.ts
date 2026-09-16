@@ -65,7 +65,12 @@ export interface NotificationItem {
   type: 'system' | 'screening' | 'training' | 'refer'
   title: string
   content: string
+  /** 公告全文，登录弹窗 / 回看详情用 */
+  body?: string
   read: boolean
+  isTop?: boolean
+  publisherName?: string
+  publishAt?: string
   createdAt: string
 }
 

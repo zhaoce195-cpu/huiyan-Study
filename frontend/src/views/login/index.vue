@@ -36,6 +36,7 @@ watch(loginRole, () => {
 })
 
 const goRegister = () => router.push('/register')
+const goApplyStudent = () => router.push('/apply-student')
 
 /* ========== 统一身份登录（OIDC 授权码 + PKCE） ========== */
 // 首次登录强制改密、账号锁定提示等必需动作只能在 Keycloak 登录页完成，
@@ -122,6 +123,13 @@ const handleLogin = async () => {
       })
 
       ElMessage.success(`欢迎回来，${userInfo.name || userInfo.username || form.username}`)
+
+      if (userInfo.mustChangePassword) {
+        ElMessage.warning('管理员重置了密码，请先修改后再使用系统')
+        const dest = userInfo.role === 'patient' ? '/patient/profile' : '/training/profile'
+        router.replace({ path: dest, query: { forcePwd: '1' } })
+        return
+      }
 
       // 角色对应默认首页；query.redirect 仅在与角色权限不冲突时使用
       const queryRedirect = (route.query.redirect as string) || ''
@@ -257,7 +265,8 @@ const handleLogin = async () => {
 
             <div class="login-extra">
               <el-checkbox v-model="form.remember" label="记住账户" />
-              <a class="link" @click="goRegister">立即注册</a>
+              <a v-if="loginRole === 'student'" class="link" @click="goApplyStudent">申请学员账号</a>
+              <a v-else class="link" @click="goRegister">立即注册</a>
             </div>
 
             <el-button

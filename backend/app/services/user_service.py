@@ -62,6 +62,8 @@ class UserService:
                 detail="新密码不能与原密码相同",
             )
         user.password_hash = hash_password(params.new_password)
+        if hasattr(user, "must_change_password"):
+            user.must_change_password = False
         db.commit()
 
     # ============ 头像上传 ============

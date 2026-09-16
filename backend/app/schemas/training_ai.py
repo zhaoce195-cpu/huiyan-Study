@@ -65,6 +65,7 @@ class AiDiagnosisOut(_CamelModel):
 
 class AiCaseDraftOut(_CamelModel):
     """AI 智能建案结果（教师端）"""
+    id: int = Field(..., description="实训病例数字主键，用于跳转完善金标准")
     case_id: str = Field(..., description="新建实训病例编号")
     title: str = Field("", description="病例标题")
     is_published: bool = Field(False, description="是否已发布（建案默认草稿）")

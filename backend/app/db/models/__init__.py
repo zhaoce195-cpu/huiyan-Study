@@ -84,6 +84,10 @@ from app.db.models.organization_application import (  # noqa: F401
     AppStatusEnum,
 )
 from app.db.models.user_message import UserMessage, MessageTypeEnum  # noqa: F401
+from app.db.models.student_application import (  # noqa: F401
+    StudentApplication,
+    StudentAppStatusEnum,
+)
 
 # ===== 教学实训分享（医生→学员病例分享、入库申请，纯追加） =====
 from app.db.models.teaching_share import (  # noqa: F401

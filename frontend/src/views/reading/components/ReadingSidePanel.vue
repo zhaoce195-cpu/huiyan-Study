@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ElInput, ElInputNumber, ElMessage } from 'element-plus'
 import { Delete, View, Hide } from '@element-plus/icons-vue'
 import type {
@@ -44,7 +44,13 @@ const updateInvert = (val: boolean) => {
   emit('update:viewport', { ...props.viewport, invert: val })
 }
 
-const reviewComment = ref('')
+const reviewComment = ref(props.existingRecord?.reviewComment || '')
+watch(
+  () => props.existingRecord?.reviewComment,
+  (val) => {
+    if (val && !reviewComment.value) reviewComment.value = val
+  }
+)
 
 const onReview = (accept: boolean) => {
   if (!accept && !reviewComment.value.trim()) {

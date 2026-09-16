@@ -69,6 +69,12 @@ def _patch_schema() -> None:
             "ALTER TABLE sys_user ADD COLUMN wx_openid "
             "VARCHAR(64) NOT NULL DEFAULT ''",
         ))
+    if user_cols and "must_change_password" not in user_cols:
+        patches.append((
+            "sys_user.must_change_password",
+            "ALTER TABLE sys_user ADD COLUMN must_change_password "
+            "BOOLEAN NOT NULL DEFAULT 0",
+        ))
 
     if cols and "archive_status" not in cols:
         patches.append((
@@ -131,18 +137,31 @@ def _patch_schema() -> None:
             "VARCHAR(20) NOT NULL DEFAULT ''",
         ))
 
-    if not patches:
-        return
+    if patches:
+        with engine.begin() as conn:
+            for name, sql in patches:
+                try:
+                    conn.execute(text(sql))
+                    print(f"[schema_patch] + 已补齐 {name}")
+                except Exception as e:  # noqa: BLE001
+                    print(f"[schema_patch] x 补齐 {name} 失败：{e}")
+                    if is_sqlite:
+                        raise
 
-    with engine.begin() as conn:
-        for name, sql in patches:
-            try:
-                conn.execute(text(sql))
-                print(f"[schema_patch] + 已补齐 {name}")
-            except Exception as e:  # noqa: BLE001
-                print(f"[schema_patch] x 补齐 {name} 失败：{e}")
-                if is_sqlite:
-                    raise
+    # ---- 新表：学员开户申请（与机构申请分表，不混用）----
+    try:
+        tables = set(insp.get_table_names())
+    except Exception:
+        tables = set()
+    if "biz_student_application" not in tables:
+        try:
+            from app.db.models.student_application import StudentApplication
+            StudentApplication.__table__.create(bind=engine, checkfirst=True)
+            print("[schema_patch] + 已建表 biz_student_application")
+        except Exception as e:  # noqa: BLE001
+            print(f"[schema_patch] x 建表 biz_student_application 失败：{e}")
+            if is_sqlite:
+                raise
 
 
 def _init_database() -> None:
@@ -212,6 +231,10 @@ def _init_database() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ARG001
+    try:
+        _patch_schema()
+    except Exception as e:  # noqa: BLE001
+        print(f"[startup] schema 补丁失败：{e}")
     if settings.DEBUG:
         try:
             _init_database()

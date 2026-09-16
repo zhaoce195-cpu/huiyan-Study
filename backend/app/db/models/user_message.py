@@ -18,6 +18,7 @@ from app.db.base import Base
 class MessageTypeEnum(str, Enum):
     """消息类型"""
     ORG_APPLICATION = "org_application"
+    STUDENT_APPLICATION = "student_application"
     SYSTEM = "system"
 
 

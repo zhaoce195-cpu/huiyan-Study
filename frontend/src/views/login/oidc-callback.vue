@@ -57,6 +57,13 @@ onMounted(async () => {
       sessionStorage.setItem('huiyan_id_token', result.tokens.id_token)
     }
 
+    if (userStore.userInfo.mustChangePassword) {
+      ElMessage.warning('管理员重置了密码，请先修改后再使用系统')
+      const dest = userStore.role === 'patient' ? '/patient/profile' : '/training/profile'
+      router.replace({ path: dest, query: { forcePwd: '1' } })
+      return
+    }
+
     ElMessage.success('登录成功')
     router.replace(result.redirectTo || userStore.homePathForRole(userStore.role))
   } catch (e: any) {

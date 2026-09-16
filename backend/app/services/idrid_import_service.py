@@ -48,16 +48,23 @@ from app.db.models.training_case import (
     CaseCategoryEnum,
     CaseDifficultyEnum,
 )
-from app.schemas.case_image import IdridImportResult
+from app.schemas.case_image import IdridImportResult, IdridProbeResult
 from app.services.case_image_service import CaseImageService
 from app.services.case_sn import generate_case_sn
 from app.services.patient_mock import generate_mock_patient
 
 
 # ============================================================
-# 默认路径
+# 约定目录
 # ============================================================
 
+REQUIRED_SUBDIRS = (
+    "1. Original Images",
+    "2. All Segmentation Groundtruths",
+    "3. IDRID_4_lesion_processed",
+)
+
+# 兼容旧脚本 import；实际解析请用 resolved_idrid_root()
 DEFAULT_IDRID_ROOT = Path(r"d:\huiyan cloude\IDRID多病灶\IDRID多病灶")
 
 LESION_CONFIGS = [
@@ -86,6 +93,65 @@ SPLITS = [
 def _backend_root() -> Path:
     # app/services/idrid_import_service.py → backend
     return Path(__file__).resolve().parent.parent.parent
+
+
+def resolved_idrid_root(source_path: Optional[str] = None) -> Path:
+    """服务端约定目录。相对路径相对 backend 根目录。"""
+    raw = (source_path or settings.IDRID_DATASET_ROOT or "data/idrid").strip()
+    p = Path(raw)
+    if not p.is_absolute():
+        p = _backend_root() / p
+    return p
+
+
+def _list_split_images(img_dir: Path) -> List[Path]:
+    if not img_dir.exists():
+        return []
+    return sorted(
+        list(img_dir.glob("*.jpg"))
+        + list(img_dir.glob("*.jpeg"))
+        + list(img_dir.glob("*.png"))
+    )
+
+
+def probe_idrid_source(source_path: Optional[str] = None) -> IdridProbeResult:
+    """只看目录结构与原图数量，不写库、不复制文件。"""
+    default_path = str(resolved_idrid_root())
+    src_root = resolved_idrid_root(source_path)
+    missing = [
+        name for name in REQUIRED_SUBDIRS if not (src_root / name).exists()
+    ]
+    exists = src_root.exists()
+    train_count = 0
+    test_count = 0
+    if exists and not missing:
+        img_root = src_root / "1. Original Images"
+        train_count = len(_list_split_images(img_root / "a. Training Set"))
+        test_count = len(_list_split_images(img_root / "b. Testing Set"))
+    image_count = train_count + test_count
+    ready = exists and not missing and image_count > 0
+    if not exists:
+        hint = (
+            f"服务端还没有这个目录。请运维把 IDRiD 数据集放到：{src_root}"
+            "（容器部署时还需挂载进容器）。"
+        )
+    elif missing:
+        hint = f"目录在，但缺少子目录：{'、'.join(missing)}。请确认填的是数据集根目录。"
+    elif image_count == 0:
+        hint = "三个子目录都在，但 Original Images 下没有 jpg/png。"
+    else:
+        hint = f"约定目录就绪，共 {image_count} 张原图（训练 {train_count} / 测试 {test_count}）。"
+    return IdridProbeResult(
+        source_path=str(src_root),
+        default_path=default_path,
+        exists=exists,
+        ready=ready,
+        missing_subdirs=missing,
+        image_count=image_count,
+        train_count=train_count,
+        test_count=test_count,
+        hint=hint,
+    )
 
 
 def _dest_root() -> Tuple[Path, str]:
@@ -182,8 +248,9 @@ def run_idrid_import(
     dry_run: bool = False,
     skip_existing: bool = True,
     creator: Optional[User] = None,
+    dest_root: Optional[Path] = None,
 ) -> IdridImportResult:
-    src_root = Path(source_path) if source_path else DEFAULT_IDRID_ROOT
+    src_root = resolved_idrid_root(source_path)
     if not src_root.exists():
         # 管理员常把自己电脑上的路径填进来（测试报告：「填了正确的本地路径，
         # 系统提示找不到」）。这个路径是在**服务端**解析的，说清楚，
@@ -191,8 +258,8 @@ def run_idrid_import(
         raise FileNotFoundError(
             f"服务端找不到该目录：{src_root}\n"
             "注意：这里填的是**运行后端的服务器上**的路径，不是你本机的路径；"
-            "数据集需要先放到服务器上（容器部署时还要挂载进容器）。\n"
-            f"未填写时使用的默认路径为：{DEFAULT_IDRID_ROOT}\n"
+            "数据集需要先放到服务器约定目录（容器部署时还要挂载进容器）。\n"
+            f"未填写时使用的约定路径为：{resolved_idrid_root()}\n"
             "目录下应当包含：「1. Original Images」「2. All Segmentation Groundtruths」"
             "「3. IDRID_4_lesion_processed」三个子目录。"
         )
@@ -210,7 +277,10 @@ def run_idrid_import(
             "请确认填的是 IDRiD 数据集的根目录。"
         )
 
-    dest_root, url_prefix = _dest_root()
+    if dest_root is not None:
+        dest_root, url_prefix = Path(dest_root), f"{settings.STATIC_URL}/training/idrid"
+    else:
+        dest_root, url_prefix = _dest_root()
     # 子目录：originals + 9 个 role
     role_subdirs = {
         "originals": dest_root / "originals",
@@ -248,14 +318,10 @@ def run_idrid_import(
         if not img_dir.exists():
             continue
 
-        images = sorted(
-            list(img_dir.glob("*.jpg")) +
-            list(img_dir.glob("*.jpeg")) +
-            list(img_dir.glob("*.png"))
-        )
+        images = _list_split_images(img_dir)
 
         for img_path in images:
-            if limit and imported >= limit:
+            if limit and seq >= limit:
                 break
             seq += 1
             stem = img_path.stem
@@ -270,8 +336,8 @@ def run_idrid_import(
             )
 
             if skip_existing and existing_t and existing_s:
-                # 主表已存在但仍允许追加缺失影像
-                pass
+                skipped += 1
+                continue
 
             # 计算病灶像素 + DR 分级
             with Image.open(img_path) as im:
@@ -456,7 +522,7 @@ def run_idrid_import(
             if imported % 10 == 0:
                 db.commit()
 
-        if limit and imported >= limit:
+        if limit and seq >= limit:
             break
 
     if dry_run:
@@ -475,7 +541,13 @@ def run_idrid_import(
         elapsed_sec=round(elapsed, 2),
         dry_run=dry_run,
         sample_case_sns=sample_sns,
+        source_path=str(src_root),
     )
 
 
-__all__ = ["run_idrid_import", "DEFAULT_IDRID_ROOT"]
+__all__ = [
+    "run_idrid_import",
+    "probe_idrid_source",
+    "resolved_idrid_root",
+    "DEFAULT_IDRID_ROOT",
+]

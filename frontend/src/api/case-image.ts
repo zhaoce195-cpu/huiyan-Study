@@ -91,6 +91,19 @@ export interface IdridImportResult {
   elapsedSec: number
   dryRun: boolean
   sampleCaseSns: string[]
+  sourcePath?: string
+}
+
+export interface IdridProbeResult {
+  sourcePath: string
+  defaultPath: string
+  exists: boolean
+  ready: boolean
+  missingSubdirs: string[]
+  imageCount: number
+  trainCount: number
+  testCount: number
+  hint: string
 }
 
 /* ========== 中文展示工具 ========== */
@@ -182,10 +195,18 @@ export const listIncompleteCases = (
     pageSize
   })
 
+/** 探测服务器约定目录是否已放好数据集（不写库） */
+export const probeIdrid = (sourcePath?: string) =>
+  http.get<IdridProbeResult>('/admin/import/idrid/probe', {
+    sourcePath: sourcePath || undefined
+  })
+
 /** 批量导入 IDRiD（管理员） */
 export const importIdrid = (params: IdridImportParams) =>
   http.post<IdridImportResult>('/admin/import/idrid', params, {
     showError: true
+  }, {
+    timeout: 10 * 60 * 1000
   })
 
 /* ========== 一键补齐旧病例的模拟患者信息 ========== */

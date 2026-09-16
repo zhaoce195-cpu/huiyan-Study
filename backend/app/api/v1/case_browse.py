@@ -3,9 +3,10 @@
 - 与前端 frontend/src/api/case-browse.ts 对齐
 - 角色：STUDENT / TEACHER / ADMIN 均可访问
 - 接口清单：
-    GET    /case-browse/list              病例分页检索
-    GET    /case-browse/{caseId}          病例详情
-    PUT    /case-browse/{caseId}/archive  归档 / 取消归档
+    GET    /case-browse/list                     病例分页检索
+    GET    /case-browse/{caseId}                 病例详情
+    PUT    /case-browse/{caseId}/archive         归档 / 取消归档
+    PUT    /case-browse/{caseId}/gold-standard   修订金标准（存草稿 / 发布进实训）
 """
 
 from datetime import datetime
@@ -19,6 +20,7 @@ from app.db.models.user import RoleEnum
 from app.schemas.case_browse import (
     CaseArchiveParams,
     CaseBrowseQuery,
+    GoldStandardUpdate,
 )
 from app.services.case_browse_service import CaseBrowseService
 
@@ -144,3 +146,22 @@ def leave_training(
         data=data.model_dump(by_alias=True),
         msg="已从实训库移除",
     )
+
+
+@router.put(
+    "/{caseId}/gold-standard",
+    summary="修订金标准：保存草稿或发布并加入实训（TEACHER/ADMIN）",
+    response_model=None,
+    dependencies=[_train_write_dep],
+)
+def update_gold_standard(
+    params: GoldStandardUpdate,
+    current_user: CurrentUser,
+    db: DbSession,
+    caseId: int = Path(..., ge=1),
+):
+    data = CaseBrowseService.update_gold_standard(
+        db=db, user=current_user, case_id=caseId, params=params,
+    )
+    msg = "已发布并加入实训" if params.publish else "金标准草稿已保存"
+    return success(data=data.model_dump(by_alias=True), msg=msg)

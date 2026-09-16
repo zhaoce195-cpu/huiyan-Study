@@ -92,7 +92,11 @@ class NotificationItemOut(_CamelModel):
     type: Literal["system", "screening", "training", "refer"] = "system"
     title: str = ""
     content: str = ""
+    body: str = ""
     read: bool = False
+    is_top: bool = False
+    publisher_name: str = ""
+    publish_at: str = ""
     created_at: str = ""
 
 

@@ -10,12 +10,15 @@ import {
   Setting,
   Share,
   Promotion,
+  Checked,
   User,
+  Bell,
   SwitchButton,
   Fold,
   Expand,
   MoreFilled,
-  MagicStick
+  MagicStick,
+  Upload
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useLogout } from '@/composables/useLogout'
@@ -53,9 +56,11 @@ const activeMenu = computed(() => {
   if (route.path.startsWith('/training/cases')) return '/training/cases'
   if (route.path.startsWith('/training/admin')) return '/training/admin'
   if (route.path.startsWith('/training/profile')) return '/training/profile'
+  if (route.path.startsWith('/training/notices')) return '/training/notices'
   if (route.path.startsWith('/training/teaching-share')) return '/training/teaching-share'
   if (route.path.startsWith('/training/student-teaching')) return '/training/student-teaching'
   if (route.path.startsWith('/training/ai-builder')) return '/training/ai-builder'
+  if (route.path.startsWith('/training/review')) return '/training/review'
   return route.path
 })
 
@@ -135,11 +140,17 @@ const roleBadge = computed(() => {
             <el-icon><magic-stick /></el-icon>
             <template #title>AI 智能建案</template>
           </el-menu-item>
-          <!--
-            体检筛查端已停用（见 stores/user.ts 的 canAccessScreening），
-            入口留着只会让管理员 / 教师点进去被 ScreeningPortal 弹回并提示
-            「无访问权限」。要重新开放时，把这里和首页卡片一起恢复。
-          -->
+          <el-menu-item index="/training/review">
+            <el-icon><checked /></el-icon>
+            <template #title>待审核</template>
+          </el-menu-item>
+          <el-menu-item
+            v-if="userStore.canAccessScreening"
+            index="/screening"
+          >
+            <el-icon><upload /></el-icon>
+            <template #title>AI 批量筛查</template>
+          </el-menu-item>
         </el-menu-item-group>
 
         <!-- 管理员 · 平台管理 -->
@@ -155,6 +166,10 @@ const roleBadge = computed(() => {
           <el-menu-item index="/training/learning">
             <el-icon><reading /></el-icon>
             <template #title>学习资料与笔记</template>
+          </el-menu-item>
+          <el-menu-item index="/training/notices">
+            <el-icon><bell /></el-icon>
+            <template #title>通知</template>
           </el-menu-item>
           <el-menu-item index="/training/profile">
             <el-icon><user /></el-icon>

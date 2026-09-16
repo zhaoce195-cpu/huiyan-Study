@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -8,7 +8,8 @@ import {
   Share,
   Check,
   UploadFilled,
-  Delete
+  Delete,
+  EditPen
 } from '@element-plus/icons-vue'
 import { CaseBrowseApi, CaseImageApi } from '@/api'
 import type { PageResult } from '@/utils/request'
@@ -17,6 +18,7 @@ import { useUserStore } from '@/stores/user'
 import CaseDetailDialog from './components/CaseDetailDialog.vue'
 import CaseImagePreview from './components/CaseImagePreview.vue'
 import CaseImageUploadDialog from './components/CaseImageUploadDialog.vue'
+import GoldStandardDialog from './components/GoldStandardDialog.vue'
 import ShareDialog from '@/views/training/components/ShareDialog.vue'
 import DynamicFilter from '@/components/DynamicFilter.vue'
 import { CASE_BROWSE_FILTER } from '@/utils/filter-presets'
@@ -348,8 +350,69 @@ onMounted(() => {
   if (route.query?.onlyIncomplete === '1' || route.query?.onlyIncomplete === 'true') {
     filter.onlyIncomplete = true
   }
+  const kw = route.query?.keyword
+  if (typeof kw === 'string' && kw.trim()) {
+    filter.keyword = kw.trim()
+  }
   fetchList()
 })
+
+/* ========== 完善 / 修订金标准 ========== */
+
+const goldVisible = ref(false)
+const goldData = ref<Detail | null>(null)
+
+const canEditGold = (row: Item | Detail) => {
+  if (!canArchive.value) return false
+  if (row.archiveStatus === 'ARCHIVED') return false
+  if (userStore.isAdmin) return true
+  return Number(row.creatorId) === Number(userStore.userInfo.id)
+}
+
+const openGold = async (row: { id: number }) => {
+  try {
+    const detail = await CaseBrowseApi.getCaseBrowseDetail(row.id)
+    if (!canEditGold(detail)) {
+      ElMessage.warning('仅可修订本人创建的病例金标准')
+      return
+    }
+    goldData.value = detail
+    goldVisible.value = true
+  } catch {
+    ElMessage.error('无法打开金标准编辑')
+  }
+}
+
+const onGoldSaved = (detail: Detail) => {
+  const row = list.value.find((r) => r.id === detail.id)
+  if (row) {
+    row.isPublished = detail.isPublished
+    row.isTrainCase = detail.isTrainCase
+    row.drLevel = detail.drLevel
+    row.drGradeText = detail.drGradeText
+    if (detail.isTrainCase) joinStore.markJoined(row.id)
+  }
+  if (detailData.value?.id === detail.id) {
+    detailData.value = detail
+  }
+}
+
+const consumeGoldQuery = async (raw: unknown) => {
+  const id = Number(raw)
+  if (!id) return
+  await openGold({ id })
+  const next = { ...route.query }
+  delete next.goldCaseId
+  router.replace({ path: route.path, query: next })
+}
+
+watch(
+  () => route.query.goldCaseId,
+  (v) => {
+    if (v) consumeGoldQuery(v)
+  },
+  { immediate: true }
+)
 
 /* ========== 教学分享 ========== */
 const canShare = computed(() => userStore.isAdmin || userStore.isDoctor)
@@ -510,7 +573,16 @@ const onShareSubmit = (row: Item) => {
                 {{ row.archiveStatus === 'ARCHIVED' ? '已归档' : '在用' }}
               </el-tag>
               <el-tag
-                v-if="row.isTrainCase"
+                v-if="!row.isPublished"
+                size="small"
+                type="warning"
+                effect="plain"
+                style="margin-left: 4px"
+              >
+                草稿
+              </el-tag>
+              <el-tag
+                v-else-if="row.isTrainCase"
                 size="small"
                 type="success"
                 effect="dark"
@@ -531,9 +603,19 @@ const onShareSubmit = (row: Item) => {
               <span class="muted small">{{ row.createdAt || '—' }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="420" fixed="right">
+          <el-table-column label="操作" width="500" fixed="right">
             <template #default="{ row }">
               <el-button text type="primary" size="small" :icon="View" @click="openDetail(row)">详情</el-button>
+              <el-button
+                v-if="canEditGold(row)"
+                text
+                type="warning"
+                size="small"
+                :icon="EditPen"
+                @click="openGold(row)"
+              >
+                {{ row.isPublished ? '修订金标准' : '完善金标准' }}
+              </el-button>
               <el-tooltip
                 v-if="row.imageCount === 0"
                 content="该病例暂无眼底图，请先补传后再阅片"
@@ -649,12 +731,20 @@ const onShareSubmit = (row: Item) => {
       :loading="detailLoading"
       :data="detailData"
       :can-archive="canArchive"
+      :can-edit-gold="!!detailData && canEditGold(detailData)"
       @join-training="(row: Detail) => joinTraining(row as Item)"
+      @edit-gold="(row: Detail) => openGold(row)"
       @preview-images="(imgs: string[]) => {
         previewImages = imgs
         previewIndex = 0
         previewVisible = true
       }"
+    />
+
+    <GoldStandardDialog
+      v-model:visible="goldVisible"
+      :data="goldData"
+      @saved="onGoldSaved"
     />
 
     <!-- 影像预览 -->

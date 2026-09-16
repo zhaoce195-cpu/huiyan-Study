@@ -496,6 +496,7 @@ class TrainingAiService:
         db.refresh(rec)
 
         return AiCaseDraftOut(
+            id=case.id,
             case_id=case.case_no,
             title=case.title,
             is_published=False,

@@ -55,6 +55,8 @@ export interface UserInfo {
   permissions?: string[]
   /** 上次登录时间 */
   lastLoginAt?: string
+  /** 管理员重置临时密码后，下次登录必须改密 */
+  mustChangePassword?: boolean
 }
 
 export interface LoginResult {
@@ -144,7 +146,8 @@ const normalizeUser = (raw: any): UserInfo => {
     email: raw.email,
     phone: raw.phone,
     permissions: raw.permissions || [],
-    lastLoginAt: raw.last_login_at || raw.lastLoginAt
+    lastLoginAt: raw.last_login_at || raw.lastLoginAt,
+    mustChangePassword: !!(raw.must_change_password ?? raw.mustChangePassword)
   }
 }
 

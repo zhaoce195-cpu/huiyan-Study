@@ -87,6 +87,26 @@ const showDetail = async (n: Notice) => {
 const editVisible = ref(false)
 const editLoading = ref(false)
 const editFormRef = ref<FormInstance>()
+const VISIBLE_ROLE_OPTIONS = [
+  { label: '学员 STUDENT', value: 'STUDENT' },
+  { label: '教师 TEACHER', value: 'TEACHER' },
+  { label: '管理员 ADMIN', value: 'ADMIN' }
+]
+const visibleRoleChecks = ref<string[]>(['STUDENT'])
+
+const syncVisibleRolesFromChecks = () =>
+  visibleRoleChecks.value.length === 0 || visibleRoleChecks.value.length === 3
+    ? ''
+    : visibleRoleChecks.value.join(',')
+
+const parseVisibleRoles = (raw?: string) => {
+  const parts = (raw || '')
+    .split(',')
+    .map((s) => s.trim().toUpperCase())
+    .filter((s) => ['STUDENT', 'TEACHER', 'ADMIN'].includes(s))
+  return parts
+}
+
 const editForm = reactive<CommonApi.NoticeSaveParams & { id?: number }>({
   id: undefined,
   title: '',
@@ -116,10 +136,11 @@ const openCreate = () => {
   editForm.coverUrl = ''
   editForm.noticeType = 'SYSTEM'
   editForm.status = 'DRAFT'
-  editForm.visibleRoles = ''
+  editForm.visibleRoles = 'STUDENT'
   editForm.isTop = false
   editForm.publishAt = null
   editForm.expireAt = null
+  visibleRoleChecks.value = ['STUDENT']
   editVisible.value = true
 }
 const openEdit = (n: Notice) => {
@@ -131,6 +152,7 @@ const openEdit = (n: Notice) => {
   editForm.noticeType = n.noticeType
   editForm.status = n.status
   editForm.visibleRoles = n.visibleRoles || ''
+  visibleRoleChecks.value = n.visibleRoles ? parseVisibleRoles(n.visibleRoles) : []
   editForm.isTop = n.isTop
   editForm.publishAt = n.publishAt || null
   editForm.expireAt = n.expireAt || null
@@ -150,7 +172,7 @@ const submitEdit = async () => {
         coverUrl: editForm.coverUrl || undefined,
         noticeType: editForm.noticeType,
         status: editForm.status,
-        visibleRoles: editForm.visibleRoles || undefined,
+        visibleRoles: syncVisibleRolesFromChecks(),
         isTop: editForm.isTop,
         publishAt: editForm.publishAt || null,
         expireAt: editForm.expireAt || null
@@ -387,6 +409,11 @@ onMounted(() => {
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="可见角色" width="160">
+          <template #default="{ row }">
+            <span class="muted">{{ row.visibleRoles || '全员' }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="publisherName" label="发布人" width="100" />
         <el-table-column prop="viewCount" label="阅读量" width="80" />
         <el-table-column prop="publishAt" label="发布时间" width="160">
@@ -477,10 +504,14 @@ onMounted(() => {
           <el-checkbox v-model="editForm.isTop" style="margin-left: 12px">置顶</el-checkbox>
         </el-form-item>
         <el-form-item label="可见角色">
-          <el-input
-            v-model="editForm.visibleRoles"
-            placeholder="留空 = 全员可见；多个用逗号分隔，如 STUDENT,TEACHER"
-          />
+          <el-checkbox-group v-model="visibleRoleChecks">
+            <el-checkbox v-for="o in VISIBLE_ROLE_OPTIONS" :key="o.value" :label="o.value">
+              {{ o.label }}
+            </el-checkbox>
+          </el-checkbox-group>
+          <div class="muted" style="margin-top: 4px">
+            勾选学员后，对方登录会弹出未读公告。全不选或全选 = 全员可见。
+          </div>
         </el-form-item>
         <el-form-item label="摘要">
           <el-input v-model="editForm.summary" type="textarea" :rows="2" maxlength="255" show-word-limit />

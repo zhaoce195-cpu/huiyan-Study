@@ -1,17 +1,20 @@
 """
 管理员批量导入路由
+- GET  /admin/import/idrid/probe      探测约定目录是否就绪（不写库）
 - POST /admin/import/idrid            批量导入 IDRiD 数据集
 - POST /admin/import/backfill-patient 补齐教学病例的模拟患者信息
 """
 
-from fastapi import APIRouter, Depends
+from typing import Optional
 
-from app.common.response import success
+from fastapi import APIRouter, Depends, Query
+
+from app.common.response import CODE_BAD_REQUEST, fail, success
 from app.core.dependencies import CurrentUser, DbSession, require_roles
 from app.db.models.user import RoleEnum
 from app.schemas.case_image import BackfillPatientParams, IdridImportParams
 from app.services.backfill_patient_service import backfill_patient_info
-from app.services.idrid_import_service import run_idrid_import
+from app.services.idrid_import_service import probe_idrid_source, run_idrid_import
 from app.services.op_log_service import OpLogService
 
 router = APIRouter(
@@ -19,6 +22,18 @@ router = APIRouter(
     tags=["12. 管理员批量导入"],
     dependencies=[Depends(require_roles(RoleEnum.ADMIN))],
 )
+
+
+@router.get(
+    "/idrid/probe",
+    summary="探测 IDRiD 约定目录（不写库）",
+    response_model=None,
+)
+def probe_idrid(
+    source_path: Optional[str] = Query(None, alias="sourcePath"),
+):
+    data = probe_idrid_source(source_path)
+    return success(data=data.model_dump(by_alias=True), msg=data.hint)
 
 
 @router.post(
@@ -31,18 +46,34 @@ def import_idrid(
     current_user: CurrentUser,
     db: DbSession,
 ):
-    data = run_idrid_import(
-        db,
-        source_path=params.source_path,
-        limit=params.limit,
-        dry_run=params.dry_run,
-        skip_existing=params.skip_existing,
-        creator=current_user,
-    )
-    msg = (
-        f"模拟运行完成，未写入数据库" if params.dry_run
-        else f"已导入 {data.imported_cases} 条病例，关联 {data.appended_images} 张影像"
-    )
+    try:
+        data = run_idrid_import(
+            db,
+            source_path=params.source_path,
+            limit=params.limit,
+            dry_run=params.dry_run,
+            skip_existing=params.skip_existing,
+            creator=current_user,
+        )
+    except FileNotFoundError as exc:
+        return fail(code=CODE_BAD_REQUEST, msg=str(exc))
+    except RuntimeError as exc:
+        return fail(code=CODE_BAD_REQUEST, msg=str(exc))
+
+    if params.dry_run:
+        msg = f"Dry-run 完成，预计可导入 {data.imported_cases} 条，未写入数据库"
+    else:
+        msg = (
+            f"已导入 {data.imported_cases} 条病例（默认未发布），"
+            f"关联 {data.appended_images} 张影像"
+        )
+        OpLogService.record(
+            db, user=current_user, module="admin", action="idrid_import",
+            detail=(
+                f"IDRiD 导入 {data.imported_cases} 例 / {data.appended_images} 张"
+                f"（跳过 {data.skipped_cases}），源 {data.source_path}"
+            ),
+        )
     return success(data=data.model_dump(by_alias=True), msg=msg)
 
 

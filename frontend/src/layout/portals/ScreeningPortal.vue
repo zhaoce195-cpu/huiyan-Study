@@ -42,7 +42,7 @@ const activeMenu = computed(() => {
   return '/screening/dashboard'
 })
 
-const goHome = () => router.push('/')
+const goTraining = () => router.push('/training')
 </script>
 
 <template>
@@ -102,9 +102,9 @@ const goHome = () => router.push('/')
           class="action-btn"
           :icon="ArrowLeft"
           plain
-          @click="goHome"
+          @click="goTraining"
         >
-          <span v-if="!collapsed">返回首页</span>
+          <span v-if="!collapsed">返回实训</span>
         </el-button>
         <el-button
           class="action-btn"

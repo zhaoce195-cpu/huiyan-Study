@@ -90,6 +90,10 @@ class Settings(BaseSettings):
         ".jpg", ".jpeg", ".png", ".webp", ".bmp",
     ]
 
+    # IDRiD 批量导入约定目录（运维把数据集放到服务器上的这个路径）
+    # 相对路径相对 backend 根目录；可用 .env 覆盖为绝对路径。
+    IDRID_DATASET_ROOT: str = "data/idrid"
+
     # 眼底图（AI 筛查）上传配置
     SCREENING_SUBDIR: str = "screening"
     SCREENING_MAX_SIZE_MB: int = 20

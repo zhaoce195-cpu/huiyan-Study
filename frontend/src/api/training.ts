@@ -191,6 +191,8 @@ export interface AiDiagnosisResult {
 }
 
 export interface AiCaseDraft {
+  /** 实训病例数字主键，用于跳转完善金标准 */
+  id?: number
   caseId: string
   title: string
   isPublished: boolean

@@ -28,6 +28,7 @@ const router = useRouter()
 const sessionId = computed(() => Number(route.query.sessionId || 0))
 const caseId = computed(() => Number(route.query.caseId || 0))
 const viewMode = computed(() => route.query.view === 'report')
+const reviewMode = computed(() => route.query.review === '1')
 
 /* ========== 影像源 ========== */
 const source = ref<ReadingApi.ImageSource | null>(null)
@@ -190,6 +191,7 @@ const loadRecord = async () => {
     if (record.value) {
       diagForm.value.drGrade = record.value.studentDrGrade || ''
       diagForm.value.diagnosis = record.value.studentDiagnosis || ''
+      reviewComment.value = record.value.teacherComment || ''
       // 结构化作答回填：不回填的话，学员刷新页面后填过的内容会凭空消失
       structuredAnswer.value = { ...(record.value.studentDiagnosisForm || {}) }
       canvasState.annotations = (record.value.studentAnnotations || []) as AnnotationItem[]
@@ -289,6 +291,32 @@ const handleSubmit = async () => {
   }
 }
 
+const goBack = () => {
+  if (reviewMode.value) {
+    router.push('/training/review')
+    return
+  }
+  router.push('/practice')
+}
+
+const reviewComment = ref('')
+const reviewSaving = ref(false)
+const submitReview = async () => {
+  if (!record.value) return
+  const comment = reviewComment.value.trim()
+  if (!comment) {
+    ElMessage.warning('请填写评语后再提交点评')
+    return
+  }
+  reviewSaving.value = true
+  try {
+    record.value = await PracticeApi.reviewPractice(record.value.id, comment)
+    ElMessage.success('已点评')
+  } finally {
+    reviewSaving.value = false
+  }
+}
+
 const retryPractice = async () => {
   if (!record.value) return
   try {
@@ -342,9 +370,11 @@ watch(currentImageIndex, () => {
   <div class="workstation-page">
     <header class="ws-header">
       <div class="left">
-        <el-button :icon="Back" text @click="router.push('/practice')">返回练习</el-button>
+        <el-button :icon="Back" text @click="goBack">
+          {{ reviewMode ? '返回待审核' : '返回练习' }}
+        </el-button>
         <span class="ws-title">
-          自主练习工作站
+          {{ reviewMode ? '练习评定' : '自主练习工作站' }}
           <span v-if="record" class="case-no">· {{ record.caseNo }}</span>
         </span>
       </div>
@@ -354,7 +384,7 @@ watch(currentImageIndex, () => {
           {{ record.isPassed ? '(通过)' : '(未通过)' }}
         </el-tag>
         <el-button
-          v-if="!viewMode && record?.status === 'DRAFT'"
+          v-if="!viewMode && !reviewMode && record?.status === 'DRAFT'"
           type="primary"
           size="small"
           :loading="submitting"
@@ -362,15 +392,24 @@ watch(currentImageIndex, () => {
         >
           提交作答
         </el-button>
+        <el-button
+          v-if="reviewMode && record && record.status !== 'DRAFT'"
+          type="primary"
+          size="small"
+          :loading="reviewSaving"
+          @click="submitReview"
+        >
+          提交点评
+        </el-button>
       </div>
     </header>
 
     <div class="ws-body">
       <!-- 左侧工具栏 -->
       <ReadingToolbar
-        v-if="!viewMode"
+        v-if="!viewMode && !reviewMode"
         :tool="canvasState.tool"
-        :can-annotate="!viewMode && record?.status === 'DRAFT'"
+        :can-annotate="!viewMode && !reviewMode && record?.status === 'DRAFT'"
         :can-undo="canvasState.history.length > 0"
         :can-redo="canvasState.redoStack.length > 0"
         @set-tool="setTool"
@@ -394,7 +433,7 @@ watch(currentImageIndex, () => {
           :measurements="canvasState.measurements"
           :viewport="canvasState.viewport"
           :layers="canvasState.layers"
-          :readonly="viewMode || record?.status !== 'DRAFT'"
+          :readonly="viewMode || reviewMode || record?.status !== 'DRAFT'"
           :gold-annotations="goldAnnotations"
           @update:annotations="onAnnotationsChange"
           @update:measurements="onMeasurementsChange"
@@ -420,7 +459,7 @@ watch(currentImageIndex, () => {
       <!-- 右侧面板 -->
       <aside class="side-panel">
         <!-- 诊断表单（答题模式） -->
-        <div v-if="!viewMode && record?.status === 'DRAFT'" class="panel-section">
+        <div v-if="!viewMode && !reviewMode && record?.status === 'DRAFT'" class="panel-section">
           <h3>诊断作答</h3>
           <!-- 与阅片端共用同一套病种表单，保证两边结论口径一致 -->
           <DiagnosisForm
@@ -513,9 +552,36 @@ watch(currentImageIndex, () => {
             <p>{{ record.suggestion }}</p>
           </div>
 
-          <div v-if="record?.teacherComment" class="teacher-comment">
+          <div v-if="reviewMode" class="teacher-review">
             <h4>教师点评</h4>
-            <p>{{ record.teacherComment }}</p>
+            <p class="review-hint">
+              系统已自动评分。练习提交不能驳回，可补充等级说明与评语。
+            </p>
+            <div class="review-grade">
+              评定等级：
+              <el-tag size="small" :type="record?.isPassed ? 'success' : 'danger'">
+                {{ record?.isPassed ? '合格' : '不合格' }}
+              </el-tag>
+            </div>
+            <el-input
+              v-model="reviewComment"
+              type="textarea"
+              :rows="4"
+              placeholder="请填写评语（必填）"
+            />
+          </div>
+          <div v-else-if="record?.teacherComment" class="teacher-comment">
+            <h4>教师点评</h4>
+            <p>
+              <el-tag size="small" :type="record.isPassed ? 'success' : 'danger'">
+                {{ record.isPassed ? '合格' : '不合格' }}
+              </el-tag>
+              {{ record.teacherComment }}
+            </p>
+          </div>
+          <div v-else-if="record?.status === 'SUBMITTED'" class="teacher-comment">
+            <h4>教师点评</h4>
+            <el-tag size="small" type="warning">待审核</el-tag>
           </div>
 
           <div class="layer-toggle">
@@ -543,9 +609,9 @@ watch(currentImageIndex, () => {
             </p>
           </div>
 
-          <div class="report-actions">
+          <div v-if="!reviewMode" class="report-actions">
             <el-button type="primary" @click="retryPractice">再练一次</el-button>
-            <el-button @click="router.push('/practice')">返回列表</el-button>
+            <el-button @click="goBack">返回列表</el-button>
           </div>
         </div>
       </aside>
@@ -715,6 +781,23 @@ watch(currentImageIndex, () => {
   color: #c9cdd4;
   line-height: 1.6;
   margin: 0;
+}
+.teacher-review {
+  margin-top: 8px;
+}
+.review-hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #86909c;
+  line-height: 1.5;
+}
+.review-grade {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  color: #c9cdd4;
 }
 
 .layer-toggle {

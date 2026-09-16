@@ -31,6 +31,7 @@ from app.schemas.case_browse import (
     CaseBrowseItem,
     CaseBrowseQuery,
     CaseBrowsePage,
+    GoldStandardUpdate,
 )
 
 
@@ -199,8 +200,10 @@ def _to_detail(
         clinical_info=case.clinical_info or "",
         image_paths=case.image_paths or {},
         images=_flatten_images(case.image_paths),
+        gold_dr_grade=case.gold_dr_grade if case.gold_dr_grade is not None else "",
         gold_diagnosis=case.gold_diagnosis or "",
         teaching_points=case.teaching_points or "",
+        gold_lesions=list(case.gold_lesions or []),
         pass_score=case.pass_score or 60,
     )
     # base 已裁剪，此处再裁剪一次以覆盖 detail 独有的答案字段
@@ -484,4 +487,80 @@ class CaseBrowseService:
             case.updated_at = datetime.now()
             db.commit()
             db.refresh(case)
+        return _to_detail(case, viewer=user)
+
+    # ============================================================
+    #                   金标准修订 / 发布
+    # ============================================================
+
+    @staticmethod
+    def update_gold_standard(
+        db: Session,
+        user: User,
+        case_id: int,
+        params: GoldStandardUpdate,
+    ) -> CaseBrowseDetail:
+        """
+        教师修订金标准。
+
+        publish=False：仅写金标准字段，保持未发布，学员不可见。
+        publish=True：写金标准后同时置 is_published + is_train_case，
+        学员抽题 / 阅片即可看到。
+        """
+        role_code = user.role.code if user.role else None
+        if role_code not in (RoleEnum.TEACHER.value, RoleEnum.ADMIN.value):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="仅教师或管理员可修订金标准",
+            )
+
+        case = db.query(TrainingCase).filter(TrainingCase.id == case_id).first()
+        if not case:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"病例不存在：{case_id}",
+            )
+        if (
+            role_code == RoleEnum.TEACHER.value
+            and case.creator_id != user.id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="仅可修订本人创建的病例金标准",
+            )
+        if case.archive_status == CaseArchiveStatusEnum.ARCHIVED.value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="已归档病例不可修订金标准",
+            )
+
+        if params.gold_dr_grade is not None:
+            grade = (params.gold_dr_grade or "").strip()
+            if grade and grade not in DR_GRADE_TEXT:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="金标准 DR 分级只能是 0~4，或留空表示不适用",
+                )
+            case.gold_dr_grade = grade
+        if params.gold_diagnosis is not None:
+            case.gold_diagnosis = params.gold_diagnosis.strip()
+        if params.teaching_points is not None:
+            case.teaching_points = params.teaching_points.strip()
+        if params.pass_score is not None:
+            case.pass_score = params.pass_score
+        if params.gold_lesions is not None:
+            case.gold_lesions = params.gold_lesions
+
+        if params.publish:
+            if not (case.gold_diagnosis or "").strip():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="发布前请填写金标准诊断",
+                )
+            case.is_published = True
+            case.is_train_case = True
+
+        case.updated_at = datetime.now()
+        db.commit()
+        db.refresh(case)
         return _to_detail(case, viewer=user)

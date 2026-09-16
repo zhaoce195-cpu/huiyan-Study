@@ -27,7 +27,8 @@ if str(_BACKEND_ROOT) not in sys.path:
 
 from app.db.session import SessionLocal
 from app.services.idrid_import_service import (  # noqa: E402
-    DEFAULT_IDRID_ROOT,
+    probe_idrid_source,
+    resolved_idrid_root,
     run_idrid_import,
 )
 
@@ -36,8 +37,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="IDRiD 数据集批量导入")
     parser.add_argument(
         "--source",
-        default=str(DEFAULT_IDRID_ROOT),
-        help=f"数据集根目录（默认 {DEFAULT_IDRID_ROOT}）",
+        default=None,
+        help=f"数据集根目录（默认 {resolved_idrid_root()}）",
     )
     parser.add_argument("--limit", type=int, default=None,
                         help="只导入前 N 条（调试用）")
@@ -47,8 +48,13 @@ def main() -> None:
                         help="不跳过已存在病例（强制覆盖追加）")
     args = parser.parse_args()
 
-    print(f"源目录：{args.source}")
+    print(f"源目录：{args.source or resolved_idrid_root()}")
     print(f"limit={args.limit}, dry_run={args.dry_run}, skip_existing={not args.no_skip}")
+    probe = probe_idrid_source(args.source)
+    print(probe.hint)
+    if not probe.ready and not args.dry_run:
+        print("约定目录未就绪，中止正式导入。可先 --dry-run 或检查路径。")
+        raise SystemExit(2)
 
     db = SessionLocal()
     try:

@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Bell, OfficeBuilding, Collection, Document, DataAnalysis, Upload, Promotion, Reading } from '@element-plus/icons-vue'
+import { Bell, OfficeBuilding, Collection, Document, DataAnalysis, Upload, Promotion, Reading, User, Avatar } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import NoticesSection from './sections/NoticesSection.vue'
 import DepartmentsSection from './sections/DepartmentsSection.vue'
+import UsersSection from './sections/UsersSection.vue'
 import DictSection from './sections/DictSection.vue'
 import LogsSection from './sections/LogsSection.vue'
 import StatsSection from './sections/StatsSection.vue'
 import IdridImportSection from './sections/IdridImportSection.vue'
 import OrganizationApplicationsSection from './sections/OrganizationApplicationsSection.vue'
+import StudentApplicationsSection from './sections/StudentApplicationsSection.vue'
 import TeachingReviewSection from './sections/TeachingReviewSection.vue'
 
 
@@ -18,13 +20,20 @@ const userStore = useUserStore()
 const isAdmin = computed(() => userStore.isAdmin)
 const canManage = computed(() => userStore.canManage)
 
-const activeTab = ref('notices')
+const activeTab = ref(isAdmin.value ? 'users' : 'notices')
 </script>
 
 <template>
   <div class="admin-page">
     <main class="admin-main">
       <el-tabs v-model="activeTab" type="card" class="admin-tabs">
+        <el-tab-pane v-if="isAdmin" name="users">
+          <template #label>
+            <span class="tab-label"><el-icon><User /></el-icon>用户账号</span>
+          </template>
+          <UsersSection :can-manage="isAdmin" />
+        </el-tab-pane>
+
         <el-tab-pane name="notices">
           <template #label>
             <span class="tab-label"><el-icon><Bell /></el-icon>公告 &amp; 消息</span>
@@ -72,6 +81,13 @@ const activeTab = ref('notices')
             <span class="tab-label"><el-icon><Promotion /></el-icon>机构申请审核</span>
           </template>
           <OrganizationApplicationsSection :can-manage="isAdmin" />
+        </el-tab-pane>
+
+        <el-tab-pane v-if="isAdmin" name="student-apps">
+          <template #label>
+            <span class="tab-label"><el-icon><Avatar /></el-icon>学员开户审核</span>
+          </template>
+          <StudentApplicationsSection :can-manage="isAdmin" />
         </el-tab-pane>
 
         <el-tab-pane v-if="isAdmin" name="teaching-review">

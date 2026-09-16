@@ -2,14 +2,14 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { PracticeApi } from '@/api'
+import { PracticeApi, ReadingApi } from '@/api'
 import { useUserStore } from '@/stores/user'
 import { isDrGradeNotApplicable } from '@/utils/filter-presets'
 
 const router = useRouter()
 const userStore = useUserStore()
 
-type TabName = 'pick' | 'history' | 'stats'
+type TabName = 'pick' | 'history' | 'readings' | 'stats'
 
 const isStudent = computed(() => userStore.isTrainee)
 const isTeacher = computed(() => userStore.isDoctor || userStore.isAdmin)
@@ -144,6 +144,46 @@ const statusTagType = (s: PracticeApi.PracticeStatus) => {
 const statusText = (s: PracticeApi.PracticeStatus) =>
   s === 'DRAFT' ? '草稿' : s === 'SUBMITTED' ? '已提交' : '已点评'
 
+const reviewCol = (row: PracticeApi.PracticeRecord) => {
+  if (row.status === 'DRAFT') return null
+  if (row.status === 'SUBMITTED') return { pending: true }
+  return {
+    pending: false,
+    grade: row.isPassed ? '合格' : '不合格',
+    comment: row.teacherComment || ''
+  }
+}
+
+/* ========== 我的阅片 ========== */
+
+const readingLoading = ref(false)
+const readingList = ref<ReadingApi.ReadingRecord[]>([])
+const readingPage = ref({ page: 1, pageSize: 20, total: 0 })
+
+const fetchReadings = async () => {
+  readingLoading.value = true
+  try {
+    const r = await ReadingApi.getReadingList({
+      page: readingPage.value.page,
+      pageSize: readingPage.value.pageSize
+    })
+    readingList.value = (r.list || []).filter((row) => row.status !== 'DRAFT')
+    readingPage.value.total = r.total || 0
+  } catch {
+    readingList.value = []
+    readingPage.value.total = 0
+  } finally {
+    readingLoading.value = false
+  }
+}
+
+const openReading = (row: ReadingApi.ReadingRecord) => {
+  router.push({
+    path: '/training/reading',
+    query: { caseId: String(row.caseId), recordId: String(row.id) }
+  })
+}
+
 /* ========== 统计 ========== */
 
 const statsLoading = ref(false)
@@ -165,6 +205,10 @@ const fetchStats = async (target: 'me' | 'all' = 'me') => {
 }
 
 /* ========== 初始化 ========== */
+watch(activeTab, (tab) => {
+  if (tab === 'readings') fetchReadings()
+})
+
 onMounted(async () => {
   await fetchRandom()
   fetchList()
@@ -376,6 +420,20 @@ onMounted(async () => {
                   {{ row.durationSeconds ? Math.round(row.durationSeconds / 60) + '分' : '—' }}
                 </template>
               </el-table-column>
+              <el-table-column label="教师评定" min-width="200">
+                <template #default="{ row }">
+                  <span v-if="!reviewCol(row)" style="color: #c9cdd4">—</span>
+                  <el-tag v-else-if="reviewCol(row)?.pending" size="small" type="warning">
+                    待审核
+                  </el-tag>
+                  <div v-else class="review-cell">
+                    <el-tag size="small" :type="row.isPassed ? 'success' : 'danger'">
+                      {{ reviewCol(row)?.grade }}
+                    </el-tag>
+                    <span class="review-comment">{{ reviewCol(row)?.comment || '（无评语）' }}</span>
+                  </div>
+                </template>
+              </el-table-column>
               <el-table-column prop="submittedAt" label="提交时间" width="170" />
               <el-table-column label="操作" width="200" fixed="right">
                 <template #default="{ row }">
@@ -419,6 +477,53 @@ onMounted(async () => {
               @size-change="onSizeChange"
             />
           </div>
+        </el-tab-pane>
+
+        <el-tab-pane v-if="isStudent" label="我的阅片" name="readings">
+          <el-table
+            v-loading="readingLoading"
+            :data="readingList"
+            border
+            stripe
+            size="default"
+          >
+            <el-table-column prop="caseNo" label="病例" min-width="140" />
+            <el-table-column label="状态" width="110">
+              <template #default="{ row }">
+                <el-tag size="small" :type="ReadingApi.READING_STATUS_META[row.status]?.tag">
+                  {{ ReadingApi.READING_STATUS_META[row.status]?.label || row.status }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="教师评定" min-width="220">
+              <template #default="{ row }">
+                <el-tag
+                  v-if="row.status === 'SUBMITTED'"
+                  size="small"
+                  type="warning"
+                >
+                  待审核
+                </el-tag>
+                <div v-else class="review-cell">
+                  <el-tag
+                    size="small"
+                    :type="ReadingApi.READING_STATUS_META[row.status]?.tag"
+                  >
+                    {{ ReadingApi.READING_STATUS_META[row.status]?.label }}
+                  </el-tag>
+                  <span class="review-comment">{{ row.reviewComment || '（无评语）' }}</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column prop="updatedAt" label="更新时间" width="180" />
+            <el-table-column label="操作" width="120">
+              <template #default="{ row }">
+                <el-button size="small" type="primary" @click="openReading(row)">
+                  查看
+                </el-button>
+              </template>
+            </el-table-column>
+          </el-table>
         </el-tab-pane>
 
         <!-- 统计 -->
@@ -649,6 +754,17 @@ onMounted(async () => {
 }
 .weak-card {
   border-radius: 8px;
+}
+.review-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+.review-comment {
+  font-size: 12px;
+  color: #4e5969;
+  line-height: 1.4;
 }
 @media (max-width: 1080px) {
   .stats-grid {

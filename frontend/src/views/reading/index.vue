@@ -152,7 +152,11 @@ const currentDicomImageId = computed(() => {
 })
 
 /* ========== 阅片记录（如果由 review 跳转过来） ========== */
-const reviewMode = computed(() => recordId.value > 0)
+const reviewMode = computed(() => recordId.value > 0 && canReview.value)
+const recordLocked = computed(() => {
+  const st = existingRecord.value?.status
+  return st === 'SUBMITTED' || st === 'REVIEWED'
+})
 const existingRecord = ref<ReadingRecord | null>(null)
 
 /* ========== 画布状态 ========== */
@@ -531,7 +535,7 @@ const onReview = async (accept: boolean, comment: string) => {
       accept
     })
     existingRecord.value = out
-    ElMessage.success(accept ? '已通过审核' : '已驳回，状态恢复为草稿')
+    ElMessage.success(accept ? '已通过审核' : '已驳回，学员可按意见修改后重新提交')
   } catch {
     /* 已弹错误 */
   } finally {
@@ -541,7 +545,13 @@ const onReview = async (accept: boolean, comment: string) => {
 
 /* ========== 跳转 ========== */
 
-const goBack = () => router.push('/case-browse')
+const goBack = () => {
+  if (String(route.query.from || '') === 'review') {
+    router.push('/training/review')
+    return
+  }
+  router.push('/case-browse')
+}
 
 const genderText = (g?: string) => {
   if (g === 'M') return '男'
@@ -730,7 +740,9 @@ const openNote = () => {
   <div class="reading-page">
     <header class="page-header">
       <div class="header-left">
-        <el-button :icon="Back" text @click="goBack">返回病例库</el-button>
+        <el-button :icon="Back" text @click="goBack">
+          {{ String(route.query.from || '') === 'review' ? '返回待审核' : '返回病例库' }}
+        </el-button>
         <div class="divider" />
         <span class="page-title">
           <el-icon><Document /></el-icon>
@@ -794,7 +806,7 @@ const openNote = () => {
           {{ autosaveText }}
         </span>
         <el-button
-          v-if="canAnnotate && !reviewMode"
+          v-if="canAnnotate && !reviewMode && !recordLocked"
           type="primary"
           size="small"
           :disabled="!source || sourceLoading"
@@ -813,7 +825,7 @@ const openNote = () => {
           AI 辅助判读
         </el-button>
         <el-button
-          v-if="canAnnotate && !reviewMode"
+          v-if="canAnnotate && !reviewMode && !recordLocked"
           size="small"
           plain
           :loading="qualityChecking"
@@ -883,7 +895,7 @@ const openNote = () => {
       <!-- 左侧工具栏 -->
       <ReadingToolbar
         :tool="canvasState.tool"
-        :can-annotate="canAnnotate"
+        :can-annotate="canAnnotate && !reviewMode && !recordLocked"
         :can-undo="canvasState.history.length > 0"
         :can-redo="canvasState.redoStack.length > 0"
         @set-tool="setTool"
@@ -951,7 +963,7 @@ const openNote = () => {
           :measurements="canvasState.measurements"
           :viewport="canvasState.viewport"
           :layers="canvasState.layers"
-          :readonly="!canAnnotate || reviewMode"
+          :readonly="!canAnnotate || reviewMode || recordLocked"
           @update:annotations="onAnnotationsChange"
           @update:measurements="onMeasurementsChange"
           @update:viewport="(v) => (canvasState.viewport = v)"

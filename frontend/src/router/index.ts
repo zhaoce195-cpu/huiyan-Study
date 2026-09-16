@@ -15,6 +15,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '注册', public: true }
   },
   {
+    path: '/apply-student',
+    name: 'ApplyStudent',
+    component: () => import('@/views/login/apply-student.vue'),
+    meta: { title: '申请学员账号', public: true }
+  },
+  {
     // OIDC 授权码回调：Keycloak 登录完成后跳回本页换取令牌
     path: '/oidc/callback',
     name: 'OidcCallback',
@@ -53,7 +59,7 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/spike/station-check.vue'),
     meta: { title: '阅片组件自检', public: true }
   },  {
-    // 首页原为「端口选择页」，体检筛查端已停用、只剩培训端 → 直接按角色重定向
+    // 首页：病患进报告页，教师/学员进培训端（筛查从侧栏「AI 批量筛查」进入）
     path: '/',
     redirect: () => {
       try {
@@ -138,6 +144,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'AI 智能建案', allowedRoles: ['admin', 'doctor'] }
       },
       {
+        path: 'review',
+        name: 'TrainingReview',
+        component: () => import('@/views/training/pending-review.vue'),
+        meta: { title: '待审核', allowedRoles: ['admin', 'doctor'] }
+      },
+      {
         path: 'student-teaching',
         name: 'StudentTeaching',
         component: () => import('@/views/training/student-teaching.vue'),
@@ -148,6 +160,12 @@ const routes: RouteRecordRaw[] = [
         name: 'TrainingLearning',
         component: () => import('@/views/learning/index.vue'),
         meta: { title: '学习资料与笔记' }
+      },
+      {
+        path: 'notices',
+        name: 'TrainingNotices',
+        component: () => import('@/views/notices/NotificationInbox.vue'),
+        meta: { title: '通知' }
       },
       {
         path: 'profile',
@@ -268,6 +286,28 @@ router.beforeEach((to, _from, next) => {
   }
 
   const role = getRole()
+
+  // 管理员重置临时密码后，除个人中心改密外一律拦下
+  try {
+    const u = JSON.parse(localStorage.getItem(USER_KEY) || '{}')
+    if (u?.mustChangePassword) {
+      const allowed =
+        to.path.endsWith('/profile') ||
+        to.path === '/profile' ||
+        to.path === '/login'
+      if (!allowed) {
+        ElMessage.warning('请先修改临时密码后再使用系统')
+        next({
+          path: role === 'patient' ? '/patient/profile' : '/training/profile',
+          query: { forcePwd: '1' }
+        })
+        return
+      }
+    }
+  } catch {
+    /* 解析失败按未强制改密处理 */
+  }
+
   if (deniedRoles.has(role) || (allowedRoles.size > 0 && !allowedRoles.has(role))) {
     const home = homePathForRole(role)
     if (to.path === home) {

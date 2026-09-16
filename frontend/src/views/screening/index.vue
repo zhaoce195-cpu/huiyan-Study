@@ -17,7 +17,8 @@ import {
   Iphone,
   Edit,
   Delete,
-  RemoveFilled
+  RemoveFilled,
+  CircleCheck
 } from '@element-plus/icons-vue'
 import { ScreeningApi, LoginApi, PatientApi } from '@/api'
 import { useCaseBindingStore } from '@/stores/case-binding'
@@ -419,6 +420,69 @@ const submitBindPhone = async () => {
     /* error already shown */
   } finally {
     bindPhoneSaving.value = false
+  }
+}
+
+/* ---------- 确认报告（同步至病患账号） ---------- */
+const confirmingMap = ref<Record<string, boolean>>({})
+const confirmReport = async (t: Task) => {
+  if (!canManage.value) {
+    ElMessage.warning('当前角色无权确认报告')
+    return
+  }
+  if (t.status !== 'done') {
+    ElMessage.info('仅 AI 已分析完成的病例可确认')
+    return
+  }
+  if (t.confirmed) {
+    ElMessage.info('该病例已确认，无需重复操作')
+    return
+  }
+  if (!t.patientPhone) {
+    try {
+      await ElMessageBox.confirm(
+        '该病例尚未绑定病患手机号，确认报告后无法推送至病患账号。\n是否立即绑定手机号？',
+        '需要先绑定手机号',
+        {
+          type: 'warning',
+          confirmButtonText: '去绑定',
+          cancelButtonText: '取消'
+        }
+      )
+      openBindPhone(t)
+    } catch {
+      /* 用户取消 */
+    }
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确认将「${t.patientName || t.id}」的报告标记为「已确认」？\n` +
+        `系统将自动同步至手机号 ${t.patientPhone} 对应的病患账号。`,
+      '医师确认报告',
+      {
+        type: 'warning',
+        confirmButtonText: '确认',
+        cancelButtonText: '取消'
+      }
+    )
+  } catch {
+    return
+  }
+  confirmingMap.value[t.id] = true
+  try {
+    const res = await ScreeningApi.confirmReport({ taskId: t.id })
+    t.confirmed = true
+    ElMessage.success(
+      res.patientBound
+        ? `已确认并同步至病患账号（${res.patientPhone}）`
+        : '已确认。该病例尚未绑定病患账号，病患侧暂不可见。'
+    )
+    fetchList()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '确认失败')
+  } finally {
+    confirmingMap.value[t.id] = false
   }
 }
 
@@ -901,7 +965,7 @@ onBeforeUnmount(stopPoll)
         <el-table-column prop="hospital" label="送检机构" min-width="180" show-overflow-tooltip />
         <el-table-column prop="doctor" label="送检医师" width="100" />
         <el-table-column prop="createdAt" label="提交时间" min-width="160" />
-        <el-table-column label="操作" width="380" fixed="right">
+        <el-table-column label="操作" width="460" fixed="right">
           <template #default="{ row }">
             <el-button
               text
@@ -932,6 +996,17 @@ onBeforeUnmount(stopPoll)
               @click="reanalyze(row)"
             >
               重新分析
+            </el-button>
+            <el-button
+              v-if="canManage && row.status === 'done'"
+              text
+              type="warning"
+              :icon="CircleCheck"
+              :disabled="!!row.confirmed"
+              :loading="!!confirmingMap[row.id]"
+              @click="confirmReport(row)"
+            >
+              {{ row.confirmed ? '已确认' : '确认报告' }}
             </el-button>
             <el-button
               v-if="canManage && row.risk === 'red' && row.status === 'done'"
@@ -1061,6 +1136,15 @@ onBeforeUnmount(stopPoll)
       </div>
       <template #footer>
         <el-button @click="previewVisible = false">关闭</el-button>
+        <el-button
+          v-if="canManage && previewTask?.status === 'done' && !previewTask.confirmed"
+          type="warning"
+          :icon="CircleCheck"
+          :loading="previewTask ? !!confirmingMap[previewTask.id] : false"
+          @click="previewTask && confirmReport(previewTask)"
+        >
+          确认报告
+        </el-button>
         <el-button
           v-if="canManage && previewTask?.risk === 'red'"
           type="danger"

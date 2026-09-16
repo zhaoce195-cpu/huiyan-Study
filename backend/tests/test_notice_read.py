@@ -109,6 +109,39 @@ def test_marking_twice_is_idempotent(db, seeded):
     assert db.query(NoticeRead).filter(NoticeRead.user_id == user.id).count() == len(ids)
 
 
+def test_first_read_increments_view_count(db, seeded):
+    user, other = seeded
+    notice = db.query(Notice).first()
+    assert notice.view_count == 0
+    NoticeService.mark_read(db=db, user=user, ids=[notice.id])
+    db.refresh(notice)
+    assert notice.view_count == 1
+    NoticeService.mark_read(db=db, user=user, ids=[notice.id])
+    db.refresh(notice)
+    assert notice.view_count == 1, "同一人重复已读不应再加阅读量"
+    NoticeService.mark_read(db=db, user=other, ids=[notice.id])
+    db.refresh(notice)
+    assert notice.view_count == 2
+
+
+def test_student_only_sees_matching_roles(db, seeded):
+    user, _ = seeded
+    db.add(Notice(
+        title="仅教师", content="教师看",
+        status=NoticeStatusEnum.PUBLISHED.value,
+        visible_roles="TEACHER,ADMIN", publisher_id=user.id,
+    ))
+    db.add(Notice(
+        title="给学员", content="学员看",
+        status=NoticeStatusEnum.PUBLISHED.value,
+        visible_roles="STUDENT", publisher_id=user.id,
+    ))
+    db.commit()
+    titles = {it.title for it in NoticeService.my_notifications(db=db, user=user).list}
+    assert "给学员" in titles
+    assert "仅教师" not in titles
+
+
 def test_unknown_ids_are_ignored(db, seeded):
     """
     传一个不存在的公告 id 不能在关联表里留下孤儿记录，

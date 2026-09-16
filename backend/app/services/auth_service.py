@@ -33,6 +33,7 @@ def _build_user_out(user: User) -> UserOut:
         role_name=user.role.name if user.role else "",
         user_type=user.user_type or "",
         is_active=user.is_active,
+        must_change_password=bool(getattr(user, "must_change_password", False)),
         last_login_at=user.last_login_at,
         last_login_ip=user.last_login_ip,
         created_at=user.created_at,

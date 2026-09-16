@@ -3,9 +3,10 @@
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic.alias_generators import to_camel
 
 from app.db.models.user import RoleEnum
 
@@ -70,6 +71,7 @@ class UserOut(BaseModel):
     user_type: str = ""
 
     is_active: bool
+    must_change_password: bool = False
     last_login_at: Optional[datetime] = None
     last_login_ip: str = ""
 
@@ -77,6 +79,79 @@ class UserOut(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# ====================== 管理员 · 用户账号 ======================
+
+class _CamelUser(BaseModel):
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+        from_attributes=True,
+    )
+
+
+class AdminUserItem(_CamelUser):
+    id: int
+    username: str
+    real_name: str = ""
+    role: str = ""
+    role_name: str = ""
+    department: str = ""
+    is_active: bool = True
+    must_change_password: bool = False
+    last_login_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+
+
+class AdminUserPage(_CamelUser):
+    total: int = 0
+    page: int = 1
+    page_size: int = 20
+    list: List[AdminUserItem] = Field(default_factory=list)
+
+
+class AdminUserCreate(_CamelUser):
+    username: str = Field(..., min_length=2, max_length=32, description="登录账号")
+    real_name: str = Field(..., min_length=1, max_length=32, description="真实姓名")
+    role: RoleEnum = Field(..., description="STUDENT / TEACHER / ADMIN")
+    department: str = Field("", max_length=64, description="所属科室")
+    password: str = Field(..., min_length=6, max_length=64, description="初始密码")
+
+    @field_validator("username")
+    @classmethod
+    def username_format(cls, v: str):
+        name = (v or "").strip()
+        if not name:
+            raise ValueError("账号不能为空")
+        if " " in name:
+            raise ValueError("账号不能包含空格")
+        return name
+
+    @field_validator("password")
+    @classmethod
+    def password_strength(cls, v: str):
+        if v.isdigit() or v.isalpha():
+            raise ValueError("密码需包含字母与数字组合")
+        return v
+
+    @field_validator("role")
+    @classmethod
+    def role_allowed(cls, v: RoleEnum):
+        if v not in (RoleEnum.STUDENT, RoleEnum.TEACHER, RoleEnum.ADMIN):
+            raise ValueError("角色只能是 STUDENT / TEACHER / ADMIN")
+        return v
+
+
+class AdminSetActiveParams(_CamelUser):
+    is_active: bool = Field(..., description="True=启用，False=停用")
+
+
+class AdminResetPasswordOut(_CamelUser):
+    user_id: int
+    username: str
+    temp_password: str
+    must_change_password: bool = True
 
 
 class LoginResponse(BaseModel):

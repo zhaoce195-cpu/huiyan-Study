@@ -128,8 +128,15 @@ const GRADE_TAG: Record<number, 'success' | 'warning' | 'danger'> = {
             />
           </div>
           <div class="result-actions">
-            <el-button type="primary" :icon="View" @click="router.push('/training/admin')">
-              去管理后台复核
+            <el-button
+              type="primary"
+              :icon="View"
+              @click="router.push({
+                path: '/training/cases',
+                query: draft.id ? { goldCaseId: String(draft.id) } : undefined
+              })"
+            >
+              去病例库完善金标准
             </el-button>
             <el-button :icon="Plus" @click="resetAll">继续建案</el-button>
           </div>
@@ -193,7 +200,7 @@ const GRADE_TAG: Record<number, 'success' | 'warning' | 'danger'> = {
         type="info"
         :closable="false"
         show-icon
-        title="建案后病例为「未发布」草稿，学生不可见；请在管理后台补充金标准标注、教学要点后再发布。"
+        title="建案后病例为「未发布」草稿，学生不可见；请到病例库该行点「完善金标准」，保存草稿或发布并加入实训。"
         style="margin-top: 16px"
       />
     </el-card>

@@ -6,6 +6,8 @@ v1 路由汇总
 from fastapi import APIRouter
 
 from app.api.v1 import admin_import as admin_import_router
+from app.api.v1 import admin_users as admin_users_router
+from app.api.v1 import student_application as student_application_router
 from app.api.v1 import case_browse as case_browse_router
 from app.api.v1 import case_image as case_image_router
 from app.api.v1 import common as common_router
@@ -46,6 +48,8 @@ api_v1_router.include_router(practice_router.router)
 api_v1_router.include_router(learning_router.router)
 api_v1_router.include_router(common_router.router)
 api_v1_router.include_router(admin_import_router.router)
+api_v1_router.include_router(admin_users_router.router)
+api_v1_router.include_router(student_application_router.router)
 # ===== 机构申请 / 用户消息（PATIENT 端新增功能，纯追加） =====
 api_v1_router.include_router(organization_router.router)
 api_v1_router.include_router(user_message_router.router)

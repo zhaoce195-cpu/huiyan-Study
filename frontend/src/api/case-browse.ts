@@ -61,9 +61,22 @@ export interface CaseBrowseDetail extends CaseBrowseItem {
   clinicalInfo: string
   imagePaths: Record<string, string[]>
   images: string[]
+  /** 金标准 DR 分级：'0'~'4'；空表示不适用 */
+  goldDrGrade?: string | null
   goldDiagnosis: string
   teachingPoints: string
+  goldLesions?: Array<Record<string, any>>
   passScore: number
+}
+
+export interface GoldStandardUpdate {
+  goldDrGrade?: string | null
+  goldDiagnosis?: string
+  teachingPoints?: string
+  passScore?: number
+  goldLesions?: Array<Record<string, any>>
+  /** true=发布并加入实训；false=仅保存草稿 */
+  publish?: boolean
 }
 
 export interface CaseBrowseQuery {
@@ -198,4 +211,16 @@ export const leaveTrainingCase = (caseId: number) =>
     `/case-browse/${caseId}/join-training`,
     undefined,
     { showError: false }
+  )
+
+/**
+ * 修订金标准。
+ * publish=false → 仍未发布，学员不可见
+ * publish=true  → is_published + is_train_case，学员抽题 / 阅片可见
+ */
+export const updateGoldStandard = (caseId: number, params: GoldStandardUpdate) =>
+  http.put<CaseBrowseDetail>(
+    `/case-browse/${caseId}/gold-standard`,
+    params,
+    { showSuccess: true }
   )

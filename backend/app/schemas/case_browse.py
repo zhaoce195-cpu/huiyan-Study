@@ -87,11 +87,28 @@ class CaseBrowseDetail(CaseBrowseItem):
     clinical_info: str = ""
     image_paths: dict = Field(default_factory=dict)
     images: List[str] = Field(default_factory=list, description="平铺所有眼底图地址")
+    gold_dr_grade: Optional[str] = Field(None, description="金标准 DR 分级：0~4，空/None 表示不适用")
     gold_diagnosis: str = ""
     teaching_points: str = ""
+    gold_lesions: list = Field(default_factory=list)
     pass_score: int = 60
 
 
 class CaseArchiveParams(_CamelModel):
     archive_status: ArchiveStatusLiteral = Field(..., description="目标状态")
     reason: Optional[str] = Field(None, description="归档原因（可选）")
+
+
+class GoldStandardUpdate(_CamelModel):
+    """教师修订金标准：保存草稿或发布并加入实训"""
+    gold_dr_grade: Optional[str] = Field(
+        None, description="金标准 DR 分级：0~4，空字符串表示不适用；不传则不改",
+    )
+    gold_diagnosis: Optional[str] = Field(None, description="金标准诊断结论")
+    teaching_points: Optional[str] = Field(None, description="教学要点")
+    pass_score: Optional[int] = Field(None, ge=0, le=100, description="及格分（百分制）")
+    gold_lesions: Optional[list] = Field(None, description="金标准病变列表")
+    publish: bool = Field(
+        False,
+        description="True=发布并加入实训（is_published + is_train_case）；False=仅保存草稿",
+    )

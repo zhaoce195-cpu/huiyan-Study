@@ -1,56 +1,30 @@
 <script setup lang="ts">
 /**
- * 登录后系统公告弹窗
- * - 用户每次登录成功后，自动拉取仍在生效的「已发布」公告
- * - 仅展示当前账号尚未读过的公告（已读列表保存在 localStorage，按 用户ID 隔离）
- * - 关闭弹窗时把已展示的公告 ID 写入已读集合，下次登录不再弹出
- *
- * 不修改任何已有接口；不入侵管理员端「公告管理」逻辑。
+ * 登录后未读公告弹窗
+ * 任意已登录角色（含学员）拉取「我的通知」中未读项；
+ * 「我已知晓」写入 biz_notice_read，阅读量 +1。
  */
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { CommonApi } from '@/api'
 import { useUserStore } from '@/stores/user'
 
-type Notice = CommonApi.Notice
+type Item = CommonApi.NotificationItem
 
 const userStore = useUserStore()
 const route = useRoute()
 
 const visible = ref(false)
 const loading = ref(false)
-const notices = ref<Notice[]>([])
+const notices = ref<Item[]>([])
 
 const userKey = computed(() => {
   const u = userStore.userInfo as any
   return String(u?.id || u?.username || '__anon__')
 })
-const READ_STORAGE_PREFIX = 'huiyan:noticeRead:'
-const SHOWN_SESSION_PREFIX = 'huiyan:noticeShown:' // 同一登录会话内不重复弹
-
-const readStorageKey = computed(() => `${READ_STORAGE_PREFIX}${userKey.value}`)
+const SHOWN_SESSION_PREFIX = 'huiyan:noticeShown:'
 const shownSessionKey = computed(() => `${SHOWN_SESSION_PREFIX}${userKey.value}`)
 
-const loadReadIds = (): Set<number> => {
-  try {
-    const raw = localStorage.getItem(readStorageKey.value)
-    if (!raw) return new Set()
-    const arr = JSON.parse(raw) as number[]
-    return new Set(arr)
-  } catch {
-    return new Set()
-  }
-}
-
-const saveReadIds = (set: Set<number>) => {
-  try {
-    localStorage.setItem(readStorageKey.value, JSON.stringify([...set]))
-  } catch {
-    /* ignore quota / privacy mode errors */
-  }
-}
-
-/** 是否在会话期内已经弹过（避免同一登录里反复触发） */
 const isShownThisSession = () => {
   try {
     return sessionStorage.getItem(shownSessionKey.value) === '1'
@@ -66,47 +40,23 @@ const markShownThisSession = () => {
   }
 }
 
+const skipPath = (p: string) =>
+  p === '/login' || p === '/register' || p === '/apply-student' || p === '/oidc/callback'
+
 const fetchAndMaybeShow = async () => {
   if (!userStore.token) return
-  // 仅 admin / doctor（教师）能访问 /common/notices；学员、患者跳过避免 403
-  const role = userStore.role
-  if (role !== 'admin' && role !== 'doctor') return
+  if (skipPath(route.path)) return
   if (isShownThisSession()) return
   loading.value = true
-  // 尝试过即标记，避免任一失败场景下两个 watcher 重复触发再次弹错
   markShownThisSession()
   try {
-    // 拉取已发布公告（按更新时间倒序，CommonApi 默认排序即可）
-    const res = await CommonApi.getNoticeList({
-      status: 'PUBLISHED',
-      page: 1,
-      pageSize: 20
-    })
-    const list = res?.list || []
-    const readIds = loadReadIds()
-    const now = Date.now()
-    const visibleNotices = list.filter((n) => {
-      if (!n) return false
-      if (n.status !== 'PUBLISHED') return false
-      // 过滤过期
-      if (n.expireAt) {
-        const t = new Date(n.expireAt).getTime()
-        if (!Number.isNaN(t) && t > 0 && t < now) return false
-      }
-      // 过滤未到发布时间
-      if (n.publishAt) {
-        const t = new Date(n.publishAt).getTime()
-        if (!Number.isNaN(t) && t > 0 && t > now) return false
-      }
-      if (readIds.has(n.id)) return false
-      return true
-    })
-    if (visibleNotices.length === 0) return
-    // 置顶优先 + 时间倒序
-    notices.value = [...visibleNotices].sort((a, b) => {
-      if (a.isTop !== b.isTop) return a.isTop ? -1 : 1
-      const ta = new Date(a.publishAt || a.updatedAt || a.createdAt || 0).getTime()
-      const tb = new Date(b.publishAt || b.updatedAt || b.createdAt || 0).getTime()
+    const res = await CommonApi.getNotifications(1, 50)
+    const unread = (res?.list || []).filter((n) => n && !n.read)
+    if (unread.length === 0) return
+    notices.value = [...unread].sort((a, b) => {
+      if (!!a.isTop !== !!b.isTop) return a.isTop ? -1 : 1
+      const ta = new Date(a.publishAt || a.createdAt || 0).getTime()
+      const tb = new Date(b.publishAt || b.createdAt || 0).getTime()
       return tb - ta
     })
     visible.value = true
@@ -117,34 +67,31 @@ const fetchAndMaybeShow = async () => {
   }
 }
 
-const onClose = () => {
-  // 关闭即视为已读：把弹窗内展示过的全部公告 ID 写入已读集合
-  const readIds = loadReadIds()
-  notices.value.forEach((n) => readIds.add(n.id))
-  saveReadIds(readIds)
+const onAck = async () => {
+  const ids = notices.value.map((n) => n.id)
   notices.value = []
   visible.value = false
+  if (ids.length === 0) return
+  try {
+    await CommonApi.markNotificationRead(ids)
+  } catch {
+    /* 已读失败不挡关闭；下次登录仍会再弹 */
+  }
 }
 
-/* token 出现时（登录刚完成 或 刷新页面后还原 session）触发一次 */
 watch(
   () => userStore.token,
   (tok) => {
-    if (tok) {
-      // 登录页本身不弹
-      if (route.path === '/login' || route.path === '/register') return
-      void fetchAndMaybeShow()
-    }
+    if (tok && !skipPath(route.path)) void fetchAndMaybeShow()
   },
   { immediate: true }
 )
 
-/* 登录后从 /login 跳到首页时也触发 */
 watch(
   () => route.path,
   (p) => {
     if (!userStore.token) return
-    if (p === '/login' || p === '/register') return
+    if (skipPath(p)) return
     void fetchAndMaybeShow()
   }
 )
@@ -158,7 +105,7 @@ watch(
     :close-on-click-modal="false"
     :close-on-press-escape="true"
     :show-close="true"
-    :before-close="(done: () => void) => { onClose(); done() }"
+    :before-close="(done: () => void) => { void onAck(); done() }"
     align-center
     class="login-notice-dialog"
   >
@@ -179,14 +126,14 @@ watch(
         <div class="ln-meta">
           <span>{{ n.publisherName || '系统' }}</span>
           <span class="ln-dot">·</span>
-          <span>{{ n.publishAt || n.updatedAt || n.createdAt }}</span>
+          <span>{{ n.publishAt || n.createdAt }}</span>
         </div>
-        <div v-if="n.summary" class="ln-summary">{{ n.summary }}</div>
-        <div class="ln-content" v-html="n.content || ''"></div>
+        <div v-if="n.content && n.body && n.content !== n.body" class="ln-summary">{{ n.content }}</div>
+        <div class="ln-content" v-html="n.body || n.content || ''"></div>
       </div>
     </div>
     <template #footer>
-      <el-button type="primary" @click="onClose">我已知晓</el-button>
+      <el-button type="primary" @click="onAck">我已知晓</el-button>
     </template>
   </el-dialog>
 </template>
@@ -208,7 +155,7 @@ watch(
   font-size: 14px;
 }
 .ln-item {
-  padding: 14px 4px 14px 4px;
+  padding: 14px 4px;
   border-top: 1px dashed #e5e6eb;
 }
 .ln-item--first {
@@ -245,9 +192,7 @@ watch(
   color: #86909c;
   margin-bottom: 8px;
 }
-.ln-dot {
-  opacity: 0.6;
-}
+.ln-dot { opacity: 0.6; }
 .ln-summary {
   background: #f7faff;
   border-left: 3px solid #1677ff;
