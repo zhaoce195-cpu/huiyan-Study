@@ -1,0 +1,314 @@
+<mxfile host="app.diagrams.net" agent="huiyan-sys" version="22.1.0">
+  <diagram id="huiyan-e2e-flow" name="端到端业务流">
+    <mxGraphModel dx="1600" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="3400" pageHeight="1900" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="title" value="慧眼平台 · 端到端业务流程图" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=22;fontStyle=1;fontColor=#1d2129;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="720" height="36" as="geometry"/>
+        </mxCell>
+        <mxCell id="subtitle" value="四条泳道 × 五个阶段。蓝框=本轮接通；灰框=原有已接能力；黄框=依赖外部数据/算法机。虚线=跨角色交接。" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=12;fontColor=#4e5969;" vertex="1" parent="1">
+          <mxGeometry x="40" y="56" width="1100" height="24" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="lg-wired" value="本轮接通" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="90" width="90" height="28" as="geometry"/>
+        </mxCell>
+        <mxCell id="lg-base" value="原有已接" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="140" y="90" width="90" height="28" as="geometry"/>
+        </mxCell>
+        <mxCell id="lg-ext" value="依赖外部" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="240" y="90" width="90" height="28" as="geometry"/>
+        </mxCell>
+        <mxCell id="lg-note" value="登录页「立即注册」是病患通道，不生成学员号。学员只走「申请学员账号 → 开户审核」。" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=11;fontColor=#86909c;" vertex="1" parent="1">
+          <mxGeometry x="350" y="90" width="720" height="28" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="ph1" value="① 账号开通与登录" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e8f3ff;strokeColor=#1677ff;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="212" y="136" width="500" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="ph2" value="② 教学准备" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e8f3ff;strokeColor=#1677ff;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="732" y="136" width="500" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="ph3" value="③ 作答与审阅" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e8f3ff;strokeColor=#1677ff;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="1252" y="136" width="500" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="ph4" value="④ 筛查与导入" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e8f3ff;strokeColor=#1677ff;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="1772" y="136" width="500" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="ph5" value="⑤ 公告 / 资料 / 个人" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e8f3ff;strokeColor=#1677ff;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="2292" y="136" width="500" height="40" as="geometry"/>
+        </mxCell>
+
+        <!-- ========== 管理员 ========== -->
+        <mxCell id="lane-admin" value="管理员" style="swimlane;html=1;horizontal=0;startSize=72;fillColor=#f0f5ff;strokeColor=#6c8ebf;fontStyle=1;fontSize=14;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="40" y="190" width="2752" height="300" as="geometry"/>
+        </mxCell>
+        <mxCell id="a-acc-1" value="后台 · 用户账号&#xa;列表 / 新建 / 重置密码 / 停用启用" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-admin">
+          <mxGeometry x="100" y="24" width="360" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="a-acc-2" value="后台 · 学员开户审核&#xa;通过 → 生成 STUDENT；驳回写理由" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-admin">
+          <mxGeometry x="100" y="130" width="360" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="a-tea-1" value="病例库可见全部草稿&#xa;含他人未发布，可修订金标准" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="lane-admin">
+          <mxGeometry x="620" y="24" width="360" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="a-tea-2" value="完善金标准 / 加入实训&#xa;发布后学员才可见" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-admin">
+          <mxGeometry x="620" y="130" width="360" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="a-rev-1" value="待审核（与教师同入口）&#xa;练习 + 阅片提交" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-admin">
+          <mxGeometry x="1140" y="77" width="360" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="a-scr-1" value="后台 · IDRiD 批量导入&#xa;默认 Dry-run + 限制 5 条" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-admin">
+          <mxGeometry x="1660" y="24" width="360" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="a-scr-2" value="取消 Dry-run → 正式入库&#xa;默认未发布、未加入实训" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-admin">
+          <mxGeometry x="1660" y="130" width="360" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="a-ntc-1" value="后台 · 公告 &amp; 消息 · 发布&#xa;可见角色勾 STUDENT" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-admin">
+          <mxGeometry x="2180" y="24" width="360" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="a-ntc-2" value="平台管理其它页&#xa;科室 / 字典 / 日志 / 统计" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="lane-admin">
+          <mxGeometry x="2180" y="130" width="360" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-a1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#6c8ebf;" edge="1" parent="lane-admin" source="a-acc-1" target="a-acc-2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-a2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#6c8ebf;" edge="1" parent="lane-admin" source="a-tea-1" target="a-tea-2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-a3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#6c8ebf;" edge="1" parent="lane-admin" source="a-scr-1" target="a-scr-2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-a4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#666666;" edge="1" parent="lane-admin" source="a-ntc-1" target="a-ntc-2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ========== 教师 ========== -->
+        <mxCell id="lane-teacher" value="教师" style="swimlane;html=1;horizontal=0;startSize=72;fillColor=#fff7e8;strokeColor=#d6b656;fontStyle=1;fontSize=14;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="40" y="510" width="2752" height="320" as="geometry"/>
+        </mxCell>
+        <mxCell id="t-acc-1" value="登录页 · 教师入口&#xa;账号由管理员开通" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="lane-teacher">
+          <mxGeometry x="100" y="24" width="360" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="t-acc-2" value="若被重置密码&#xa;先到个人中心改临时密码" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-teacher">
+          <mxGeometry x="100" y="140" width="360" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="t-tea-1" value="侧栏 · AI 智能建案&#xa;生成未发布草稿" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="lane-teacher">
+          <mxGeometry x="620" y="16" width="360" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="t-tea-2" value="病例库 · 完善金标准&#xa;存草稿 或 发布并加入实训" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-teacher">
+          <mxGeometry x="620" y="116" width="360" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="t-tea-3" value="加入实训 / 教学分享&#xa;is_train_case = true" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="lane-teacher">
+          <mxGeometry x="620" y="216" width="360" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="t-rev-1" value="侧栏 · 待审核&#xa;练习 SUBMITTED + 阅片 SUBMITTED" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-teacher">
+          <mxGeometry x="1140" y="24" width="360" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="t-rev-2" value="评定&#xa;通过 / 驳回 + 等级评语" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-teacher">
+          <mxGeometry x="1140" y="140" width="360" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="t-scr-1" value="侧栏 · AI 批量筛查&#xa;进入 /screening" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-teacher">
+          <mxGeometry x="1660" y="16" width="360" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="t-scr-2" value="上传诊断 → 任务列表&#xa;MA / DR / 综合" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-teacher">
+          <mxGeometry x="1660" y="116" width="360" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="t-scr-3" value="确认报告 / 一键转诊&#xa;确认须先绑定病患手机号" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-teacher">
+          <mxGeometry x="1660" y="216" width="360" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="t-ntc-1" value="学习资料上传 / 个人中心" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="lane-teacher">
+          <mxGeometry x="2180" y="24" width="360" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="t-ntc-2" value="通知回看&#xa;学习与个人 · 通知" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-teacher">
+          <mxGeometry x="2180" y="140" width="360" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-t1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#6c8ebf;" edge="1" parent="lane-teacher" source="t-acc-1" target="t-acc-2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-t2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#6c8ebf;" edge="1" parent="lane-teacher" source="t-tea-1" target="t-tea-2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-t3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#6c8ebf;" edge="1" parent="lane-teacher" source="t-tea-2" target="t-tea-3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-t4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#6c8ebf;" edge="1" parent="lane-teacher" source="t-rev-1" target="t-rev-2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-t5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#6c8ebf;" edge="1" parent="lane-teacher" source="t-scr-1" target="t-scr-2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-t6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#6c8ebf;" edge="1" parent="lane-teacher" source="t-scr-2" target="t-scr-3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-t7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#666666;" edge="1" parent="lane-teacher" source="t-ntc-1" target="t-ntc-2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ========== 学员 ========== -->
+        <mxCell id="lane-student" value="学员" style="swimlane;html=1;horizontal=0;startSize=72;fillColor=#e8ffea;strokeColor=#82b366;fontStyle=1;fontSize=14;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="40" y="850" width="2752" height="320" as="geometry"/>
+        </mxCell>
+        <mxCell id="s-acc-1" value="登录页 · 申请学员账号&#xa;勿走「立即注册」（病患通道）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-student">
+          <mxGeometry x="100" y="16" width="360" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="s-acc-2" value="登录（开户通过后）&#xa;未读公告弹窗，不再跳过学员" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-student">
+          <mxGeometry x="100" y="116" width="360" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="s-acc-3" value="我已知晓&#xa;服务端记已读" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-student">
+          <mxGeometry x="100" y="216" width="360" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="s-tea-1" value="病例库 / 抽题 / 阅片&#xa;仅 is_published 且已加入实训" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="lane-student">
+          <mxGeometry x="620" y="24" width="360" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="s-tea-2" value="教师演示病例&#xa;教学分享给到的病例" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="lane-student">
+          <mxGeometry x="620" y="140" width="360" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="s-rev-1" value="自主练习 · 提交作答&#xa;当时出系统分，状态 SUBMITTED" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="lane-student">
+          <mxGeometry x="1140" y="16" width="360" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="s-rev-2" value="阅片工作台 · 提交&#xa;当时不出分，等教师评定" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="lane-student">
+          <mxGeometry x="1140" y="116" width="360" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="s-rev-3" value="练习台账 · 教师评定列&#xa;未评=待审核；已评看等级评语" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-student">
+          <mxGeometry x="1140" y="216" width="360" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="s-scr-1" value="无筛查入口&#xa;路由拒绝 trainee / patient" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="lane-student">
+          <mxGeometry x="1660" y="77" width="360" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="s-ntc-1" value="个人中心 · 通知" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-student">
+          <mxGeometry x="2180" y="16" width="360" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="s-ntc-2" value="学习与个人 · 通知&#xa;可回看已读公告" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-student">
+          <mxGeometry x="2180" y="116" width="360" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="s-ntc-3" value="学习资料与笔记" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="lane-student">
+          <mxGeometry x="2180" y="216" width="360" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-s1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#6c8ebf;" edge="1" parent="lane-student" source="s-acc-1" target="s-acc-2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-s2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#6c8ebf;" edge="1" parent="lane-student" source="s-acc-2" target="s-acc-3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-s3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#666666;" edge="1" parent="lane-student" source="s-tea-1" target="s-tea-2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-s4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#666666;" edge="1" parent="lane-student" source="s-rev-1" target="s-rev-2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-s5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#6c8ebf;" edge="1" parent="lane-student" source="s-rev-2" target="s-rev-3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-s6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#6c8ebf;" edge="1" parent="lane-student" source="s-ntc-1" target="s-ntc-2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-s7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#666666;" edge="1" parent="lane-student" source="s-ntc-2" target="s-ntc-3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- ========== 运维 / 系统 ========== -->
+        <mxCell id="lane-sys" value="运维 / 系统" style="swimlane;html=1;horizontal=0;startSize=72;fillColor=#f3e8ff;strokeColor=#9673a6;fontStyle=1;fontSize=13;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1190" width="2752" height="320" as="geometry"/>
+        </mxCell>
+        <mxCell id="y-acc-1" value="通过申请后建号&#xa;STUDENT + 初密 + 强制改密" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-sys">
+          <mxGeometry x="100" y="16" width="360" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="y-acc-2" value="短信（模拟）+ 站内信" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-sys">
+          <mxGeometry x="100" y="116" width="360" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="y-acc-3" value="未改密一律拦到个人中心" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-sys">
+          <mxGeometry x="100" y="216" width="360" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="y-tea-1" value="草稿学员不可见&#xa;is_published = false" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-sys">
+          <mxGeometry x="620" y="24" width="360" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="y-tea-2" value="发布后抽题 / 阅片可见&#xa;is_published + is_train_case" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-sys">
+          <mxGeometry x="620" y="140" width="360" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="y-rev-1" value="练习自动评分&#xa;漏诊 / 误诊 / 百分制" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="lane-sys">
+          <mxGeometry x="1140" y="24" width="360" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="y-rev-2" value="教师评语写入提交记录&#xa;练习 / 阅片评语字段" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-sys">
+          <mxGeometry x="1140" y="140" width="360" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="y-scr-1" value="运维放 IDRiD 到约定目录&#xa;IDRID_DATASET_ROOT" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="lane-sys">
+          <mxGeometry x="1660" y="16" width="360" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="y-scr-2" value="CSU-EYES 算法推理&#xa;依赖算法机；超时回退提示" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;" vertex="1" parent="lane-sys">
+          <mxGeometry x="1660" y="116" width="360" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="y-scr-3" value="确认报告推送病患账号&#xa;按手机号绑定 patient" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-sys">
+          <mxGeometry x="1660" y="216" width="360" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="y-ntc-1" value="按 visible_roles 过滤&#xa;勾了 STUDENT 才弹给学员" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-sys">
+          <mxGeometry x="2180" y="24" width="360" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="y-ntc-2" value="首次已读 view_count +1&#xa;写入 biz_notice_read" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="lane-sys">
+          <mxGeometry x="2180" y="140" width="360" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-y1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#6c8ebf;" edge="1" parent="lane-sys" source="y-acc-1" target="y-acc-2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-y2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#6c8ebf;" edge="1" parent="lane-sys" source="y-acc-2" target="y-acc-3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-y3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#6c8ebf;" edge="1" parent="lane-sys" source="y-tea-1" target="y-tea-2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-y4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#6c8ebf;" edge="1" parent="lane-sys" source="y-rev-1" target="y-rev-2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-y5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#d6b656;" edge="1" parent="lane-sys" source="y-scr-1" target="y-scr-2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-y6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#6c8ebf;" edge="1" parent="lane-sys" source="y-scr-2" target="y-scr-3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-y7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=block;endFill=1;strokeColor=#6c8ebf;" edge="1" parent="lane-sys" source="y-ntc-1" target="y-ntc-2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- 跨泳道交接（挂在根层，虚线） -->
+        <mxCell id="x-apply" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;dashPattern=8 8;endArrow=block;endFill=1;strokeColor=#82b366;" edge="1" parent="1" source="s-acc-1" target="a-acc-2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="x-approve" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;dashPattern=8 8;endArrow=block;endFill=1;strokeColor=#9673a6;" edge="1" parent="1" source="a-acc-2" target="y-acc-1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="x-login" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;dashPattern=8 8;endArrow=block;endFill=1;strokeColor=#82b366;" edge="1" parent="1" source="y-acc-1" target="s-acc-2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="x-gold" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;dashPattern=8 8;endArrow=block;endFill=1;strokeColor=#9673a6;" edge="1" parent="1" source="t-tea-2" target="y-tea-2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="x-visible" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;dashPattern=8 8;endArrow=block;endFill=1;strokeColor=#82b366;" edge="1" parent="1" source="y-tea-2" target="s-tea-1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="x-submit" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;dashPattern=8 8;endArrow=block;endFill=1;strokeColor=#d6b656;" edge="1" parent="1" source="s-rev-2" target="t-rev-1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="x-grade" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;dashPattern=8 8;endArrow=block;endFill=1;strokeColor=#82b366;" edge="1" parent="1" source="t-rev-2" target="s-rev-3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="x-idrid" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;dashPattern=8 8;endArrow=block;endFill=1;strokeColor=#d6b656;" edge="1" parent="1" source="y-scr-1" target="a-scr-1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="x-confirm" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;dashPattern=8 8;endArrow=block;endFill=1;strokeColor=#9673a6;" edge="1" parent="1" source="t-scr-3" target="y-scr-3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="x-notice" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;dashPattern=8 8;endArrow=block;endFill=1;strokeColor=#6c8ebf;" edge="1" parent="1" source="a-ntc-1" target="y-ntc-1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="x-popup" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;dashPattern=8 8;endArrow=block;endFill=1;strokeColor=#82b366;" edge="1" parent="1" source="y-ntc-1" target="s-acc-2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="x-ack" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;dashed=1;dashPattern=8 8;endArrow=block;endFill=1;strokeColor=#9673a6;" edge="1" parent="1" source="s-acc-3" target="y-ntc-2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
