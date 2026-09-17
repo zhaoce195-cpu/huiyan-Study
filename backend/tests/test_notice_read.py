@@ -12,6 +12,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db.base import Base
 from app.db.models import Notice, NoticeRead, NoticeStatusEnum, Role, RoleEnum, User
+from app.schemas.common import NoticeSaveParams
 from app.services.notice_service import NoticeService
 
 
@@ -55,6 +56,44 @@ def test_unread_by_default(db, seeded):
     out = NoticeService.my_notifications(db=db, user=user)
     assert out.total == 3
     assert out.unread == 3
+
+
+def test_unread_json_exposes_is_read_false(db, seeded):
+    user, _ = seeded
+    dumped = NoticeService.my_notifications(db=db, user=user).model_dump(by_alias=True)
+    item = dumped["list"][0]
+    assert item["read"] is False
+    assert item["isRead"] is False
+    assert dumped["unread"] == 3
+
+
+def test_republish_clears_reads_so_students_see_it_again(db, seeded):
+    """管理员再点发布，必须清掉该条已读，否则学员端永远不再弹窗。"""
+    user, _ = seeded
+    notice = db.query(Notice).first()
+    NoticeService.mark_read(db=db, user=user, ids=[notice.id])
+    assert NoticeService.my_notifications(db=db, user=user).unread == 2
+    NoticeService.update(
+        db,
+        notice.id,
+        NoticeSaveParams(
+            title=notice.title,
+            content="更新后再发布",
+            status=NoticeStatusEnum.PUBLISHED.value,
+            visible_roles=notice.visible_roles,
+        ),
+    )
+    assert db.query(NoticeRead).filter(NoticeRead.notice_id == notice.id).count() == 0
+    assert NoticeService.my_notifications(db=db, user=user).unread == 3
+
+
+def test_listing_does_not_mark_read(db, seeded):
+    """拉通知列表不能写成已读，否则学员没点查看就变成已读、登录也不再弹窗。"""
+    user, _ = seeded
+    NoticeService.my_notifications(db=db, user=user)
+    NoticeService.my_notifications(db=db, user=user)
+    assert db.query(NoticeRead).count() == 0
+    assert NoticeService.my_notifications(db=db, user=user).unread == 3
 
 
 def test_mark_read_persists(db, seeded):

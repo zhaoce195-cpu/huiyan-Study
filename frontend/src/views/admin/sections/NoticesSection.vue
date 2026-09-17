@@ -135,7 +135,7 @@ const openCreate = () => {
   editForm.content = ''
   editForm.coverUrl = ''
   editForm.noticeType = 'SYSTEM'
-  editForm.status = 'DRAFT'
+  editForm.status = 'PUBLISHED'
   editForm.visibleRoles = 'STUDENT'
   editForm.isTop = false
   editForm.publishAt = null

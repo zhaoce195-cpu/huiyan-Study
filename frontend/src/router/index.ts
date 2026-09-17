@@ -95,7 +95,7 @@ const routes: RouteRecordRaw[] = [
     path: '/training',
     component: () => import('@/layout/portals/TrainingPortal.vue'),
     meta: { scene: 'training' },
-    redirect: '/training/cases',
+    redirect: (to) => ({ path: '/training/cases', query: to.query }),
     children: [
       {
         path: 'cases',

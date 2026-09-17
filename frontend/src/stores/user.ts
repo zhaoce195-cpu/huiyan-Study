@@ -7,6 +7,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { LoginApi } from '@/api'
+import { clearLoginNoticeFlags } from '@/utils/login-notice'
 
 const TOKEN_KEY = 'huiyan_token'
 const REFRESH_KEY = 'huiyan_refresh_token'
@@ -102,6 +103,7 @@ export const useUserStore = defineStore('user', () => {
     localStorage.removeItem(TOKEN_KEY)
     localStorage.removeItem(REFRESH_KEY)
     localStorage.removeItem(USER_KEY)
+    clearLoginNoticeFlags()
   }
 
   /** 角色对应的默认入口 */

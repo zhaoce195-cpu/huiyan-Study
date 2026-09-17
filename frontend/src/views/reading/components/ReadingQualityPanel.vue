@@ -53,9 +53,10 @@ const openReview = (row: ReadingApi.ReadingRecord) => {
   dialogVisible.value = true
 }
 
-const onReviewed = (out: ReadingApi.ReadingRecord) => {
-  status.value = out.status
-  page.value = 1
+const onReviewed = () => {
+  // 只刷新当前筛选：待审核列表里被点中的那条消失，其它待审记录必须还在。
+  // 不要切到「已通过」，否则会把历史已通过记录一并拉出来，看起来像两条一起过了。
+  current.value = null
   fetchList()
 }
 
@@ -95,7 +96,8 @@ watch(() => props.caseId, () => {
       <span v-if="caseId" class="qp-hint">仅看当前病例</span>
     </div>
 
-    <el-table v-loading="loading" :data="list" size="small" stripe>
+    <el-table v-loading="loading" :data="list" row-key="id" size="small" stripe>
+      <el-table-column prop="id" label="记录" width="80" />
       <el-table-column prop="userName" label="学员" min-width="120" />
       <el-table-column prop="caseNo" label="病例" min-width="140" />
       <el-table-column label="状态" width="110">

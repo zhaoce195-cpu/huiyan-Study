@@ -77,9 +77,8 @@ const openReadingGrade = (row: ReadingApi.ReadingRecord) => {
   reviewVisible.value = true
 }
 
-const onReadingReviewed = (out: ReadingApi.ReadingRecord) => {
-  readingStatus.value = out.status
-  readingPage.page = 1
+const onReadingReviewed = () => {
+  reviewingRow.value = null
   fetchReading()
 }
 
@@ -154,7 +153,8 @@ onMounted(() => {
             <el-option label="已驳回" value="REJECTED" />
           </el-select>
         </div>
-        <el-table v-loading="readingLoading" :data="readingList" size="small" stripe>
+        <el-table v-loading="readingLoading" :data="readingList" row-key="id" size="small" stripe>
+          <el-table-column prop="id" label="记录" width="80" />
           <el-table-column prop="userName" label="学员" min-width="120" />
           <el-table-column prop="caseNo" label="病例" min-width="140" />
           <el-table-column label="类型" width="90">

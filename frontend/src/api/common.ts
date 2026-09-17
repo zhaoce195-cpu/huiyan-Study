@@ -68,6 +68,7 @@ export interface NotificationItem {
   /** 公告全文，登录弹窗 / 回看详情用 */
   body?: string
   read: boolean
+  isRead?: boolean
   isTop?: boolean
   publisherName?: string
   publishAt?: string
@@ -267,14 +268,14 @@ export const getNoticeDetail = (id: number) => http.get<Notice>(`/common/notices
 export const createNotice = (params: NoticeSaveParams) =>
   http.post<Notice>('/common/notices', params, {
     showSuccess: true,
-    successText: '发布成功'
+    successText: '已发布，学员登录将弹出未读公告'
   })
 
 /** 更新公告 — TEACHER/ADMIN */
 export const updateNotice = (id: number, params: NoticeSaveParams) =>
   http.put<Notice>(`/common/notices/${id}`, params, {
     showSuccess: true,
-    successText: '更新成功'
+    successText: '已发布，学员登录将再次弹出未读公告'
   })
 
 /** 删除公告 — ADMIN */

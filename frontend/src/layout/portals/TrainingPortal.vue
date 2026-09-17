@@ -23,6 +23,7 @@ import {
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useLogout } from '@/composables/useLogout'
+import { triggerLoginNoticePopup } from '@/utils/login-notice'
 
 const router = useRouter()
 const route = useRoute()
@@ -43,6 +44,7 @@ onMounted(() => {
     return
   }
   userStore.fetchProfile()
+  window.setTimeout(() => triggerLoginNoticePopup(), 200)
 })
 
 /* ========== 折叠 ========== */

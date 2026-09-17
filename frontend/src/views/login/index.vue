@@ -121,13 +121,15 @@ const handleLogin = async () => {
         token: res.token,
         refreshToken: res.refreshToken
       })
+      const { requestLoginNoticePopup, withLoginNoticeQuery } = await import('@/utils/login-notice')
+      requestLoginNoticePopup()
 
       ElMessage.success(`欢迎回来，${userInfo.name || userInfo.username || form.username}`)
 
       if (userInfo.mustChangePassword) {
         ElMessage.warning('管理员重置了密码，请先修改后再使用系统')
         const dest = userInfo.role === 'patient' ? '/patient/profile' : '/training/profile'
-        router.replace({ path: dest, query: { forcePwd: '1' } })
+        router.replace(withLoginNoticeQuery(dest, { forcePwd: '1' }))
         return
       }
 
@@ -137,7 +139,7 @@ const handleLogin = async () => {
       const redirect = queryRedirect && queryRedirect !== '/login'
         ? queryRedirect
         : homePath
-      router.replace(redirect)
+      router.replace(withLoginNoticeQuery(redirect))
     } catch (e: any) {
       // 迁移后的账号首次登录必须改密，而改密只能在统一登录页完成。
       // 后端用 409 + SETUP_REQUIRED 与「口令错误」区分开，

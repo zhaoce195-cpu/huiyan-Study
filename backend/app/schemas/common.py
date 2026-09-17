@@ -94,6 +94,7 @@ class NotificationItemOut(_CamelModel):
     content: str = ""
     body: str = ""
     read: bool = False
+    is_read: bool = False
     is_top: bool = False
     publisher_name: str = ""
     publish_at: str = ""

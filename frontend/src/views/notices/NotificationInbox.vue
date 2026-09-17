@@ -6,6 +6,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Bell, Refresh, View } from '@element-plus/icons-vue'
 import { CommonApi } from '@/api'
+import { isNoticeRead } from '@/utils/login-notice'
 
 const list = ref<CommonApi.NotificationItem[]>([])
 const unread = ref(0)
@@ -30,10 +31,11 @@ const fetchList = async () => {
 }
 
 const markRead = async (item: CommonApi.NotificationItem) => {
-  if (item.read) return
+  if (isNoticeRead(item)) return
   try {
     await CommonApi.markNotificationRead([item.id])
     item.read = true
+    item.isRead = true
     unread.value = Math.max(0, unread.value - 1)
   } catch {
     /* 静默 */
@@ -47,7 +49,10 @@ const markAll = async () => {
   }
   try {
     await CommonApi.markAllNotificationsRead()
-    list.value.forEach((n) => (n.read = true))
+    list.value.forEach((n) => {
+      n.read = true
+      n.isRead = true
+    })
     unread.value = 0
   } catch {
     /* 已弹错 */
@@ -94,7 +99,7 @@ onMounted(fetchList)
         v-loading="loading"
         :data="list"
         size="small"
-        :row-class-name="({ row }: any) => (row.read ? '' : 'unread-row')"
+        :row-class-name="({ row }: any) => (isNoticeRead(row) ? '' : 'unread-row')"
       >
         <el-table-column label="类型" width="80">
           <template #default="{ row }">
@@ -106,7 +111,7 @@ onMounted(fetchList)
         <el-table-column label="标题" min-width="200">
           <template #default="{ row }">
             <span v-if="row.isTop" class="top">置顶</span>
-            <span :class="{ bold: !row.read }">{{ row.title }}</span>
+            <span :class="{ bold: !isNoticeRead(row) }">{{ row.title }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="content" label="摘要" min-width="220" show-overflow-tooltip />
@@ -115,7 +120,7 @@ onMounted(fetchList)
         </el-table-column>
         <el-table-column label="状态" width="80">
           <template #default="{ row }">
-            <span :class="row.read ? 'muted' : 'unread'">{{ row.read ? '已读' : '未读' }}</span>
+            <span :class="isNoticeRead(row) ? 'muted' : 'unread'">{{ isNoticeRead(row) ? '已读' : '未读' }}</span>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="90" fixed="right">

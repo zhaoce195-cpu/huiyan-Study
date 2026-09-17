@@ -145,6 +145,31 @@ def test_teacher_review_moves_submitted_to_reviewed(db, seeded):
     assert any(row.id == out.id for row in done.list)
 
 
+def test_review_one_record_does_not_change_another(db, seeded):
+    from app.schemas.reading import ReadingReviewParams
+
+    student, other, teacher, case = (
+        seeded["student"],
+        seeded["other"],
+        seeded["teacher"],
+        seeded["case"],
+    )
+    a = ReadingService.save(db, student, _submit_reading(case.id, "iso-a"))
+    b = ReadingService.save(db, other, _submit_reading(case.id, "iso-b"))
+    assert a.id != b.id
+    assert a.status == b.status == "SUBMITTED"
+
+    ReadingService.review(
+        db, teacher, a.id, ReadingReviewParams(review_comment="只评第一条", accept=True)
+    )
+    left = ReadingService.get_detail(db, teacher, b.id)
+    assert left.status == "SUBMITTED"
+    assert left.review_comment == ""
+
+    done = ReadingService.get_detail(db, teacher, a.id)
+    assert done.status == "REVIEWED"
+
+
 def test_teacher_sees_student_submitted_practice(db, seeded):
     student, teacher, case = seeded["student"], seeded["teacher"], seeded["case"]
     rec = PracticeSession(

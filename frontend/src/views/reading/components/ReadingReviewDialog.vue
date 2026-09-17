@@ -41,8 +41,10 @@ const statusMeta = computed(() => {
 const canSubmit = computed(() => props.row?.status === 'SUBMITTED')
 
 const submit = async (accept: boolean) => {
-  if (!props.row) return
-  if (!canSubmit.value) {
+  const row = props.row
+  const recordId = row?.id
+  if (!row || !recordId) return
+  if (row.status !== 'SUBMITTED') {
     ElMessage.warning('只有待审核记录可以评定')
     return
   }
@@ -52,11 +54,16 @@ const submit = async (accept: boolean) => {
   }
   submitting.value = true
   try {
-    const out = await ReadingApi.reviewReading(props.row.id, {
+    const out = await ReadingApi.reviewReading(recordId, {
       reviewComment: comment.value.trim(),
       accept
     })
-    ElMessage.success(accept ? '已通过，记录变为已通过' : '已驳回，学员可按意见修改后重交')
+    const who = row.userName || `用户${row.userId}`
+    ElMessage.success(
+      accept
+        ? `已通过：${who} · ${row.caseNo}（记录 #${recordId}）。其它记录未改动。`
+        : `已驳回：${who} · ${row.caseNo}（记录 #${recordId}）。其它记录未改动。`
+    )
     emit('done', out)
     visible.value = false
   } catch {
@@ -76,6 +83,7 @@ const submit = async (accept: boolean) => {
   >
     <template v-if="row">
       <div class="rev-meta">
+        <div><span class="k">记录</span>#{{ row.id }}</div>
         <div><span class="k">学员</span>{{ row.userName || row.userId }}</div>
         <div><span class="k">病例</span>{{ row.caseNo }}</div>
         <div>

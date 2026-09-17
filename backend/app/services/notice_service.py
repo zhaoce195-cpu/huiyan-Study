@@ -37,6 +37,13 @@ def _read_get(db: Session, user_id: int) -> Set[int]:
     return {r[0] for r in rows}
 
 
+def _clear_reads_for_notice(db: Session, notice_id: int) -> None:
+    """管理员重新发布后，该条对所有人重新变成未读，登录会再弹。"""
+    db.query(NoticeRead).filter(NoticeRead.notice_id == notice_id).delete(
+        synchronize_session=False
+    )
+
+
 def _read_mark(db: Session, user_id: int, ids: List[int]) -> None:
     if not ids:
         return
@@ -103,6 +110,7 @@ def _notice_to_notification(n: Notice) -> NotificationItemOut:
         content=n.summary or (n.content[:120] if n.content else ""),
         body=n.content or n.summary or "",
         read=False,  # 由调用者根据 read_set 覆盖
+        is_read=False,
         is_top=bool(n.is_top),
         publisher_name=publisher_name,
         publish_at=n.publish_at.strftime("%Y-%m-%d %H:%M:%S") if n.publish_at else created_s,
@@ -134,6 +142,9 @@ class NoticeService:
         if n.status == NoticeStatusEnum.PUBLISHED.value and n.publish_at is None:
             n.publish_at = datetime.now()
         db.add(n)
+        db.flush()
+        if n.status == NoticeStatusEnum.PUBLISHED.value:
+            _clear_reads_for_notice(db, n.id)
         db.commit()
         db.refresh(n)
         return _to_notice_out(n)
@@ -157,6 +168,8 @@ class NoticeService:
             n.expire_at = _parse_dt(params.expire_at)
         if n.status == NoticeStatusEnum.PUBLISHED.value and n.publish_at is None:
             n.publish_at = datetime.now()
+        if n.status == NoticeStatusEnum.PUBLISHED.value:
+            _clear_reads_for_notice(db, n.id)
         db.commit()
         db.refresh(n)
         return _to_notice_out(n)
@@ -247,8 +260,10 @@ class NoticeService:
         unread = 0
         for r in rows:
             it = _notice_to_notification(r)
-            it.read = r.id in read_ids
-            if not it.read:
+            seen = r.id in read_ids
+            it.read = seen
+            it.is_read = seen
+            if not seen:
                 unread += 1
             items.append(it)
 
