@@ -266,9 +266,7 @@ export const saveReading = (params: ReadingSaveParams) => {
 
 /** 教师审核 */
 export const reviewReading = (recordId: number, params: ReadingReviewParams) => {
-  return http.post<ReadingRecord>(`/reading/${recordId}/review`, params, {
-    showSuccess: true
-  })
+  return http.post<ReadingRecord>(`/reading/${recordId}/review`, params)
 }
 
 /** 删除阅片记录（自己 DRAFT 或 ADMIN） */

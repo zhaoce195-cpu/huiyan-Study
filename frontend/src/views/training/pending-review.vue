@@ -7,6 +7,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Refresh } from '@element-plus/icons-vue'
 import { PracticeApi, ReadingApi } from '@/api'
+import ReadingReviewDialog from '@/views/reading/components/ReadingReviewDialog.vue'
 
 type Kind = 'reading' | 'practice'
 
@@ -68,6 +69,20 @@ const onPracticeFilter = () => {
   fetchPractice()
 }
 
+const reviewVisible = ref(false)
+const reviewingRow = ref<ReadingApi.ReadingRecord | null>(null)
+
+const openReadingGrade = (row: ReadingApi.ReadingRecord) => {
+  reviewingRow.value = row
+  reviewVisible.value = true
+}
+
+const onReadingReviewed = (out: ReadingApi.ReadingRecord) => {
+  readingStatus.value = out.status
+  readingPage.page = 1
+  fetchReading()
+}
+
 const goReadingReview = (row: ReadingApi.ReadingRecord) => {
   router.push({
     path: '/training/reading',
@@ -110,7 +125,9 @@ onMounted(() => {
     <header class="page-head">
       <div class="head-left">
         <h2>待审核</h2>
-        <div class="muted">学员提交的阅片作业与练习自评，点「评定」打开原卷写评语</div>
+        <div class="muted">
+          学员提交的阅片作业与练习自评。阅片作业也可从「阅片工作台 → 质量评估」进入。
+        </div>
       </div>
       <el-button
         :icon="Refresh"
@@ -158,10 +175,13 @@ onMounted(() => {
               <span class="comment">{{ row.reviewComment || '—' }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="100" fixed="right">
+          <el-table-column label="操作" width="160" fixed="right">
             <template #default="{ row }">
-              <el-button text type="primary" size="small" @click="goReadingReview(row)">
+              <el-button text type="primary" size="small" @click="openReadingGrade(row)">
                 评定
+              </el-button>
+              <el-button text size="small" @click="goReadingReview(row)">
+                原卷
               </el-button>
             </template>
           </el-table-column>
@@ -255,6 +275,13 @@ onMounted(() => {
         </div>
       </el-tab-pane>
     </el-tabs>
+
+    <ReadingReviewDialog
+      v-model="reviewVisible"
+      :row="reviewingRow"
+      @done="onReadingReviewed"
+      @open-original="goReadingReview"
+    />
   </div>
 </template>
 

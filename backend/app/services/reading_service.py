@@ -99,7 +99,10 @@ def _get_case(db: Session, case_id: int) -> TrainingCase:
 
 def _is_teacher_or_admin(user: User) -> bool:
     code = user.role.code if user.role else None
-    return code in (RoleEnum.TEACHER.value, RoleEnum.ADMIN.value)
+    if code in (RoleEnum.TEACHER.value, RoleEnum.ADMIN.value):
+        return True
+    ut = (getattr(user, "user_type", "") or "").lower()
+    return ut in ("teacher", "admin")
 
 
 def _patient_block(case: TrainingCase, viewer: User) -> dict:

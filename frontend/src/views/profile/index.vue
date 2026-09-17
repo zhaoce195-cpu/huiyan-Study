@@ -340,6 +340,16 @@ onMounted(() => {
           <div v-if="userInfo.lastLoginAt" class="user-last-login">
             上次登录：{{ userInfo.lastLoginAt }}
           </div>
+          <el-button
+            v-if="userStore.isTrainee"
+            size="small"
+            type="primary"
+            plain
+            style="margin-top: 10px"
+            @click="router.push('/training/my-reviews')"
+          >
+            查看教师评定
+          </el-button>
         </div>
       </div>
 

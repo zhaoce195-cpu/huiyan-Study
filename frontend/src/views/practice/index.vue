@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { PracticeApi, ReadingApi } from '@/api'
 import { useUserStore } from '@/stores/user'
 import { isDrGradeNotApplicable } from '@/utils/filter-presets'
 
 const router = useRouter()
+const route = useRoute()
 const userStore = useUserStore()
 
 type TabName = 'pick' | 'history' | 'readings' | 'stats'
@@ -210,6 +211,10 @@ watch(activeTab, (tab) => {
 })
 
 onMounted(async () => {
+  const tab = String(route.query.tab || '')
+  if (tab === 'readings' || tab === 'history') {
+    activeTab.value = tab === 'readings' ? 'readings' : 'history'
+  }
   await fetchRandom()
   fetchList()
   fetchStats(isTeacher.value ? 'all' : 'me')

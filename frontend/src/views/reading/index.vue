@@ -18,6 +18,7 @@ import { useUserStore } from '@/stores/user'
 import ReadingToolbar from './components/ReadingToolbar.vue'
 import CoreRetinaStation from '@/components/CoreRetinaStation.vue'
 import ReadingSidePanel from './components/ReadingSidePanel.vue'
+import ReadingQualityPanel from './components/ReadingQualityPanel.vue'
 import ReadingSubmitDialog from './components/ReadingSubmitDialog.vue'
 import ReadingSafetyBar from './components/ReadingSafetyBar.vue'
 import NoteEditDialog from '@/views/learning/components/NoteEditDialog.vue'
@@ -54,6 +55,54 @@ const caseId = computed(() => Number(route.query.caseId || 0))
 const recordId = computed(() => Number(route.query.recordId || 0))
 
 const missingCaseId = computed(() => !caseId.value && !recordId.value)
+
+/** 教师打开工作台默认进「质量评估」列表，避免被自动推进第一例后只看见自己的空画布 */
+type WorkbenchTab = 'reading' | 'quality'
+const workbenchTab = ref<WorkbenchTab>('reading')
+const showQualityPanel = computed(
+  () => canReview.value && workbenchTab.value === 'quality' && !(recordId.value > 0)
+)
+const applyWorkbenchTabFromRoute = () => {
+  if (!canReview.value) {
+    workbenchTab.value = 'reading'
+    return
+  }
+  const tab = String(route.query.tab || '')
+  if (recordId.value) {
+    workbenchTab.value = 'reading'
+    return
+  }
+  if (tab === 'quality' || tab === 'review' || !caseId.value) {
+    workbenchTab.value = 'quality'
+    return
+  }
+  workbenchTab.value = 'reading'
+}
+const openQualityTab = () => {
+  workbenchTab.value = 'quality'
+  const q: Record<string, any> = { ...route.query, tab: 'quality' }
+  delete q.recordId
+  router.replace({ query: q })
+}
+const openReadingTab = () => {
+  workbenchTab.value = 'reading'
+  const q: Record<string, any> = { ...route.query }
+  delete q.tab
+  router.replace({ query: q })
+  if (!caseId.value && !recordId.value && caseList.value.length) {
+    onSelectCase(caseList.value[0].id)
+  }
+}
+const goQualityReview = (row: ReadingApi.ReadingRecord) => {
+  router.push({
+    path: '/training/reading',
+    query: {
+      caseId: String(row.caseId),
+      recordId: String(row.id),
+      from: 'quality'
+    }
+  })
+}
 
 /* ========== 病例快速切换 ========== */
 const caseList = ref<{ id: number; caseNo: string; title: string }[]>([])
@@ -417,6 +466,7 @@ const fetchExistingRecord = async () => {
   try {
     const d = await ReadingApi.getReadingDetail(recordId.value)
     existingRecord.value = d
+    headerReviewComment.value = d.reviewComment || ''
     canvasState.annotations = (d.annotations || []) as AnnotationItem[]
     canvasState.measurements = (d.measurements || []) as AnnotationItem[]
     if (d.viewport) canvasState.viewport = d.viewport
@@ -526,16 +576,29 @@ const onSave = async (
 /* ========== 教师审核 ========== */
 
 const reviewLoading = ref(false)
+const headerReviewComment = ref('')
 const onReview = async (accept: boolean, comment: string) => {
-  if (!existingRecord.value) return
+  const id = existingRecord.value?.id || recordId.value
+  if (!id) {
+    ElMessage.warning('没有可评定的作业记录')
+    return
+  }
+  if (!accept && !String(comment || '').trim()) {
+    ElMessage.warning('驳回需填写审核意见')
+    return
+  }
   reviewLoading.value = true
   try {
-    const out = await ReadingApi.reviewReading(existingRecord.value.id, {
+    const out = await ReadingApi.reviewReading(id, {
       reviewComment: comment,
       accept
     })
     existingRecord.value = out
-    ElMessage.success(accept ? '已通过审核' : '已驳回，学员可按意见修改后重新提交')
+    ElMessage.success(accept ? '已通过，记录变为已通过' : '已驳回，学员可按意见修改后重交')
+    const from = String(route.query.from || '')
+    if (from === 'quality' || from === 'review') {
+      goBack()
+    }
   } catch {
     /* 已弹错误 */
   } finally {
@@ -546,8 +609,21 @@ const onReview = async (accept: boolean, comment: string) => {
 /* ========== 跳转 ========== */
 
 const goBack = () => {
-  if (String(route.query.from || '') === 'review') {
+  const from = String(route.query.from || '')
+  if (from === 'review') {
     router.push('/training/review')
+    return
+  }
+  if (from === 'quality') {
+    router.push({ path: '/training/reading', query: { tab: 'quality' } })
+    return
+  }
+  if (from === 'my-reviews') {
+    router.push('/training/my-reviews')
+    return
+  }
+  if (canReview.value && workbenchTab.value === 'quality') {
+    router.push('/training/cases')
     return
   }
   router.push('/case-browse')
@@ -565,9 +641,14 @@ onMounted(async () => {
   // 阅片内核由 CoreRetinaStation 自行初始化（并发调用共用同一个 Promise），
   // 页面不再需要预热
   await loadCaseList()
+  applyWorkbenchTabFromRoute()
 
-  // 无病例参数进入 → 直接进入第一例
+  // 教师进工作台先看质量评估列表；学员无病例时才自动进第一例
   if (!caseId.value && !recordId.value && caseList.value.length) {
+    if (canReview.value) {
+      workbenchTab.value = 'quality'
+      return
+    }
     onSelectCase(caseList.value[0].id)
     return
   }
@@ -586,6 +667,11 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   // 离开页面时清理 cornerstone 启用元素由 CoreRetinaStation 自身负责
 })
+
+watch(
+  () => [route.query.tab, route.query.recordId, route.query.caseId],
+  () => applyWorkbenchTabFromRoute()
+)
 
 watch(currentImageIndex, () => {
   // 切换影像时清空当前画布；可选择是否拉新草稿
@@ -674,7 +760,9 @@ const runQualityCheck = async () => {
     // 算法服务不可用时接口仍返回成功，此处如实告知失败张数，
     // 不把「未评估」说成「已质控」
     if (r.failed > 0 && r.evaluated === 0) {
-      ElMessage.warning(`质量评估未完成：${r.failed} 张调用失败，质量保持「未评估」`)
+      ElMessage.warning(
+        `影像质控未完成：算法服务调用失败（${r.failed} 张）。这不是学员作业评定，请到「质量评估」对记录点「评定」。`
+      )
     } else if (r.failed > 0) {
       ElMessage.warning(`已评估 ${r.evaluated} 张，${r.failed} 张失败`)
     } else if (r.hasUngradable) {
@@ -741,15 +829,33 @@ const openNote = () => {
     <header class="page-header">
       <div class="header-left">
         <el-button :icon="Back" text @click="goBack">
-          {{ String(route.query.from || '') === 'review' ? '返回待审核' : '返回病例库' }}
+          {{
+            String(route.query.from || '') === 'review'
+              ? '返回待审核'
+              : String(route.query.from || '') === 'quality'
+                ? '返回质量评估'
+                : String(route.query.from || '') === 'my-reviews'
+                  ? '返回教师评定'
+                  : '返回病例库'
+          }}
         </el-button>
         <div class="divider" />
         <span class="page-title">
           <el-icon><Document /></el-icon>
           阅片工作台
         </span>
+        <el-radio-group
+          v-if="canReview && !reviewMode"
+          :model-value="workbenchTab"
+          size="small"
+          class="workbench-tabs"
+          @change="(v: string) => (v === 'quality' ? openQualityTab() : openReadingTab())"
+        >
+          <el-radio-button value="reading">阅片</el-radio-button>
+          <el-radio-button value="quality">质量评估</el-radio-button>
+        </el-radio-group>
         <!-- 病例快速切换 -->
-        <div v-if="caseList.length" class="case-switch">
+        <div v-if="caseList.length && !showQualityPanel" class="case-switch">
           <el-button
             :icon="ArrowLeft"
             circle
@@ -825,6 +931,15 @@ const openNote = () => {
           AI 辅助判读
         </el-button>
         <el-button
+          v-if="canReview && !reviewMode && !showQualityPanel"
+          size="small"
+          type="warning"
+          plain
+          @click="openQualityTab"
+        >
+          质量评估
+        </el-button>
+        <el-button
           v-if="canAnnotate && !reviewMode && !recordLocked"
           size="small"
           plain
@@ -832,7 +947,7 @@ const openNote = () => {
           :disabled="!source || sourceLoading"
           @click="runQualityCheck"
         >
-          质量评估
+          {{ canReview ? '影像质控' : '质量评估' }}
         </el-button>
         <el-button
           size="small"
@@ -844,9 +959,69 @@ const openNote = () => {
       </div>
     </header>
 
+    <div
+      v-if="!canReview && existingRecord && existingRecord.status !== 'DRAFT'"
+      class="student-review-bar"
+      :class="existingRecord.status === 'SUBMITTED' ? 'is-pending' : existingRecord.status === 'REJECTED' ? 'is-reject' : 'is-pass'"
+    >
+      <span class="review-bar-title">教师评定</span>
+      <el-tag
+        size="small"
+        :type="ReadingApi.READING_STATUS_META[existingRecord.status]?.tag"
+      >
+        {{ ReadingApi.READING_STATUS_META[existingRecord.status]?.label }}
+      </el-tag>
+      <span class="review-bar-who">
+        {{
+          existingRecord.status === 'SUBMITTED'
+            ? '教师尚未评定'
+            : existingRecord.reviewComment || '（无评语）'
+        }}
+      </span>
+      <el-button text size="small" @click="router.push('/training/my-reviews')">
+        查看全部评定
+      </el-button>
+    </div>
+    <div
+      v-if="reviewMode && existingRecord && existingRecord.status === 'SUBMITTED'"
+      class="review-bar"
+    >
+      <span class="review-bar-title">质量评估 · 评定作业</span>
+      <span class="review-bar-who">
+        {{ existingRecord.userName || '学员' }} · {{ existingRecord.caseNo }}
+      </span>
+      <el-input
+        v-model="headerReviewComment"
+        size="small"
+        placeholder="评定意见（驳回必填）"
+        class="review-bar-input"
+      />
+      <el-button
+        type="danger"
+        size="small"
+        :loading="reviewLoading"
+        @click="onReview(false, headerReviewComment)"
+      >
+        驳回
+      </el-button>
+      <el-button
+        type="primary"
+        size="small"
+        :loading="reviewLoading"
+        @click="onReview(true, headerReviewComment)"
+      >
+        通过并提交
+      </el-button>
+    </div>
+
+    <ReadingQualityPanel
+      v-if="showQualityPanel"
+      @review="goQualityReview"
+    />
+
     <!-- 影像安全标识条（常驻，报告 P0/P1） -->
     <ReadingSafetyBar
-      v-if="source"
+      v-if="!showQualityPanel && source"
       :case-no="source.caseNo"
       :patient-name="source.patientName"
       :modality-text="(source as any).modalityText"
@@ -858,7 +1033,7 @@ const openNote = () => {
     />
 
     <!-- 患者信息栏 -->
-    <div v-if="source" class="patient-bar">
+    <div v-if="!showQualityPanel && source" class="patient-bar">
       <div class="pb-cell">
         <span class="pb-label">姓名</span>
         <span class="pb-value">{{ source.patientName || '—' }}</span>
@@ -891,7 +1066,7 @@ const openNote = () => {
       </div>
     </div>
 
-    <div class="page-body">
+    <div v-if="!showQualityPanel" class="page-body">
       <!-- 左侧工具栏 -->
       <ReadingToolbar
         :tool="canvasState.tool"
@@ -999,7 +1174,7 @@ const openNote = () => {
         :annotations="canvasState.annotations"
         :measurements="canvasState.measurements"
         :existing-record="existingRecord"
-        :can-review="canReview && reviewMode"
+        :can-review="canReview && reviewMode && existingRecord?.status === 'SUBMITTED'"
         :review-loading="reviewLoading"
         @update:viewport="(v) => (canvasState.viewport = v)"
         @update:layers="(l) => (canvasState.layers = l)"
@@ -1099,6 +1274,9 @@ const openNote = () => {
   color: #4091ff;
   font-weight: 600;
 }
+.workbench-tabs {
+  margin-left: 12px;
+}
 .case-switch {
   display: inline-flex;
   align-items: center;
@@ -1119,6 +1297,51 @@ const openNote = () => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.review-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: #2b2111;
+  border-bottom: 1px solid #d6b656;
+  color: #f5e6c8;
+  flex-shrink: 0;
+}
+.review-bar-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f7d27c;
+  white-space: nowrap;
+}
+.review-bar-who {
+  font-size: 12px;
+  color: #c9cdd4;
+  white-space: nowrap;
+}
+.review-bar-input {
+  flex: 1;
+  max-width: 420px;
+}
+.student-review-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border-bottom: 1px solid #2a2a2a;
+  flex-shrink: 0;
+}
+.student-review-bar.is-pending {
+  background: #2b2111;
+  color: #f5e6c8;
+}
+.student-review-bar.is-pass {
+  background: #12261c;
+  color: #b7eb8f;
+}
+.student-review-bar.is-reject {
+  background: #2a1215;
+  color: #ffccc7;
 }
 
 .page-body {

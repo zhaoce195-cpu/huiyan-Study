@@ -11,6 +11,7 @@ import {
   Share,
   Promotion,
   Checked,
+  Tickets,
   User,
   Bell,
   SwitchButton,
@@ -61,6 +62,7 @@ const activeMenu = computed(() => {
   if (route.path.startsWith('/training/student-teaching')) return '/training/student-teaching'
   if (route.path.startsWith('/training/ai-builder')) return '/training/ai-builder'
   if (route.path.startsWith('/training/review')) return '/training/review'
+  if (route.path.startsWith('/training/my-reviews')) return '/training/my-reviews'
   return route.path
 })
 
@@ -114,7 +116,7 @@ const roleBadge = computed(() => {
           </el-menu-item>
           <el-menu-item index="/training/reading">
             <el-icon><Monitor /></el-icon>
-            <template #title>阅片工作台</template>
+            <template #title>{{ isTeacher ? '阅片工作台 / 质量评估' : '阅片工作台' }}</template>
           </el-menu-item>
         </el-menu-item-group>
 
@@ -127,6 +129,10 @@ const roleBadge = computed(() => {
           <el-menu-item index="/training/student-teaching">
             <el-icon><promotion /></el-icon>
             <template #title>教师演示病例</template>
+          </el-menu-item>
+          <el-menu-item index="/training/my-reviews">
+            <el-icon><tickets /></el-icon>
+            <template #title>教师评定</template>
           </el-menu-item>
         </el-menu-item-group>
 

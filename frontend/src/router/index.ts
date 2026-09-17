@@ -120,6 +120,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '自主练习与自评' }
       },
       {
+        path: 'my-reviews',
+        name: 'StudentReviews',
+        component: () => import('@/views/training/student-reviews.vue'),
+        meta: { title: '教师评定', allowedRoles: ['trainee'] }
+      },
+      {
         path: 'practice/workstation',
         name: 'TrainingPracticeWorkstation',
         component: () => import('@/views/practice/workstation.vue'),

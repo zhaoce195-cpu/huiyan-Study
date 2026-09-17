@@ -478,7 +478,10 @@ def _to_brief(case: TrainingCase, *, user: Optional[User] = None,
 
 def _is_teacher_or_admin(user: User) -> bool:
     code = user.role.code if user.role else None
-    return code in (RoleEnum.TEACHER.value, RoleEnum.ADMIN.value)
+    if code in (RoleEnum.TEACHER.value, RoleEnum.ADMIN.value):
+        return True
+    ut = (getattr(user, "user_type", "") or "").lower()
+    return ut in ("teacher", "admin")
 
 
 def _passback_to_lms(db: Session, user: User, record: PracticeSession) -> None:
