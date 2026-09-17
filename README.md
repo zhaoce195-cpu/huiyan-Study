@@ -1,0 +1,50 @@
+# 慧眼医学教学实训平台 (Huiyan Medical System)
+
+慧眼医学教学实训平台是一套专为眼科医学影像教学与实训设计的全栈云平台。系统融合了高精度医学影像渲染引擎（Cornerstone3D）、AI 智能辅助诊断、标准化带教考核与学员成长追踪体系。
+
+---
+
+## 📌 版本演进与更新记录
+
+本项目严格遵循语义化版本规范，所有历史版本的详细改动清单请查阅：
+👉 **[完整版本更新记录 (CHANGELOG.md)](./CHANGELOG.md)**
+
+| 版本 | 发布日期 | 核心更新内容 | 标签链接 |
+| :--- | :--- | :--- | :--- |
+| **v3** | 2026-09-17 | 优化阅片质控面板、完善带教审核与学员评审反馈闭环 | [查看 v3 标签](../../tree/v3) |
+| **v2** | 2026-09-16 | 用户管理中枢、学员申请审批流程、站内通知中心、端到端业务流程图 | [查看 v2 标签](../../tree/v2) |
+| **v1** | 2026-09-16 | 平台初始版本基线归档（眼底阅片工作站、评分引擎、认证鉴权） | [查看 v1 标签](../../tree/v1) |
+
+---
+
+## 🛠️ 技术栈架构
+
+- **前端 (Frontend)**：Vue 3 + TypeScript + Vite + Element Plus + Pinia + Cornerstone3D
+- **后端 (Backend)**：Python 3.11 + FastAPI + SQLAlchemy 2.0 + Alembic + Pydantic v2
+- **安全与认证**：JWT / Sa-Token 机制 / OAuth2 Keycloak
+- **数据库与存储**：SQLite / MySQL 8.0 + DICOM Orthanc PACS
+- **文档与流程**：[端到端业务流程图 (Draw.io)](./docs/慧眼平台-端到端业务流程图.drawio)
+
+---
+
+## 🚀 本地快速启动
+
+### 1. 启动后端服务
+```bash
+cd backend
+.venv\Scripts\python -m uvicorn app.main:app --port 8000
+```
+- 后端接口服务：`http://127.0.0.1:8000`
+- API 交互式文档：`http://127.0.0.1:8000/docs`
+
+### 2. 启动前端服务
+```bash
+cd frontend
+npx vite --port 5178
+```
+- 前端访问地址：`http://127.0.0.1:5178`
+
+### 3. 默认演示账号
+- **系统管理员**：`admin` / `Admin@123`
+- **带教老师**：`teacher` / `Huiyan@123`
+- **学员**：`student` / `Huiyan@123`
