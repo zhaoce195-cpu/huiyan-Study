@@ -19,6 +19,8 @@ const props = defineProps<{
   existingRecord: ReadingRecord | null
   canReview: boolean
   reviewLoading: boolean
+  /** 开关打开但画面上没有对应内容时的说明，空字符串表示不提示 */
+  layerNotes?: { primary?: string; heatmap?: string; gold?: string }
 }>()
 
 const emit = defineEmits<{
@@ -160,6 +162,7 @@ const onReview = (accept: boolean) => {
           @update:model-value="(v: any) => updateLayer('primary', !!v)"
         />
       </div>
+      <p v-if="layerNotes?.primary" class="layer-note">{{ layerNotes.primary }}</p>
       <div class="row">
         <span class="muted"><el-icon><View /></el-icon> 我的标注</span>
         <el-switch
@@ -176,6 +179,7 @@ const onReview = (accept: boolean) => {
           @update:model-value="(v: any) => updateLayer('heatmap', !!v)"
         />
       </div>
+      <p v-if="layerNotes?.heatmap" class="layer-note">{{ layerNotes.heatmap }}</p>
       <div class="row">
         <span class="muted"><el-icon><Hide /></el-icon> 金标准</span>
         <el-switch
@@ -184,6 +188,7 @@ const onReview = (accept: boolean) => {
           @update:model-value="(v: any) => updateLayer('gold', !!v)"
         />
       </div>
+      <p v-if="layerNotes?.gold" class="layer-note">{{ layerNotes.gold }}</p>
     </section>
 
     <!-- 标注列表 -->
@@ -318,9 +323,10 @@ const onReview = (accept: boolean) => {
 }
 .block-title {
   font-weight: 600;
-  color: #e5e6eb;
+  color: #f5f7fa;
   margin-bottom: 10px;
-  font-size: 13px;
+  font-size: 14px;
+  letter-spacing: 0.2px;
   display: flex;
   align-items: center;
 }
@@ -332,8 +338,16 @@ const onReview = (accept: boolean) => {
   padding: 4px 0;
   font-size: 12px;
 }
+.layer-note {
+  margin: 2px 0 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #ffd58a;
+}
 .muted {
-  color: #86909c;
+  color: #d5dae3;
+  font-size: 13px;
+  font-weight: 500;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -351,8 +365,8 @@ const onReview = (accept: boolean) => {
 
 .empty {
   text-align: center;
-  color: #4e5969;
-  font-size: 12px;
+  color: #c5cad3;
+  font-size: 13px;
   padding: 14px 0;
 }
 
@@ -377,9 +391,9 @@ const onReview = (accept: boolean) => {
   flex-shrink: 0;
 }
 .ann-tool {
-  color: #86909c;
+  color: #d5dae3;
   font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 11px;
+  font-size: 12px;
   flex-shrink: 0;
 }
 .ann-label {
@@ -411,10 +425,11 @@ const onReview = (accept: boolean) => {
   padding: 4px 0;
 }
 .ww-label {
-  width: 28px;
+  width: 32px;
   flex-shrink: 0;
-  color: #86909c;
-  font-size: 12px;
+  color: #d5dae3;
+  font-size: 13px;
+  font-weight: 500;
 }
 .ww-slider {
   flex: 1;

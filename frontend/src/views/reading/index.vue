@@ -211,7 +211,7 @@ const existingRecord = ref<ReadingRecord | null>(null)
 /* ========== 画布状态 ========== */
 
 const canvasState = reactive<CanvasState>({
-  tool: 'pan',
+  tool: 'pointer',
   annotations: [],
   measurements: [],
   history: [],
@@ -236,11 +236,17 @@ const canvasState = reactive<CanvasState>({
 const readingCanvasRef = ref<InstanceType<typeof CoreRetinaStation> | null>(null)
 
 const setTool = (t: ToolName) => {
-  if (!canAnnotate.value) {
+  const viewTools: ToolName[] = ['pointer', 'pan', 'zoom', 'wwwc']
+  if (!canAnnotate.value && !viewTools.includes(t)) {
     ElMessage.warning('当前角色无标注权限')
     return
   }
   canvasState.tool = t
+}
+
+const onPickLabel = () => {
+  const markTools: ToolName[] = ['rect', 'polygon', 'freehand', 'pen']
+  if (!markTools.includes(canvasState.tool)) setTool('freehand')
 }
 
 const undo = () => {
@@ -369,13 +375,15 @@ const autosaveText = computed(() => {
   return ''
 })
 
-const onAnnotationsChange = (next: AnnotationItem[]) => {
-  canvasState.history.push({
-    annotations: JSON.parse(JSON.stringify(canvasState.annotations)),
-    measurements: JSON.parse(JSON.stringify(canvasState.measurements))
-  })
-  if (canvasState.history.length > 50) canvasState.history.shift()
-  canvasState.redoStack = []
+const onAnnotationsChange = (next: AnnotationItem[], meta?: { history?: boolean }) => {
+  if (meta?.history !== false) {
+    canvasState.history.push({
+      annotations: JSON.parse(JSON.stringify(canvasState.annotations)),
+      measurements: JSON.parse(JSON.stringify(canvasState.measurements))
+    })
+    if (canvasState.history.length > 50) canvasState.history.shift()
+    canvasState.redoStack = []
+  }
   canvasState.annotations = next
   scheduleAutosave()
 }
@@ -757,18 +765,29 @@ const runQualityCheck = async () => {
   qualityChecking.value = true
   try {
     const r = await ReadingApi.checkImageQuality(Number(cid))
-    // 算法服务不可用时接口仍返回成功，此处如实告知失败张数，
-    // 不把「未评估」说成「已质控」
-    if (r.failed > 0 && r.evaluated === 0) {
+    // 张数只统计真正评出等级的原图。调用失败或没认出等级时不能报「完成，共 0 张」。
+    const evaluated = Number(r?.evaluated || 0)
+    const failed = Number(r?.failed || 0)
+    const total = Number(r?.total ?? evaluated + failed)
+    const gradedTotal = Number(r?.gradedTotal ?? evaluated)
+    const firstErr = r?.items?.find((it) => it.error)?.error || ''
+    const tally = `累计已评估 ${gradedTotal} 张（本病例 ${evaluated} 张）`
+    if (total <= 0) {
+      ElMessage.warning('当前病例没有可评估的原始影像')
+    } else if (failed > 0 && evaluated === 0) {
       ElMessage.warning(
-        `影像质控未完成：算法服务调用失败（${r.failed} 张）。这不是学员作业评定，请到「质量评估」对记录点「评定」。`
+        firstErr
+          ? `影像质控未完成：${failed} 张调用失败。原因：${firstErr}`
+          : `影像质控未完成：算法服务调用失败（${failed} 张）`
       )
-    } else if (r.failed > 0) {
-      ElMessage.warning(`已评估 ${r.evaluated} 张，${r.failed} 张失败`)
-    } else if (r.hasUngradable) {
-      ElMessage.error('检出不可判读影像，请勿据此给出阴性结论')
+    } else if (r?.hasUngradable) {
+      ElMessage.warning(
+        `质量评估完成，${tally}，其中有不可判读影像，请勿据此给出阴性结论`
+      )
+    } else if (failed > 0) {
+      ElMessage.warning(`质量评估完成，${tally}，另有 ${failed} 张失败`)
     } else {
-      ElMessage.success(`质量评估完成，共 ${r.evaluated} 张`)
+      ElMessage.success(`质量评估完成，${tally}`)
     }
     await fetchSource()
   } finally {
@@ -784,6 +803,69 @@ const currentImageMeta = computed(() => {
   const url = currentImage.value
   const byUrl = metas.find((m) => m?.url && url && m.url === url)
   return byUrl || metas[currentImageIndex.value] || null
+})
+
+const EYE_LABEL: Record<string, string> = { OD: '右眼', OS: '左眼', OU: '双眼' }
+const originalMetas = computed(() => {
+  const metas = (source.value?.imageMeta || []) as ReadingApi.ImageMeta[]
+  return metas.filter((m) => m.isOriginal !== false && (!m.role || m.role === 'original'))
+})
+const currentEyeCode = computed(() => {
+  const e = currentImageMeta.value?.eye || ''
+  if (e === 'OD' || e === 'OS' || e === 'OU') return e
+  const fromOriginals = [
+    ...new Set(
+      originalMetas.value
+        .map((m) => m.eye)
+        .filter((x): x is 'OD' | 'OS' | 'OU' => x === 'OD' || x === 'OS' || x === 'OU')
+    )
+  ]
+  return fromOriginals.length === 1 ? fromOriginals[0] : 'UNKNOWN'
+})
+const currentEyeLabel = computed(() => {
+  if (currentEyeCode.value === 'UNKNOWN') return '眼别未知'
+  const inferred = originalMetas.value.some(
+    (m) => m.eye === currentEyeCode.value && m.eyeInferred
+  )
+  const base = EYE_LABEL[currentEyeCode.value] || currentImageMeta.value?.eyeText || '眼别未知'
+  return inferred ? `${base}（视盘位置）` : base
+})
+const eyeHas = (code: 'OD' | 'OS') =>
+  originalMetas.value.some((m) => m.eye === code || m.eye === 'OU')
+const selectEye = (code: 'OD' | 'OS') => {
+  const metas = originalMetas.value
+  const hit = metas.find((m) => m.eye === code) || metas.find((m) => m.eye === 'OU')
+  if (!hit?.url) return
+  if (availableRoles.value.includes('original')) currentImageRole.value = 'original'
+  const groups = source.value?.imageGroups || {}
+  const originals = (groups as any).original as string[] | undefined
+  const urls = originals?.length ? originals : source.value?.images || []
+  const idx = urls.findIndex((u) => u === hit.url)
+  currentImageIndex.value = idx >= 0 ? idx : 0
+}
+
+const layerNotes = computed(() => {
+  const notes: { primary?: string; heatmap?: string; gold?: string } = {}
+  const src = source.value
+  if (!canvasState.layers.primary) notes.primary = '原图已隐藏，标注还留在画面上'
+  if (canvasState.layers.heatmap) {
+    if (src && src.showGoldLayers === false) {
+      notes.heatmap = '提交本次阅片或练习后，才能查看病灶提示图'
+    } else if (!src?.heatmapUrl) {
+      notes.heatmap = '这例没有病灶提示图'
+    }
+  }
+  if (canvasState.layers.gold) {
+    const boxes = src?.goldAnnotations?.length || 0
+    const mask = !!src?.lesionMaskUrl
+    const seg = !!src?.segmentation?.sopInstanceUid
+    if (src && src.showGoldLayers === false) {
+      notes.gold = '提交本次阅片或练习后，才能查看金标准'
+    } else if (!boxes && !mask && !seg) {
+      notes.gold = '这例没有金标准标注，也没有病灶着色图'
+    }
+  }
+  return notes
 })
 
 const readingStatusMeta = computed(() => {
@@ -1046,6 +1128,12 @@ const openNote = () => {
         <span class="pb-label">年龄</span>
         <span class="pb-value">{{ source.patientAge ? source.patientAge + ' 岁' : '—' }}</span>
       </div>
+      <div class="pb-cell">
+        <span class="pb-label">眼别</span>
+        <span class="pb-value" :class="{ 'is-warn': currentEyeCode === 'UNKNOWN' }">
+          {{ currentEyeLabel }}
+        </span>
+      </div>
       <div v-if="source.patientPhone || source.phoneVisible !== false" class="pb-cell">
         <span class="pb-label">手机号</span>
         <span class="pb-value mono">
@@ -1106,6 +1194,31 @@ const openNote = () => {
           </span>
         </div>
 
+        <div v-if="!missingCaseId && source" class="eye-switch" aria-label="左右眼">
+          <button
+            type="button"
+            class="eye-btn"
+            :class="{ active: currentEyeCode === 'OD' || currentEyeCode === 'OU' }"
+            :disabled="!eyeHas('OD')"
+            :title="eyeHas('OD') ? '切换到右眼' : '这侧没有影像'"
+            @click="selectEye('OD')"
+          >
+            右眼
+          </button>
+          <button
+            type="button"
+            class="eye-btn"
+            :class="{ active: currentEyeCode === 'OS' || currentEyeCode === 'OU' }"
+            :disabled="!eyeHas('OS')"
+            :title="eyeHas('OS') ? '切换到左眼' : '这侧没有影像'"
+            @click="selectEye('OS')"
+          >
+            左眼
+          </button>
+          <span v-if="currentEyeCode === 'UNKNOWN'" class="eye-now">眼别未知</span>
+          <span v-else class="eye-now">当前 {{ currentEyeLabel }}</span>
+        </div>
+
         <div v-if="missingCaseId" class="empty error">
           <el-icon><Document /></el-icon>
           <span>缺少 caseId 参数，无法加载影像</span>
@@ -1138,8 +1251,12 @@ const openNote = () => {
           :measurements="canvasState.measurements"
           :viewport="canvasState.viewport"
           :layers="canvasState.layers"
+          :gold-annotations="(source?.goldAnnotations || []) as AnnotationItem[]"
+          :gold-overlay-url="source?.lesionMaskUrl || ''"
+          :heatmap-overlay-url="source?.heatmapUrl || ''"
           :readonly="!canAnnotate || reviewMode || recordLocked"
           @update:annotations="onAnnotationsChange"
+          @pick-label="onPickLabel"
           @update:measurements="onMeasurementsChange"
           @update:viewport="(v) => (canvasState.viewport = v)"
           @ready="onCanvasReady"
@@ -1176,6 +1293,7 @@ const openNote = () => {
         :existing-record="existingRecord"
         :can-review="canReview && reviewMode && existingRecord?.status === 'SUBMITTED'"
         :review-loading="reviewLoading"
+        :layer-notes="layerNotes"
         @update:viewport="(v) => (canvasState.viewport = v)"
         @update:layers="(l) => (canvasState.layers = l)"
         @remove-annotation="
@@ -1226,8 +1344,16 @@ const openNote = () => {
 <style scoped>
 .autosave-hint {
   margin-left: 10px;
-  font-size: 12px;
-  color: #86909c;
+  font-size: 13px;
+  color: #d5dae3;
+}
+.page-header :deep(.el-button.is-text) {
+  color: #e8eaed;
+  font-weight: 500;
+}
+.page-header :deep(.el-button.is-text:hover) {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
 }
 .autosave-hint.bad {
   color: #f56c6c;
@@ -1287,8 +1413,8 @@ const openNote = () => {
   width: 230px;
 }
 .case-count {
-  font-size: 12px;
-  color: #9aa4b2;
+  font-size: 13px;
+  color: #d5dae3;
   font-variant-numeric: tabular-nums;
   min-width: 44px;
   text-align: center;
@@ -1368,12 +1494,46 @@ const openNote = () => {
   gap: 6px;
 }
 .pb-label {
-  color: #86909c;
-  font-size: 12px;
+  color: #d5dae3;
+  font-size: 13px;
+  font-weight: 500;
 }
 .pb-value {
   color: #e5e6eb;
   font-weight: 500;
+}
+.pb-value.is-warn {
+  color: #ffd58a;
+}
+.eye-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: stretch;
+  padding: 8px 12px 0;
+}
+.eye-btn {
+  background: #1c1f27;
+  color: #f2f4f8;
+  border: 1px solid #5c6574;
+  border-radius: 6px;
+  padding: 5px 16px;
+  font-size: 14px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.eye-btn.active {
+  background: #1d4f91;
+  border-color: #8eb7ff;
+  color: #fff;
+}
+.eye-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.eye-now {
+  color: #f2f4f8;
+  font-size: 13px;
 }
 .pb-value.mono {
   font-family: 'Consolas', 'Monaco', monospace;
@@ -1381,7 +1541,7 @@ const openNote = () => {
 }
 .pb-sn {
   font-family: 'Consolas', 'Monaco', monospace;
-  color: #86909c;
+  color: #d5dae3;
   margin-left: 4px;
 }
 .pb-no {
@@ -1407,7 +1567,7 @@ const openNote = () => {
   justify-content: center;
   flex-direction: column;
   gap: 8px;
-  color: #4e5969;
+  color: #c5cad3;
   font-size: 14px;
   pointer-events: none;
 }

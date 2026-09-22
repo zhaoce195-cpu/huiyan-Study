@@ -1,6 +1,7 @@
 import type { ReadingApi } from '@/api'
 
 export type ToolName =
+  | 'pointer'
   | 'pan'
   | 'zoom'
   | 'wwwc'
@@ -46,6 +47,7 @@ export const TOOL_GROUPS: {
   {
     title: '视图',
     items: [
+      { tool: 'pointer', label: '指针', iconName: 'Pointer' },
       { tool: 'pan', label: '平移', iconName: 'Rank' },
       { tool: 'zoom', label: '缩放', iconName: 'ZoomIn' },
       { tool: 'wwwc', label: '窗宽窗位', iconName: 'Brightness' }

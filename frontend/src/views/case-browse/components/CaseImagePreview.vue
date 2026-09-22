@@ -149,7 +149,7 @@ const resetZoom = () => {
   pointer-events: none;
 }
 .empty {
-  color: #4e5969;
+  color: #c5cad3;
   font-size: 14px;
 }
 .nav {

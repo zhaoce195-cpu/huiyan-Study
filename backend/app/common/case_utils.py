@@ -9,15 +9,48 @@ from app.db.models.user import RoleEnum
 from app.services.patient_mock import mask_phone
 
 
+def unique_image_urls(urls: List[str]) -> List[str]:
+    """同一地址只保留第一次出现。一张图挂在左右眼两栏时，不能当成两张影像。"""
+    seen = set()
+    out: List[str] = []
+    for url in urls:
+        if not isinstance(url, str) or not url or url in seen:
+            continue
+        seen.add(url)
+        out.append(url)
+    return out
+
+
 def flatten_image_paths(image_paths: Optional[dict]) -> List[str]:
-    """把 image_paths JSON 拍平成有序 URL 列表（OD → OS → OU）"""
+    """把 image_paths JSON 拍平成有序 URL 列表（OD → OS → OU → UK），相同地址只留一张。"""
     if not isinstance(image_paths, dict):
         return []
     out: List[str] = []
-    for side in ("OD", "OS", "OU"):
+    for side in ("OD", "OS", "OU", "UK"):
         arr = image_paths.get(side) or []
         if isinstance(arr, list):
             out.extend([p for p in arr if isinstance(p, str)])
+    return unique_image_urls(out)
+
+
+def collapse_duplicate_image_paths(image_paths: Optional[dict]) -> dict:
+    """同一张图出现在多个眼别时只留第一次。左右眼各有自己的文件时原样保留。"""
+    if not isinstance(image_paths, dict):
+        return {}
+    seen = set()
+    out: dict = {}
+    for side in ("OD", "OS", "OU", "UK"):
+        arr = image_paths.get(side) or []
+        if not isinstance(arr, list):
+            continue
+        kept = []
+        for url in arr:
+            if not isinstance(url, str) or not url or url in seen:
+                continue
+            seen.add(url)
+            kept.append(url)
+        if kept:
+            out[side] = kept
     return out
 
 

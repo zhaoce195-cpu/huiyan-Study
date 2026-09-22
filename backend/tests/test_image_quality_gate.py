@@ -93,6 +93,22 @@ def test_parse_upstream_unknown_when_no_prediction():
     assert parsed["quality"] == "unknown", "没有预测类别时不能当作合格"
 
 
+def test_parse_upstream_live_quality_level_fields():
+    """线上接口用 quality_level_en / quality_name，不是 prediction_*。"""
+    payload = {
+        "model": {"name": "Image_quality", "task_type": "眼底图像质量评估"},
+        "result": {
+            "quality_level": 2,
+            "quality_name": "差",
+            "quality_level_en": "poor",
+            "probabilities": {"good": 0.01, "usable": 0.2, "poor": 0.79},
+        },
+    }
+    parsed = parse_upstream(payload)
+    assert parsed["quality"] == "poor"
+    assert parsed["confidence"] == 0.79
+
+
 # --------------------------------------------------------------------------
 # 质量进入安全元数据
 # --------------------------------------------------------------------------

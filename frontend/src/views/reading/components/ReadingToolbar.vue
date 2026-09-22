@@ -13,7 +13,8 @@ import {
   RefreshLeft,
   RefreshRight,
   RefreshLeft as ResetIcon,
-  Aim
+  Aim,
+  Pointer
 } from '@element-plus/icons-vue'
 import type { ToolName } from '../types'
 
@@ -41,6 +42,7 @@ interface ToolDef {
 }
 
 const tools: ToolDef[] = [
+  { tool: 'pointer', label: '指针', icon: Pointer, group: 'view' },
   { tool: 'pan', label: '平移', icon: Rank, group: 'view' },
   { tool: 'zoom', label: '缩放', icon: ZoomIn, group: 'view' },
   { tool: 'wwwc', label: '窗位', icon: Sunny, group: 'view' },
@@ -146,8 +148,9 @@ const handleClick = (t: ToolDef) => {
   border-radius: 6px;
   background: transparent;
   border: 1px solid transparent;
-  color: #c9cdd4;
-  font-size: 11px;
+  color: #e8eaed;
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
   transition: 0.15s;
   user-select: none;
@@ -175,7 +178,7 @@ const handleClick = (t: ToolDef) => {
   cursor: not-allowed;
 }
 .tool-label {
-  font-size: 11px;
-  letter-spacing: 0.5px;
+  font-size: 12px;
+  letter-spacing: 0.3px;
 }
 </style>

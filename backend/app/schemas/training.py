@@ -27,7 +27,7 @@ class _CamelModel(BaseModel):
 GradeLiteral = Literal["A+", "A", "B", "C"]
 DifficultyLiteral = Literal["入门", "初级", "中级", "高级"]
 LesionLiteral = Literal["出血", "渗出", "微动脉瘤", "棉绒斑", "新生血管"]
-EyeSideLiteral = Literal["OD", "OS", "OU"]
+EyeSideLiteral = Literal["OD", "OS", "OU", "UK"]
 GenderLiteral = Literal["男", "女"]
 AnnotationTypeLiteral = Literal["rect", "polygon", "pen"]
 DRLevelLiteral = Literal[0, 1, 2, 3, 4]

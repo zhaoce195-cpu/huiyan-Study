@@ -85,7 +85,7 @@ def _get_first_image(case: TrainingCase) -> Tuple[str, str]:
     paths = case.image_paths or {}
     img = ""
     if isinstance(paths, dict):
-        for side in ("OD", "OS", "OU"):
+        for side in ("OD", "OS", "OU", "UK"):
             arr = paths.get(side) or []
             if arr:
                 img = arr[0]
@@ -94,15 +94,8 @@ def _get_first_image(case: TrainingCase) -> Tuple[str, str]:
 
 
 def _eye_of_case(case: TrainingCase) -> str:
-    paths = case.image_paths or {}
-    if isinstance(paths, dict):
-        if paths.get("OD") and paths.get("OS"):
-            return "OU"
-        if paths.get("OD"):
-            return "OD"
-        if paths.get("OS"):
-            return "OS"
-    return "OU"
+    from app.common.eye_infer import laterality_from_paths
+    return laterality_from_paths(case.image_paths or {})
 
 
 def _best_iou_for_user(db: Session, user_id: int, case_pk: int) -> Optional[float]:

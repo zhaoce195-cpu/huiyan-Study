@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.common.utils import delete_avatar_file, save_avatar
 from app.core.security import hash_password, verify_password
-from app.db.models import User, UserSetting
+from app.db.models import RoleEnum, User, UserSetting
 from app.schemas.setting import UserSettingOut, UserSettingUpdateRequest
 from app.schemas.user import (
     AvatarUploadResponse,
@@ -34,6 +34,10 @@ class UserService:
         db: Session, user: User, params: UserUpdateRequest
     ) -> UserOut:
         update_data = params.model_dump(exclude_unset=True, exclude_none=True)
+        role = user.role.code if user.role else ""
+        if role == RoleEnum.STUDENT.value:
+            update_data.pop("department", None)
+            update_data.pop("title", None)
         if not update_data:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

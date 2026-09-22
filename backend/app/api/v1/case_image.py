@@ -62,7 +62,7 @@ async def upload_case_image(
     caseTable: str = Form(...),
     caseId: int = Form(..., ge=1),
     role: str = Form(..., description="original/MA/HE/EX/SE/OD/color_mask/overlay/class_mask/other"),
-    eye: str = Form("OU"),
+    eye: str = Form("UK"),
     files: List[UploadFile] = File(...),
 ):
     saved = []

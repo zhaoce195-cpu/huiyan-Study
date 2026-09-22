@@ -56,6 +56,7 @@ from app.db.models.practice_session import (  # noqa: F401
     PracticeStatusEnum,
     PracticeModeEnum,
 )
+from app.db.models.text_quiz_attempt import TextQuizAttempt  # noqa: F401
 
 # ===== 学习资料 / 收藏 / 笔记 模块 =====
 from app.db.models.learning import (  # noqa: F401
@@ -106,3 +107,12 @@ from app.db.models.lti_platform import (  # noqa: F401
 
 # ===== 公告已读记录（原先存进程内存，重启即丢失） =====
 from app.db.models.notice_read import NoticeRead  # noqa: F401
+
+# ===== 轮转必做（学员首页） =====
+from app.db.models.rotation import (  # noqa: F401
+    Rotation,
+    RotationStatusEnum,
+    RotationTask,
+    RotationTaskAck,
+    RotationTaskKindEnum,
+)

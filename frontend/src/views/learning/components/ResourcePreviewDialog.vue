@@ -64,14 +64,33 @@ watch(() => props.resource?.id, () => {
 
 const renderContent = (html: string) => html || ''
 
+const fileNameOf = (url: string) => {
+  const path = (url || '').split('?')[0].split('#')[0]
+  const raw = path.split('/').filter(Boolean).pop() || ''
+  try {
+    return decodeURIComponent(raw) || '附件'
+  } catch {
+    return raw || '附件'
+  }
+}
+
+const isArchiveFile = (url: string) =>
+  /\.(zip|rar|7z|tar|gz|tgz)(\?|#|$)/i.test(url)
+
 const previewVideoOk = (url: string) =>
   /\.(mp4|webm|ogg)(\?|$)/i.test(url)
 
 const previewPdfOk = (url: string) =>
   /\.pdf(\?|$)/i.test(url)
 
-const previewImageOk = (url: string, type: string) =>
-  type === 'image' || /\.(png|jpe?g|gif|webp|bmp)(\?|$)/i.test(url)
+const previewImageOk = (url: string, type: string) => {
+  if (isArchiveFile(url)) return false
+  if (/\.(png|jpe?g|gif|webp|bmp)(\?|$)/i.test(url)) return true
+  const name = fileNameOf(url)
+  return type === 'image' && !name.includes('.')
+}
+
+const fileName = computed(() => fileNameOf(props.resource?.fileUrl || ''))
 
 const goExternal = () => {
   if (!props.resource?.fileUrl) {
@@ -130,6 +149,15 @@ const goExternal = () => {
           :src="resource.fileUrl"
           class="pdf-frame"
         />
+        <div
+          v-else-if="resource.fileUrl && isArchiveFile(resource.fileUrl)"
+          class="file-card"
+        >
+          <a class="file-name" :href="resource.fileUrl" :download="fileName">
+            {{ fileName }}
+          </a>
+          <span class="file-hint">压缩包无法在线预览，点击文件名下载</span>
+        </div>
         <el-image
           v-else-if="resource.fileUrl && previewImageOk(resource.fileUrl, resource.fileType)"
           :src="resource.fileUrl"
@@ -141,7 +169,13 @@ const goExternal = () => {
       </div>
 
       <div v-if="resource.fileUrl" class="external">
-        <el-button link type="primary" @click="goExternal">
+        <a
+          v-if="isArchiveFile(resource.fileUrl)"
+          class="download-link"
+          :href="resource.fileUrl"
+          :download="fileName"
+        >下载 {{ fileName }}</a>
+        <el-button v-else link type="primary" @click="goExternal">
           在新窗口打开附件 →
         </el-button>
       </div>
@@ -222,6 +256,29 @@ const goExternal = () => {
 .image {
   max-width: 100%;
   max-height: 460px;
+}
+.file-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 16px;
+}
+.file-name,
+.download-link {
+  color: #1677ff;
+  font-size: 16px;
+  font-weight: 600;
+  text-decoration: none;
+  word-break: break-all;
+}
+.file-name:hover,
+.download-link:hover {
+  text-decoration: underline;
+}
+.file-hint {
+  font-size: 13px;
+  color: #86909c;
 }
 .content-html {
   width: 100%;

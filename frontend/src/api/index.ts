@@ -24,5 +24,6 @@ export * as OrganizationApi from './organization'
 export * as UserMessageApi from './user-message'
 // ===== 教学实训分享（纯追加） =====
 export * as TeachingApi from './teaching'
+export * as RotationApi from './rotation'
 export * as AdminUsersApi from './admin-users'
 export * as StudentAppApi from './student-application'

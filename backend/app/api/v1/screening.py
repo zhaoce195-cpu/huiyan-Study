@@ -516,7 +516,7 @@ async def add_case_images(
     db: DbSession,
     caseId: int = Path(..., ge=1),
     files: List[UploadFile] = File(..., description="眼底图文件（可多张）"),
-    eye: str = Form("OU", description="眼别 OD/OS/OU，默认 OU"),
+    eye: str = Form("UK", description="眼别 OD/OS/OU；UK 或空则按影像自动判断"),
 ):
     data = await ScreeningService.add_case_images(
         db=db, user=current_user, case_id=caseId, files=files, eye=eye,

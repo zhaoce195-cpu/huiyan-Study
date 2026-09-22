@@ -31,8 +31,13 @@ from app.schemas.practice import (
     PracticeReviewParams,
     PracticeStartParams,
     PracticeSubmitParams,
+    TextQuizPaperOut,
+    TextQuizQuestionOut,
+    TextQuizResultOut,
+    TextQuizSubmitIn,
 )
 from app.services.practice_service import PracticeService
+from app.services.text_quiz import draw_paper, submit_paper
 
 router = APIRouter(
     prefix="/practice",
@@ -98,6 +103,12 @@ def start_practice(
     return success(data=data.model_dump(by_alias=True))
 
 
+@router.post("/exam/start", summary="开始或继续正式考试", response_model=None)
+def start_exam(current_user: CurrentUser, db: DbSession):
+    data = PracticeService.start_exam(db=db, user=current_user)
+    return success(data=data.model_dump(by_alias=True))
+
+
 @router.post("/submit", summary="提交练习（自动评分）", response_model=None)
 def submit_practice(
     params: PracticeSubmitParams,
@@ -106,6 +117,27 @@ def submit_practice(
 ):
     data = PracticeService.submit(db=db, user=current_user, params=params)
     return success(data=data.model_dump(by_alias=True), msg="提交成功")
+
+
+# ---------- 文字题（知识点 / 选择 / 填空）----------
+
+@router.get("/text-quiz", summary="抽一组文字题", response_model=None)
+def text_quiz_paper(size: int = Query(4, ge=3, le=8)):
+    paper = TextQuizPaperOut(questions=[TextQuizQuestionOut(**row) for row in draw_paper(size)])
+    return success(data=paper.model_dump(by_alias=True))
+
+
+@router.post("/text-quiz", summary="提交一组文字题", response_model=None)
+def text_quiz_submit(
+    params: TextQuizSubmitIn,
+    current_user: CurrentUser,
+    db: DbSession,
+):
+    result = submit_paper(
+        db, current_user, [(row.id, row.value) for row in params.answers],
+    )
+    out = TextQuizResultOut(**result)
+    return success(data=out.model_dump(by_alias=True), msg="已判分")
 
 
 # ---------- 台账 ----------
@@ -162,6 +194,16 @@ def review_record(
         db=db, user=current_user, record_id=recordId, params=params,
     )
     return success(data=data.model_dump(by_alias=True), msg="已点评")
+
+
+@router.post("/{recordId}/hint", summary="平时练习打开下一则提示", response_model=None)
+def next_hint(
+    current_user: CurrentUser,
+    db: DbSession,
+    recordId: int = Path(..., ge=1),
+):
+    data = PracticeService.next_hint(db=db, user=current_user, record_id=recordId)
+    return success(data=data.model_dump(by_alias=True))
 
 
 @router.delete("/{recordId}", summary="删除练习记录（自己 DRAFT 或 ADMIN）", response_model=None)

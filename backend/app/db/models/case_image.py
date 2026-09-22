@@ -66,7 +66,8 @@ class CaseImage(Base, TimestampMixin):
         comment="影像角色：original/MA/HE/EX/SE/OD/color_mask/overlay/class_mask/other",
     )
     eye: Mapped[str] = mapped_column(
-        String(4), nullable=False, default="OU", comment="眼别：OD/OS/OU",
+        String(4), nullable=False, default="UK",
+        comment="眼别：OD 右眼 / OS 左眼 / OU 双眼 / UK 未标注。未知不得默认成双眼",
     )
 
     file_url: Mapped[str] = mapped_column(

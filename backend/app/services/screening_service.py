@@ -20,6 +20,11 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 
+from app.common.eye_infer import (
+    laterality_from_paths,
+    resolve_static_file,
+    resolve_uploaded_eye,
+)
 from app.common.utils import (
     delete_fundus_file,
     resolve_report_pdf,
@@ -149,23 +154,15 @@ def _get_case_or_404(db: Session, task_id: str) -> ScreeningCase:
 
 
 def _eye_db_to_front(case: ScreeningCase) -> str:
-    """根据 image_paths 推断眼别（前端是 OD/OS/OU）"""
-    paths = case.image_paths or {}
-    if isinstance(paths, dict):
-        if paths.get("OD") and paths.get("OS"):
-            return "OU"
-        if paths.get("OD"):
-            return "OD"
-        if paths.get("OS"):
-            return "OS"
-    return "OU"
+    """根据 image_paths 汇总眼别。只有 UK 时不标成双眼。"""
+    return laterality_from_paths(case.image_paths or {})
 
 
 def _first_image_url(case: ScreeningCase) -> Tuple[str, str, str]:
     """返回 (file_name, file_url, thumb_url)"""
     paths = case.image_paths or {}
     if isinstance(paths, dict):
-        for side in ("OD", "OS", "OU"):
+        for side in ("OD", "OS", "OU", "UK"):
             arr = paths.get(side) or []
             if arr:
                 url = arr[0]
@@ -353,14 +350,16 @@ def _select_eye_files(case: ScreeningCase) -> Tuple[Optional[Path], Optional[Pat
     od_url = (paths.get("OD") or [None])[0] if isinstance(paths, dict) else None
     os_url = (paths.get("OS") or [None])[0] if isinstance(paths, dict) else None
     ou_url = (paths.get("OU") or [None])[0] if isinstance(paths, dict) else None
+    uk_url = (paths.get("UK") or [None])[0] if isinstance(paths, dict) else None
 
     od_path = resolve_screening_file(od_url) if od_url else None
     os_path = resolve_screening_file(os_url) if os_url else None
     ou_path = resolve_screening_file(ou_url) if ou_url else None
+    uk_path = resolve_screening_file(uk_url) if uk_url else None
 
-    # 左眼优先 OS / 右眼优先 OD；缺失时用 OU 兜底；再缺时双眼共用同一张
-    left = os_path or ou_path or od_path
-    right = od_path or ou_path or os_path
+    # 左眼优先 OS / 右眼优先 OD；缺失时用 OU、UK 兜底；再缺时双眼共用同一张
+    left = os_path or ou_path or uk_path or od_path
+    right = od_path or ou_path or uk_path or os_path
     return left, right
 
 
@@ -489,9 +488,13 @@ class ScreeningService:
 
         rel_url, file_name, size_bytes = await save_fundus_image(file, user.id)
 
-        eye = (meta.eye or "OU").upper()
-        if eye not in ("OD", "OS", "OU"):
-            eye = "OU"
+        requested = (meta.eye or "").strip().upper()
+        eye = resolve_uploaded_eye(
+            requested if requested in ("OD", "OS", "OU") else "UK",
+            file_name=file.filename or file_name,
+            image_path=resolve_static_file(rel_url),
+            role="original",
+        )
         gender_db = GENDER_CN_TO_DB.get(meta.gender or "", "")
 
         # 仅当用户没填关键字段时自动生成模拟患者信息
@@ -1254,9 +1257,9 @@ class ScreeningService:
         paths = case.image_paths or {}
         if isinstance(paths, dict):
             for eye, arr in paths.items():
-                eye_norm = (eye or "OU").upper()
-                if eye_norm not in ("OD", "OS", "OU"):
-                    eye_norm = "OU"
+                eye_norm = (eye or "UK").upper()
+                if eye_norm not in ("OD", "OS", "OU", "UK"):
+                    eye_norm = "UK"
                 if isinstance(arr, list):
                     for u in arr:
                         if not u:
@@ -1322,7 +1325,7 @@ class ScreeningService:
         user: User,
         case_id: int,
         files: List[UploadFile],
-        eye: str = "OU",
+        eye: str = "UK",
     ) -> CaseImagesResult:
         """为已存在的病例补充上传眼底图。
 
@@ -1331,20 +1334,27 @@ class ScreeningService:
         - 不重新触发 AI 推理（避免覆盖已有结果）；如需可由前端再调 reanalyze
         """
         case = ScreeningService._get_case_by_id_or_404(db, case_id)
-        eye_norm = (eye or "OU").upper()
-        if eye_norm not in ("OD", "OS", "OU"):
-            eye_norm = "OU"
+        requested = (eye or "UK").strip().upper()
+        explicit = requested in ("OD", "OS", "OU")
 
         paths = dict(case.image_paths or {})
-        bucket = list(paths.get(eye_norm) or [])
 
         for f in files or []:
             if not f or not f.filename:
                 continue
-            rel_url, _file_name, _size = await save_fundus_image(f, user.id)
+            rel_url, file_name, _size = await save_fundus_image(f, user.id)
+            if explicit:
+                this_eye = requested
+            else:
+                this_eye = resolve_uploaded_eye(
+                    "UK",
+                    file_name=f.filename or file_name,
+                    image_path=resolve_static_file(rel_url),
+                    role="original",
+                )
+            bucket = list(paths.get(this_eye) or [])
             bucket.append(rel_url)
-
-        paths[eye_norm] = bucket
+            paths[this_eye] = bucket
         case.image_paths = paths
         case.image_count = sum(
             len(v) for v in paths.values() if isinstance(v, list)

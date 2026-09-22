@@ -5,7 +5,7 @@ import type { AxiosProgressEvent } from 'axios'
 
 export type RiskLevel = 'red' | 'yellow' | 'green'
 export type ScreeningStatus = 'queued' | 'analyzing' | 'done' | 'failed'
-export type EyeSide = 'OD' | 'OS' | 'OU'
+export type EyeSide = 'OD' | 'OS' | 'OU' | 'UK'
 export type Gender = '男' | '女'
 
 /* ========== 类型定义 ========== */
@@ -376,7 +376,7 @@ export const listCaseImages = (caseId: number) =>
 export const addCaseImages = (
   caseId: number,
   files: File[],
-  eye: EyeSide = 'OU',
+  eye: EyeSide = 'UK',
   onProgress?: (percent: number) => void
 ) => {
   const fd = new FormData()

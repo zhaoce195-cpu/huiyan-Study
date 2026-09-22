@@ -142,37 +142,30 @@ def test_not_applicable_case_does_not_penalize_any_answer(student_answer):
 
 def test_not_applicable_case_redistributes_grade_weight():
     """
-    分级那 30% 应按比例分摊给标注与诊断，
-    而不是让非 DR 病例的总分上限直接掉到 70。
+    分级不适用、又没有金标准框时，这两项都不考。
+    总分就是诊断分，不能因为没考的项把满分压到 70。
     """
     r = _score_case("", "")
-    # 分级不计分
     assert r["score_grade"] == 0.0
-    # 总分 = 标注 * (0.5/0.7) + 诊断 * (0.2/0.7)
-    expected = round(
-        r["score_annotation"] * (0.5 / 0.7) + r["score_diagnosis"] * (0.2 / 0.7), 2,
-    )
-    assert r["score_total"] == expected
-    # 若不做权重重分配，同样答卷只能拿到 0.5+0.2=70% 的分，明显偏低
-    naive = round(r["score_annotation"] * 0.5 + r["score_diagnosis"] * 0.2, 2)
+    assert r["annotation_applicable"] is False
+    assert r["score_total"] == r["score_diagnosis"]
+    # 若不做权重重分配，诊断只占 20%，满分被压低
+    naive = round(r["score_diagnosis"] * 0.2, 2)
     assert r["score_total"] > naive
 
 
 def test_no_gold_annotation_no_longer_caps_the_score():
     """
-    【D-002 已修复】无金标准标注框的病例，全对应当拿满分。
-
-    原公式 accuracy*70 + iou_avg*30 在没有框可比时，IoU 项什么也没度量
-    却仍占 30% 权重，导致标注分恒为 70、总分被压到 85。
-    全库 88 例里有 82 例没有标注框 —— 这是主路径，不是边角情况。
-
-    修正：无框可比时把 IoU 的权重并回召回率。
+    无金标准标注框、学员也没标：标注未考，不记 100。
+    分级和诊断都对时，权重摊开后总分仍是 100。
     """
     r = _score_case("3", "3")
-    assert r["score_annotation"] == 100.0
+    assert r["annotation_applicable"] is False
+    assert r["score_annotation"] == 0.0
+    assert r["accuracy"] == 0.0
     assert r["score_grade"] == 100.0
     assert r["score_diagnosis"] == 100.0
-    assert r["score_total"] == 100.0, "无病灶病例全对应当满分"
+    assert r["score_total"] == 100.0, "没考标注时，分级和诊断全对仍应满分"
 
 
 # --------------------------------------------------------------------------
@@ -265,7 +258,9 @@ def test_missing_all_gold_lesions_still_scores_zero():
     assert r["score_annotation"] == 0.0
 
 
-def test_normal_case_with_no_marks_gets_full_annotation_score():
-    """该找的没有、也确实没标 → 满分"""
+def test_normal_case_with_no_marks_is_not_scored_as_perfect():
+    """没有金标准框、学员也没标：标注未考，不能显示成 100 分答对"""
     r = _score_with_anns("3", "3", [])
-    assert r["score_annotation"] == 100.0
+    assert r["annotation_applicable"] is False
+    assert r["score_annotation"] == 0.0
+    assert r["accuracy"] == 0.0

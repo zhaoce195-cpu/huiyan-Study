@@ -26,6 +26,7 @@ from typing import List, Optional, Tuple
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
+from app.common.eye_infer import resolve_static_file, resolve_uploaded_eye
 from app.common.utils import (
     resolve_screening_file,
     save_b64_image_to_screening,
@@ -146,14 +147,18 @@ class DiagnosisService:
         db: Session,
         user: User,
         file: UploadFile,
-        eye: str = "OU",
+        eye: str = "UK",
         model_id: Optional[int] = None,
     ) -> DiagnosisOut:
         """单张眼底图 → MA 检测 → 写入新 ScreeningCase + ScreeningResult。"""
         rel_url, file_name, _ = await save_fundus_image(file, user.id)
-        eye_db = (eye or "OU").upper()
-        if eye_db not in ("OD", "OS", "OU"):
-            eye_db = "OU"
+        requested = (eye or "").strip().upper()
+        eye_db = resolve_uploaded_eye(
+            requested if requested in ("OD", "OS", "OU") else "UK",
+            file_name=file.filename or file_name,
+            image_path=resolve_static_file(rel_url),
+            role="original",
+        )
 
         case = _build_case(
             db, user=user, diagnosis_type=DiagnosisType.MA,
@@ -351,10 +356,16 @@ class DiagnosisService:
         file: UploadFile,
         tasks: Optional[List[str]] = None,
     ) -> DiagnosisOut:
-        rel_url, _, _ = await save_fundus_image(file, user.id)
+        rel_url, file_name, _ = await save_fundus_image(file, user.id)
+        eye_db = resolve_uploaded_eye(
+            "UK",
+            file_name=file.filename or file_name,
+            image_path=resolve_static_file(rel_url),
+            role="original",
+        )
         case = _build_case(
             db, user=user, diagnosis_type=DiagnosisType.COMPREHENSIVE,
-            image_paths={"OU": [rel_url]}, image_count=1,
+            image_paths={eye_db: [rel_url]}, image_count=1,
             remark="CSU-EYES 综合诊断",
         )
 
@@ -402,7 +413,7 @@ class DiagnosisService:
 
         db.add(ScreeningResult(
             case_id=case.id,
-            eye_side="OU",
+            eye_side=eye_db,
             model_name="CSU-EYES Comprehensive",
             model_version="csu-v1",
             dr_grade=overall,  # '0'~'4'

@@ -53,8 +53,14 @@ def parse_upstream(payload: dict) -> dict:
     result = (payload or {}).get("result") or {}
     probs = result.get("probabilities") or {}
 
+    # 线上 CSU-EYES 实际返回 quality_level_en / quality_name，
+    # 不是文档里的 prediction_en / prediction_name。两种都认，
+    # 否则调用成功也会被记成 unknown，界面上就是「评估完成，共 0 张 / 未评估」。
     quality = normalize_quality(
-        result.get("prediction_en") or result.get("prediction_name")
+        result.get("prediction_en")
+        or result.get("quality_level_en")
+        or result.get("prediction_name")
+        or result.get("quality_name")
     )
 
     confidence = 0.0
@@ -87,6 +93,28 @@ class ImageQualityService:
             .all()
         )
         return {r.case_image_id: r for r in rows}
+
+    @staticmethod
+    def graded_original_count(db: Session) -> int:
+        """
+        已成功评出质量等级的原始影像张数（按影像去重）。
+
+        单次评估只覆盖当前病例，病例又常常只有 1 张原图，
+        界面若只报这一次的张数，连续评估多张不同影像时会一直显示 1 张。
+        """
+        rows = (
+            db.query(CaseImageQuality.case_image_id)
+            .join(CaseImage, CaseImage.id == CaseImageQuality.case_image_id)
+            .filter(
+                CaseImage.case_table == "training",
+                CaseImage.role == "original",
+                CaseImageQuality.quality != UNKNOWN_QUALITY,
+                CaseImageQuality.error_msg == "",
+            )
+            .distinct()
+            .all()
+        )
+        return len(rows)
 
     @staticmethod
     def case_has_ungradable(db: Session, case_id: int) -> bool:
@@ -198,6 +226,19 @@ class ImageQualityService:
                 payload = await csu_eyes_client.assess_image_quality(image_path=local)
                 parsed = parse_upstream(payload)
                 cost = int((time.time() - started) * 1000)
+                if parsed.get("quality") == UNKNOWN_QUALITY:
+                    ImageQualityService.save_result(
+                        db,
+                        case_image_id=img.id,
+                        error_msg="算法已返回，但没有可识别的质量等级",
+                        duration_ms=cost,
+                    )
+                    summary["failed"] += 1
+                    summary["items"].append(
+                        {"imageId": img.id, "quality": UNKNOWN_QUALITY,
+                         "error": "算法已返回，但没有可识别的质量等级"}
+                    )
+                    continue
                 ImageQualityService.save_result(
                     db, case_image_id=img.id, parsed=parsed, duration_ms=cost,
                 )
@@ -218,4 +259,5 @@ class ImageQualityService:
                 )
 
         summary["hasUngradable"] = ImageQualityService.case_has_ungradable(db, case_id)
+        summary["gradedTotal"] = ImageQualityService.graded_original_count(db)
         return summary

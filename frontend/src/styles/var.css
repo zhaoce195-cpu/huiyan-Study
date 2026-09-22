@@ -262,20 +262,31 @@ a {
 /* ==========================================================
  * 界面字体大小（个人中心 · 偏好设置）
  *
- * 全站字号绝大多数是硬编码 px，改 root font-size 不会有任何可见效果，
- * 所以这里整体缩放。放在 html 上，body 和 teleport 到 body 的
- * 弹窗 / 下拉 / 消息条都在同一个缩放上下文里，定位不会错位。
+ * 只改变 Element Plus 和继承字号，不使用 zoom。
+ * zoom 会把侧栏高度放大到超过一屏，左下角用户会被裁掉。
  * 逻辑在 utils/appearance.ts。
  * ========================================================== */
 html {
-  zoom: var(--hy-app-zoom, 1);
+  --hy-font-scale: 1;
 }
 html[data-font-size='small'] {
-  --hy-app-zoom: 0.9;
+  --hy-font-scale: 0.9;
+  --el-font-size-extra-large: 18px;
+  --el-font-size-large: 16px;
+  --el-font-size-medium: 14px;
+  --el-font-size-base: 13px;
+  --el-font-size-small: 12px;
+  --el-font-size-extra-small: 11px;
 }
 html[data-font-size='normal'] {
-  --hy-app-zoom: 1;
+  --hy-font-scale: 1;
 }
 html[data-font-size='large'] {
-  --hy-app-zoom: 1.15;
+  --hy-font-scale: 1.15;
+  --el-font-size-extra-large: 22px;
+  --el-font-size-large: 20px;
+  --el-font-size-medium: 18px;
+  --el-font-size-base: 16px;
+  --el-font-size-small: 14px;
+  --el-font-size-extra-small: 13px;
 }

@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
   Folder,
+  HomeFilled,
   Monitor,
   Aim,
   Reading,
@@ -53,6 +54,7 @@ const collapsed = ref(false)
 /* ========== 当前菜单 ========== */
 const activeMenu = computed(() => {
   // 阅片工作站可能带 caseId 等参数，用 path 即可命中前缀
+  if (route.path.startsWith('/training/home')) return '/training/home'
   if (route.path.startsWith('/training/reading')) return '/training/reading'
   if (route.path.startsWith('/training/practice')) return '/training/practice'
   if (route.path.startsWith('/training/learning')) return '/training/learning'
@@ -110,6 +112,11 @@ const roleBadge = computed(() => {
         :collapse-transition="false"
         router
       >
+        <el-menu-item index="/training/home">
+          <el-icon><home-filled /></el-icon>
+          <template #title>{{ isStudent ? '今日学习' : '教学首页' }}</template>
+        </el-menu-item>
+
         <!-- 病例与阅片（通用） -->
         <el-menu-item-group title="病例与阅片">
           <el-menu-item index="/training/cases">
@@ -245,6 +252,7 @@ const roleBadge = computed(() => {
 /* ========== 容器：Apple 深色 + 渐变底 ========== */
 .portal {
   height: 100vh;
+  max-height: 100vh;
   overflow: hidden;
   background: var(--ap-bg-grad);
   color: var(--ap-text);
@@ -252,7 +260,8 @@ const roleBadge = computed(() => {
 
 /* ========== 侧边栏：毛玻璃 + 发丝线 ========== */
 .portal-aside {
-  height: 100vh;
+  height: 100%;
+  max-height: 100%;
   overflow: hidden;
   background: var(--ap-glass);
   backdrop-filter: blur(var(--ap-blur)) saturate(180%);
@@ -313,8 +322,8 @@ const roleBadge = computed(() => {
   border: 1px solid rgba(167, 139, 250, 0.35);
 }
 .brand-sub {
-  font-size: 10px;
-  color: var(--ap-text-3);
+  font-size: 11px;
+  color: #b7bec8;
   letter-spacing: 2.5px;
   margin-top: 3px;
   font-weight: 500;
@@ -333,10 +342,10 @@ const roleBadge = computed(() => {
 /* 分组标题：Apple 分区头 */
 .aside-menu :deep(.el-menu-item-group__title) {
   padding: 16px 20px 6px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 1.4px;
-  color: var(--ap-text-3);
+  letter-spacing: 1.2px;
+  color: #b7bec8;
 }
 /* 收起时：隐藏分组标题 + 图标水平居中 */
 .aside-menu.el-menu--collapse :deep(.el-menu-item-group__title) {
@@ -364,11 +373,14 @@ const roleBadge = computed(() => {
   border-radius: var(--ap-radius-sm);
   height: 42px;
   line-height: 42px;
-  color: var(--ap-text-2);
+  font-size: calc(14px * var(--hy-font-scale, 1));
+  color: #e4e7ec;
+  overflow: hidden;
+  text-overflow: ellipsis;
   transition: background 0.2s var(--ap-ease), color 0.2s var(--ap-ease);
 }
 .aside-menu :deep(.el-menu-item .el-icon) {
-  color: var(--ap-text-3);
+  color: #c5cad3;
   transition: color 0.2s var(--ap-ease);
 }
 .aside-menu :deep(.el-menu-item:hover) {
@@ -419,20 +431,23 @@ const roleBadge = computed(() => {
   min-width: 0;
 }
 .au-name {
-  font-size: 13px;
+  font-size: calc(13px * var(--hy-font-scale, 1));
   font-weight: 600;
   color: var(--ap-text);
-  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .au-role {
-  font-size: 11px;
-  color: var(--ap-text-3);
+  font-size: calc(12px * var(--hy-font-scale, 1));
+  color: #c5cad3;
   margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .au-more {
-  color: var(--ap-text-3);
+  color: #c5cad3;
   font-size: 15px;
   flex-shrink: 0;
 }
@@ -462,7 +477,8 @@ const roleBadge = computed(() => {
 
 /* ========== 主内容区（无顶栏，整屏高度） ========== */
 .portal-main {
-  height: 100vh;
+  height: 100%;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 0;

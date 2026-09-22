@@ -10,6 +10,7 @@ import ResourceCard from './components/ResourceCard.vue'
 import ResourcePreviewDialog from './components/ResourcePreviewDialog.vue'
 import ResourceEditDialog from './components/ResourceEditDialog.vue'
 import NoteEditDialog from './components/NoteEditDialog.vue'
+import NoteContentView from './components/NoteContentView.vue'
 
 type Resource = LearningApi.LearningResource
 type Note = LearningApi.LearningNote
@@ -198,6 +199,7 @@ const noteBind = ref<{
   caseTitle: string
   imageIndex: number
   imageUrl: string
+  resourceId: number | null
 } | null>(null)
 
 const openNoteFromResource = (r: Resource) => {
@@ -207,7 +209,8 @@ const openNoteFromResource = (r: Resource) => {
     caseNo: '',
     caseTitle: r.title,
     imageIndex: -1,
-    imageUrl: ''
+    imageUrl: '',
+    resourceId: r.id
   }
   noteDialogVisible.value = true
 }
@@ -424,7 +427,7 @@ const tagListOf = (s: string) =>
                 </el-link>
                 <span v-if="n.imageIndex >= 0"> · 影像 #{{ n.imageIndex + 1 }}</span>
               </div>
-              <p class="note-content">{{ n.content }}</p>
+              <NoteContentView class="note-content" :content="n.content" />
               <div v-if="tagListOf(n.tags).length" class="note-tags">
                 <el-tag
                   v-for="t in tagListOf(n.tags)"

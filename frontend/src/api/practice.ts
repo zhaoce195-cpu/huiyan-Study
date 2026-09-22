@@ -48,6 +48,8 @@ export interface GoldStandardData {
   teachingPoints: string
   annotations: PracticeAnnotation[]
   lesions: any[]
+  /** 彩色病灶图。空字符串表示这例没有金标准图像 */
+  lesionMaskUrl?: string
   passScore: number
 }
 
@@ -72,8 +74,11 @@ export interface PracticeRecord {
   /** 这份成绩按哪套口径判的：keyword 旧自由文本 / structured 结构化 */
   scoringMode?: 'keyword' | 'structured'
   /**
-   * 标注分算法版本。1 与 2 的分数不可直接横向比较：
-   * 版本 1 在没有金标准标注框的病例上，全对也只有 70 分（总分封顶 85）。
+   * 标注分算法版本，不同版本的总分不能直接比较：
+   * 1 没有金标准框时标注分最高 70（总分封顶 85）；
+   * 2 没有框时把「没标」记成 100；
+   * 3 没有框且没标则标注未考。
+   * 4 文字题占 20%，分级 25%、标注 40%、诊断 15%。
    */
   scoreRuleVersion?: number
   studentAnnotations: PracticeAnnotation[]
@@ -83,7 +88,26 @@ export interface PracticeRecord {
   scoreTotal: number
   scoreGrade: number
   scoreAnnotation: number
+  /** 假：没有金标准框且学员没画。界面应显示「未考」 */
+  annotationApplicable?: boolean
   scoreDiagnosis: number
+  /** 文字题得分。规则版本 4 起计入总分 */
+  scoreText?: number
+  /** 作答中的题面，不含答案 */
+  textQuestions?: TextQuizQuestion[]
+  /** 交卷后的逐题对错和讲解 */
+  textItems?: TextQuizItemResult[]
+  /** PRACTICE 平时练习 / EXAM 正式考试 */
+  attemptKind?: 'PRACTICE' | 'EXAM'
+  examIndex?: number
+  examTotal?: number
+  /** 正式考试要整卷交齐才为真 */
+  answersOpen?: boolean
+  /** 平时练习已经打开的提示，一次一则 */
+  hints?: string[]
+  hintsLeft?: number
+  nextSessionId?: number
+  nextCaseId?: number
   iouAvg: number
   accuracy: number
   gradeMatch: boolean
@@ -126,6 +150,8 @@ export interface PracticeSubmitParams {
   durationSeconds: number
   /** 结构化诊断作答；提供时按结构化口径评分 */
   diagnosis?: Record<string, any>
+  /** 文字题作答，和阅片一起交，计入总分 */
+  textAnswers?: { id: string; value: string }[]
   /** 提交幂等键：断网重试时原样带回，服务端同键回放原成绩而非报错 */
   requestId?: string
 }
@@ -210,12 +236,16 @@ export const getGoldStandard = (caseId: number) =>
 export const startPractice = (params: PracticeStartParams) =>
   http.post<PracticeRecord>('/practice/start', params)
 
-/** 提交练习（自动评分） */
+/** 开始或继续正式考试。进行中的一场会接着做，不会另开。 */
+export const startExam = () => http.post<PracticeRecord>('/practice/exam/start')
+
+/** 平时练习打开下一则提示。正式考试会拒绝。 */
+export const nextHint = (recordId: number) =>
+  http.post<PracticeRecord>(`/practice/${recordId}/hint`)
+
+/** 提交练习（自动评分）。页面自己决定提示文案。 */
 export const submitPractice = (params: PracticeSubmitParams) =>
-  http.post<PracticeRecord>('/practice/submit', params, {
-    showSuccess: true,
-    successText: '提交成功，已自动评分'
-  })
+  http.post<PracticeRecord>('/practice/submit', params, { showSuccess: false })
 
 /** 练习台账分页 */
 export const getPracticeList = (q: PracticeListQuery = {}) =>
@@ -250,3 +280,40 @@ export const getUserStats = (userId: number) =>
 
 /** 全班级统计（教师/管理员） */
 export const getAllStats = () => http.get<PracticeStats>('/practice/stats/all')
+
+export type TextQuizKind = 'knowledge' | 'choice' | 'blank'
+
+export interface TextQuizQuestion {
+  id: string
+  kind: TextQuizKind
+  kindText: string
+  stem: string
+  options: string[]
+}
+
+export interface TextQuizItemResult {
+  id: string
+  kind: TextQuizKind
+  kindText: string
+  stem: string
+  yours: string
+  expected: string
+  correct: boolean
+  explanation: string
+}
+
+export interface TextQuizResult {
+  score: number
+  correctCount: number
+  questionCount: number
+  passed: boolean
+  items: TextQuizItemResult[]
+}
+
+/** 抽一组文字题：知识点、选择、填空。题面不含答案。 */
+export const getTextQuiz = (size = 4) =>
+  http.get<{ questions: TextQuizQuestion[] }>('/practice/text-quiz', { size })
+
+/** 交一组文字题，返回对错和讲解 */
+export const submitTextQuiz = (answers: { id: string; value: string }[]) =>
+  http.post<TextQuizResult>('/practice/text-quiz', { answers })

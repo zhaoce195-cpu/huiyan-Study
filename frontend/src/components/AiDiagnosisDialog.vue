@@ -53,10 +53,14 @@ const showHeat = ref<{ left: boolean; right: boolean }>({ left: true, right: tru
  * 「左眼 OS」，还挂一个由它算出来的假左眼分级 —— 把右眼当左眼展示是错误信息。
  * 现在按后端给的真实眼别渲染；老接口没有该字段时回退成双眼。
  */
-type EyeCard = 'left' | 'right' | 'ou'
-const eyeCards = computed<EyeCard[]>(
-  () => (result.value?.eyeCards?.length ? result.value.eyeCards : ['left', 'right']) as EyeCard[]
-)
+type EyeCard = 'left' | 'right' | 'ou' | 'unknown'
+const eyeCards = computed<EyeCard[]>(() => {
+  const cards = result.value?.eyeCards
+  if (cards?.length) return cards as EyeCard[]
+  // 没有眼别清单时，单张图不能回退成左右眼各一张
+  if (result.value?.singleEye) return ['unknown']
+  return ['left', 'right']
+})
 
 /** 眼别卡取哪一侧的数据：ou 是同一张图，取右眼即可 */
 const sideOf = (card: EyeCard): 'left' | 'right' => (card === 'left' ? 'left' : 'right')
@@ -65,6 +69,7 @@ const EYE_TITLE: Record<EyeCard, string> = {
   left: '左眼 OS',
   right: '右眼 OD',
   ou: '双眼 OU（单图）',
+  unknown: '眼别未知',
 }
 
 const elapsed = ref(0)
@@ -204,7 +209,9 @@ const close = () => emit('update:visible', false)
         :title="
           eyeCards[0] === 'ou'
             ? '该病例只有一张双眼眼底图，AI 按该图给出结论'
-            : `该病例只有${eyeCards[0] === 'left' ? '左' : '右'}眼影像，另一侧无数据、不作展示`
+            : eyeCards[0] === 'unknown'
+              ? '该病例眼别未标注，按单张影像展示，不标成双眼'
+              : `该病例只有${eyeCards[0] === 'left' ? '左' : '右'}眼影像，另一侧无数据、不作展示`
         "
         style="margin-bottom: 12px"
       />

@@ -75,44 +75,89 @@ def _resolve_static_file(url: str) -> Optional[Path]:
     return candidate if candidate.is_file() else None
 
 
+def _original_eye_by_url(db: Session, case_id: int) -> dict:
+    """原图 URL → 眼别。以 biz_case_image 为准，不信 image_paths 里过期的 OU 桶。"""
+    from app.db.models import CaseImage
+
+    rows = (
+        db.query(CaseImage)
+        .filter(
+            CaseImage.case_table == "training",
+            CaseImage.case_id == case_id,
+            CaseImage.role == "original",
+        )
+        .all()
+    )
+    out = {}
+    for row in rows:
+        # 几十字节的占位文件不是另一只眼
+        if (row.file_size or 0) < 500:
+            continue
+        url = (row.file_url or "").strip()
+        if not url:
+            continue
+        eye = (row.eye or "").strip().upper()
+        out[url] = eye if eye in ("OD", "OS", "OU", "UK") else "UK"
+    return out
+
+
 def _pick_eye_images(
     case: TrainingCase,
+    eye_by_url: Optional[dict] = None,
 ) -> Tuple[Optional[str], Optional[str], List[str]]:
     """
     从 image_paths JSON 取 (左眼OS_url, 右眼OD_url, 要展示的眼别卡)。
 
-    left / right 两个 URL 仍然都会填满 —— 算法接口 predict_twoeyes 要求两张图，
-    单侧病例只能把同一张送两遍。但**展示**必须按真实眼别来：eye_cards 告诉前端
-    该画几张卡、标什么眼别。
+    left / right 两个 URL 仍然都会填满 —— 算法接口要求两张图，
+    单侧病例只能把同一张送两遍。但展示必须按真实眼别来。
 
-    只有 OD 的病例，以前 `left = os_url or ou_url or od_url` 会回退到右眼图，
-    于是一张右眼眼底照被标成「左眼 OS」，还配一个由它算出来的假左眼分级
-    （2026-08 用户测试报告 D-2：「数据库明明只有一张右眼的，但显示是双眼」）。
+    眼别以原图记录为准。image_paths 里很多单眼图仍挂在 OU（双眼）下，
+    若只看这个桶，一张右眼图会被标成「双眼」。
+    同一张文件同时出现在 OD 和 OS 里，也不是双眼。
     """
     paths = case.image_paths if isinstance(case.image_paths, dict) else {}
+    known = eye_by_url or {}
 
-    def _first(side: str) -> Optional[str]:
+    def _urls(side: str) -> List[str]:
         arr = paths.get(side) or []
-        return arr[0] if isinstance(arr, list) and arr else None
+        return [u for u in arr if isinstance(u, str) and u]
 
-    os_url = _first("OS")
-    od_url = _first("OD")
-    ou_url = _first("OU")
+    collected: List[str] = []
+    for side in ("OD", "OS", "OU", "UK"):
+        for url in _urls(side):
+            if url not in collected:
+                collected.append(url)
+    for url in known:
+        if url and url not in collected:
+            collected.append(url)
 
-    left = os_url or ou_url or od_url
-    right = od_url or ou_url or os_url
+    grouped: dict = {"OD": [], "OS": [], "OU": [], "UK": []}
+    for url in collected:
+        eye = (known.get(url) or "").strip().upper()
+        if eye not in grouped:
+            eye = next((s for s in ("OD", "OS", "UK", "OU") if url in _urls(s)), "UK")
+        if url not in grouped[eye]:
+            grouped[eye].append(url)
+        for other in ("OD", "OS", "OU", "UK"):
+            if other != eye and url in grouped[other]:
+                grouped[other].remove(url)
 
-    if os_url and od_url:
-        cards = ["left", "right"]          # 真正的双眼病例
-    elif os_url:
-        cards = ["left"]                   # 只有左眼
-    elif od_url:
-        cards = ["right"]                  # 只有右眼
-    elif ou_url:
-        cards = ["ou"]                     # 一张双眼图，画一张卡即可
-    else:
-        cards = []                         # 无影像，上层会拦
-    return left, right, cards
+    od_url = grouped["OD"][0] if grouped["OD"] else None
+    os_url = grouped["OS"][0] if grouped["OS"] else None
+    ou_url = grouped["OU"][0] if grouped["OU"] else None
+    uk_url = grouped["UK"][0] if grouped["UK"] else None
+
+    if os_url and od_url and os_url != od_url:
+        return os_url, od_url, ["left", "right"]
+    if od_url:
+        return od_url, od_url, ["right"]
+    if os_url:
+        return os_url, os_url, ["left"]
+    if ou_url:
+        return ou_url, ou_url, ["ou"]
+    if uk_url:
+        return uk_url, uk_url, ["unknown"]
+    return None, None, []
 
 
 def _get_case(db: Session, case_id: str) -> TrainingCase:
@@ -248,7 +293,9 @@ class TrainingAiService:
         )
         if rec is None:
             return None
-        left_url, right_url, eye_cards = _pick_eye_images(case)
+        left_url, right_url, eye_cards = _pick_eye_images(
+            case, _original_eye_by_url(db, case.id),
+        )
         return _to_out(
             case, rec,
             left_url=left_url or "",
@@ -274,7 +321,9 @@ class TrainingAiService:
             .filter(TrainingAiResult.case_id == case.id)
             .first()
         )
-        left_url, right_url, eye_cards = _pick_eye_images(case)
+        left_url, right_url, eye_cards = _pick_eye_images(
+            case, _original_eye_by_url(db, case.id),
+        )
         single_eye = left_url == right_url
 
         if rec is not None and not force:

@@ -56,6 +56,30 @@ def test_ou_single_image_shows_one_card():
     assert left == right == "/static/ou.jpg"
 
 
+def test_ou_bucket_does_not_override_recorded_right_eye():
+    """image_paths 仍把单张右眼挂在 OU 下时，必须以影像记录的 OD 为准。"""
+    left, right, cards = _pick_eye_images(
+        _case({"OU": ["/static/od.jpg"]}),
+        {"/static/od.jpg": "OD"},
+    )
+    assert cards == ["right"]
+    assert left == right == "/static/od.jpg"
+
+
+def test_same_file_under_both_eyes_is_not_binocular():
+    left, right, cards = _pick_eye_images(
+        _case({"OD": ["/static/one.jpg"], "OS": ["/static/one.jpg"]})
+    )
+    assert cards == ["right"]
+    assert left == right == "/static/one.jpg"
+
+
+def test_unlabelled_eye_is_not_called_both():
+    left, right, cards = _pick_eye_images(_case({"UK": ["/static/one.jpg"]}))
+    assert cards == ["unknown"]
+    assert left == right == "/static/one.jpg"
+
+
 def test_no_image_yields_no_cards():
     left, right, cards = _pick_eye_images(_case({}))
     assert cards == []

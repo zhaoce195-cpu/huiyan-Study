@@ -18,7 +18,7 @@ import http from '@/utils/request'
 
 export type DiagnosisType = 'MA' | 'DR' | 'COMPREHENSIVE'
 export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT'
-export type EyeSide = 'OD' | 'OS' | 'OU'
+export type EyeSide = 'OD' | 'OS' | 'OU' | 'UK'
 
 export interface MaDiagnosisResult {
   maCount: number
@@ -104,7 +104,7 @@ export interface UploadProgressCb {
  */
 export const diagnoseMa = (
   file: File,
-  eye: EyeSide = 'OU',
+  eye: EyeSide = 'UK',
   modelId?: number,
   onProgress?: UploadProgressCb
 ) => {

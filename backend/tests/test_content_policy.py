@@ -39,9 +39,9 @@ def test_student_unanswered_is_blinded(scene):
     assert is_blinded(mode)
 
 
-@pytest.mark.parametrize("scene", [Scene.CASE_BROWSE, Scene.PRACTICE, Scene.READING])
+@pytest.mark.parametrize("scene", [Scene.CASE_BROWSE, Scene.READING])
 def test_student_answered_is_review(scene):
-    """学员已提交 → 复盘态，答案解锁用于对照学习"""
+    """学员已提交后，病例库和阅片复盘可以对照答案"""
     mode = resolve_mode(viewer_role="STUDENT", scene=scene, answered=True)
     assert mode is PresentationMode.TRAINING_REVIEW
     assert not is_blinded(mode)
@@ -53,6 +53,20 @@ def test_teacher_never_blinded(role):
     mode = resolve_mode(viewer_role=role, scene=Scene.CASE_BROWSE, answered=False)
     assert mode is PresentationMode.TEACHING_DEMO
     assert not is_blinded(mode)
+
+
+@pytest.mark.parametrize("role", ["TEACHER", "ADMIN", "STUDENT"])
+def test_practice_entry_is_blind_before_answer(role):
+    """开始练习前不展示 DR 等级，自己做题的教师也一样"""
+    mode = resolve_mode(viewer_role=role, scene=Scene.PRACTICE, answered=False)
+    assert mode is PresentationMode.TRAINING_BLINDED
+
+
+@pytest.mark.parametrize("role", ["TEACHER", "ADMIN", "STUDENT"])
+def test_practice_entry_stays_blind_after_previous_submit(role):
+    """以前交过这份病例，开始练习的卡片仍然不能出现 DR 等级"""
+    mode = resolve_mode(viewer_role=role, scene=Scene.PRACTICE, answered=True)
+    assert mode is PresentationMode.TRAINING_BLINDED
 
 
 def test_unknown_role_defaults_to_blinded():
@@ -257,6 +271,25 @@ def test_od_key_is_eye_not_lesion():
     payload = {"case_no": "T1", "image_paths": {"OD": ["/static/right_eye.jpg"]}}
     out = redact(payload, PresentationMode.TRAINING_BLINDED, case_no="T1")
     assert out["image_paths"].get("OD") == ["/static/right_eye.jpg"],         "右眼影像被当成视盘掩码删掉了"
+
+
+def test_same_file_listed_as_both_eyes_counts_once():
+    """一张图同时挂在左右眼时，列表里只能出现一次。"""
+    from app.common.case_utils import collapse_duplicate_image_paths, flatten_image_paths
+
+    paths = {
+        "OD": ["/static/demo/fundus_dr2_01.jpg"],
+        "OS": ["/static/demo/fundus_dr2_01.jpg"],
+    }
+    assert flatten_image_paths(paths) == ["/static/demo/fundus_dr2_01.jpg"]
+    collapsed = collapse_duplicate_image_paths(paths)
+    assert collapsed == {"OD": ["/static/demo/fundus_dr2_01.jpg"]}
+
+    different = {
+        "OD": ["/static/demo/a.jpg"],
+        "OS": ["/static/demo/b.jpg"],
+    }
+    assert flatten_image_paths(different) == ["/static/demo/a.jpg", "/static/demo/b.jpg"]
 
 
 @pytest.mark.parametrize("mode", [

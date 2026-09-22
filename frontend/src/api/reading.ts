@@ -14,6 +14,8 @@ export type ReadingTool =
   | 'angle'
   | 'freehand'
   | 'ellipse'
+  | 'point'
+  | 'quadrant'
 
 export type ReadingStatus = 'DRAFT' | 'SUBMITTED' | 'REVIEWED' | 'REJECTED'
 
@@ -88,6 +90,8 @@ export interface ImageMeta {
   /** 眼别；UNKNOWN 表示原始数据未采集，前端须显式提示未知 */
   eye?: 'OD' | 'OS' | 'OU' | 'UNKNOWN'
   eyeText?: string
+  /** 服务端按视盘位置补的眼别，没有写回数据库 */
+  eyeInferred?: boolean
   /** 影像角色：original 为原始影像，其余为派生对象 */
   role?: string
   roleText?: string
@@ -115,6 +119,8 @@ export interface SafetySummary {
   hasUngradable?: boolean
   /** 原图是否已全部完成质量评估；为 false 时不得声称已质控 */
   qualityChecked?: boolean
+  /** 全库已成功评出等级的原图张数（跨病例累计，按影像去重） */
+  gradedTotal?: number
   eyes?: string[]
   eyesText?: string
   hasLateralityConflict?: boolean
@@ -154,6 +160,10 @@ export interface ImageSource {
   missingRoles?: string[]
   /** 当前用户是否可见金标准图层（mask / overlay） */
   showGoldLayers?: boolean
+  /** 已解锁时才有内容；未解锁为空数组 */
+  goldAnnotations?: AnnotationItem[]
+  lesionMaskUrl?: string
+  heatmapUrl?: string
   /** ============ 安全标识（报告 P0/P1：安全条常驻） ============ */
   modality?: string
   modalityText?: string
@@ -279,6 +289,8 @@ export interface QualityCheckResult {
   total: number
   evaluated: number
   failed: number
+  /** 含本次在内，已成功评出等级的原图累计张数 */
+  gradedTotal?: number
   hasUngradable: boolean
   items: Array<{
     imageId: number

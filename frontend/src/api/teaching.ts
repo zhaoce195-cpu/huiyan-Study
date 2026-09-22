@@ -47,6 +47,14 @@ export interface StudentCase {
   imagePaths?: Record<string, string[]> | null
   imageCount: number
   teacherName: string
+  teachingPoints?: string
+  goldDiagnosis?: string
+  goldGradeText?: string
+  categoryText?: string
+  difficultyText?: string
+  lesions?: { name: string; detail: string }[]
+  annotations?: Record<string, any>[]
+  lesionMaskUrl?: string
   expiredAt?: string | null
   teachingCaseId?: number | null
 }

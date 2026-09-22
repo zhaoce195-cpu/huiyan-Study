@@ -41,6 +41,8 @@ const props = defineProps<{
   modelValue: Record<string, any>
   /** 提交失败时后端返回的缺失项 */
   problems?: string[]
+  /** 深色面板上使用浅色字，避免标签落到深底上看不清 */
+  tone?: 'light' | 'dark'
 }>()
 
 const emit = defineEmits<{
@@ -77,7 +79,7 @@ const visibleFields = computed(() => {
 </script>
 
 <template>
-  <div v-if="form" class="diag-form">
+  <div v-if="form" class="diag-form" :class="{ 'is-dark': tone === 'dark' }">
     <el-alert
       v-if="!form.categoryKnown"
       type="info"
@@ -178,6 +180,7 @@ const visibleFields = computed(() => {
   max-height: 56vh;
   overflow-y: auto;
   padding-right: 6px;
+  font-family: var(--hy-font);
 }
 .mb {
   margin-bottom: 12px;
@@ -187,9 +190,11 @@ const visibleFields = computed(() => {
 }
 .label {
   margin-bottom: 6px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  line-height: 1.5;
+  color: #1d2129;
+  letter-spacing: 0.2px;
 }
 .req {
   margin-right: 3px;
@@ -200,9 +205,21 @@ const visibleFields = computed(() => {
 }
 .hint {
   margin-top: 5px;
-  font-size: 12px;
-  color: #909399;
+  font-size: 13px;
+  color: #4e5969;
   line-height: 1.6;
+}
+.is-dark .label {
+  color: #f5f7fa;
+}
+.is-dark .hint {
+  color: #d5dae3;
+}
+.is-dark :deep(.el-radio__label),
+.is-dark :deep(.el-checkbox__label) {
+  color: #eef1f6;
+  font-size: 13px;
+  font-weight: 500;
 }
 .problems {
   margin: 4px 0 0;

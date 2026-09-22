@@ -5,11 +5,12 @@
  * - 学员仅可查看脱敏数据 + 点击实训
  * - 已入库的可走练习流程；临时分享仅用于查看（脱敏只读）
  */
-import { computed, onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Refresh, View, Pointer } from '@element-plus/icons-vue'
 import { PracticeApi, TeachingApi } from '@/api'
+import TeachingDemoBody from './components/TeachingDemoBody.vue'
 
 type StudentCase = TeachingApi.StudentCase
 
@@ -71,17 +72,6 @@ const onPractice = async (row: StudentCase) => {
   }
 }
 
-const flatImages = computed(() => {
-  if (!detail.value?.imagePaths) return []
-  const out: string[] = []
-  const sides: ('OD' | 'OS' | 'OU')[] = ['OD', 'OS', 'OU']
-  for (const s of sides) {
-    const arr = (detail.value.imagePaths as any)[s] || []
-    if (Array.isArray(arr)) out.push(...arr)
-  }
-  return out
-})
-
 onMounted(fetchList)
 </script>
 
@@ -90,7 +80,7 @@ onMounted(fetchList)
     <header class="page-head">
       <div class="head-left">
         <h2>教师演示病例</h2>
-        <div class="muted">由带教医师分享 / 入库的脱敏教学病例（共 {{ pagination.total }} 份）</div>
+        <div class="muted">带教按图讲解：先看什么、标准结论、图上的病灶（共 {{ pagination.total }} 份）</div>
       </div>
       <div class="head-right">
         <el-button :icon="Refresh" size="small" @click="fetchList">刷新</el-button>
@@ -112,10 +102,10 @@ onMounted(fetchList)
         <div class="card-title">{{ c.title || '教学病例' }}</div>
         <div class="meta-line">
           <span class="muted small">{{ c.teacherName ? `${c.teacherName} 老师` : '—' }}</span>
-          <span v-if="c.category" class="dot">·</span>
-          <span v-if="c.category" class="muted small">{{ c.category }}</span>
-          <span v-if="c.difficulty" class="dot">·</span>
-          <span v-if="c.difficulty" class="muted small">{{ c.difficulty }}</span>
+          <span v-if="c.categoryText || c.category" class="dot">·</span>
+          <span v-if="c.categoryText || c.category" class="muted small">{{ c.categoryText || c.category }}</span>
+          <span v-if="c.difficultyText || c.difficulty" class="dot">·</span>
+          <span v-if="c.difficultyText || c.difficulty" class="muted small">{{ c.difficultyText || c.difficulty }}</span>
         </div>
         <div class="patient-line">
           <span>{{ c.patientGender === 'M' ? '男' : c.patientGender === 'F' ? '女' : '未知' }}</span>
@@ -124,7 +114,12 @@ onMounted(fetchList)
           <span class="dot">·</span>
           <span class="muted small">影像 {{ c.imageCount }} 张</span>
         </div>
-        <div v-if="c.description" class="desc multiline">{{ c.description }}</div>
+        <div v-if="c.goldGradeText" class="grade">{{ c.goldGradeText }}</div>
+        <div v-if="c.teachingPoints" class="desc multiline">
+          <span class="kicker">先看</span>{{ c.teachingPoints }}
+        </div>
+        <div v-else-if="c.goldDiagnosis" class="desc multiline">{{ c.goldDiagnosis }}</div>
+        <div v-else class="desc">这份分享还没有带教讲解</div>
 
         <div class="card-actions">
           <el-button size="small" :icon="View" @click="showDetail(c)">查看详情</el-button>
@@ -155,51 +150,18 @@ onMounted(fetchList)
     </div>
 
     <!-- 详情对话框（只读） -->
-    <el-dialog v-model="detailVisible" :title="detail?.title || '病例详情'" width="780">
+    <el-dialog v-model="detailVisible" :title="detail?.title || '演示病例'" width="920">
       <div v-loading="detailLoading" class="detail-body">
         <template v-if="detail">
           <div class="hint">
-            <el-tag size="small" type="info">教学脱敏病例</el-tag>
-            <span class="muted small" style="margin-left: 8px">
-              已自动隐藏患者隐私信息，仅展示医学教学相关数据
+            <el-tag size="small" type="info">教学演示</el-tag>
+            <span class="who">
+              {{ detail.patientGender === 'M' ? '男' : detail.patientGender === 'F' ? '女' : '未知' }}
+              · {{ detail.patientAge ?? '—' }} 岁
+              · {{ detail.teacherName ? `${detail.teacherName} 老师` : '带教' }}
             </span>
           </div>
-
-          <el-descriptions :column="2" border size="small" style="margin-top: 12px">
-            <el-descriptions-item label="性别 / 年龄">
-              {{ detail.patientGender === 'M' ? '男' : detail.patientGender === 'F' ? '女' : '未知' }}
-              · {{ detail.patientAge ?? '—' }}
-            </el-descriptions-item>
-            <el-descriptions-item label="病例类别">
-              {{ detail.category || '—' }} / {{ detail.difficulty || '—' }}
-            </el-descriptions-item>
-            <el-descriptions-item label="临床信息" :span="2">
-              <span class="multiline">{{ detail.clinicalInfo || '—' }}</span>
-            </el-descriptions-item>
-            <el-descriptions-item v-if="detail.description" label="教学描述" :span="2">
-              <span class="multiline">{{ detail.description }}</span>
-            </el-descriptions-item>
-          </el-descriptions>
-
-          <div v-if="flatImages.length" class="images">
-            <h4>影像资料 ({{ flatImages.length }})</h4>
-            <div class="image-grid">
-              <el-image
-                v-for="(img, i) in flatImages"
-                :key="i"
-                :src="img"
-                fit="cover"
-                class="grid-thumb"
-                :preview-src-list="flatImages"
-                :initial-index="i"
-                preview-teleported
-              >
-                <template #error>
-                  <div class="thumb-error">影像加载失败</div>
-                </template>
-              </el-image>
-            </div>
-          </div>
+          <TeachingDemoBody :source="detail" />
         </template>
       </div>
     </el-dialog>
@@ -220,8 +182,8 @@ onMounted(fetchList)
   gap: 12px;
   flex-wrap: wrap;
 }
-.head-left h2 { margin: 0 0 4px; font-size: 22px; font-weight: 700; color: #e5e6eb; }
-.head-left .muted { color: #86909c; font-size: 13px; }
+.head-left h2 { margin: 0 0 4px; font-size: 22px; font-weight: 700; color: #1e293b; }
+.head-left .muted { color: #475569; font-size: 13px; }
 
 .case-grid {
   display: grid;
@@ -261,13 +223,23 @@ onMounted(fetchList)
   font-size: 13px;
   color: #c9cdd4;
 }
-.dot { color: #4e5969; }
-.desc {
+.dot { color: #aeb6c2; }
+.grade { font-size: 13px; font-weight: 700; color: #9ec1ff; }
+.kicker {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: #1d3a6e;
+  color: #d6e4ff;
   font-size: 12px;
-  color: #86909c;
+}
+.desc {
+  font-size: 13px;
+  color: #d5dae3;
   line-height: 1.6;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -289,37 +261,11 @@ onMounted(fetchList)
 .detail-body .hint {
   display: flex;
   align-items: center;
+  gap: 8px;
   background: #f5f9ff;
   padding: 8px 12px;
   border-radius: 6px;
   border: 1px solid #e6effe;
 }
-.detail-body h4 {
-  margin: 12px 0 6px;
-  font-size: 14px;
-  font-weight: 600;
-  color: #1d2129;
-}
-.image-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 8px;
-}
-.grid-thumb {
-  width: 100%;
-  height: 110px;
-  border-radius: 6px;
-  background: #000;
-  cursor: zoom-in;
-}
-.thumb-error {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #c9cdd4;
-  font-size: 11px;
-  background: #1d2129;
-}
+.who { color: #1d2129; font-size: 13px; }
 </style>

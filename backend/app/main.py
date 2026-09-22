@@ -57,6 +57,10 @@ def _patch_schema() -> None:
         user_cols = {c["name"] for c in insp.get_columns("sys_user")}
     except Exception:
         user_cols = set()
+    try:
+        practice_cols = {c["name"] for c in insp.get_columns("biz_practice_session")}
+    except Exception:
+        practice_cols = set()
 
     is_sqlite = engine.url.drivername.startswith("sqlite")
 
@@ -137,6 +141,49 @@ def _patch_schema() -> None:
             "VARCHAR(20) NOT NULL DEFAULT ''",
         ))
 
+    if practice_cols and "text_question_ids" not in practice_cols:
+        patches.append((
+            "biz_practice_session.text_question_ids",
+            "ALTER TABLE biz_practice_session ADD COLUMN text_question_ids JSON",
+        ))
+    if practice_cols and "text_answers" not in practice_cols:
+        patches.append((
+            "biz_practice_session.text_answers",
+            "ALTER TABLE biz_practice_session ADD COLUMN text_answers JSON",
+        ))
+    if practice_cols and "score_text" not in practice_cols:
+        patches.append((
+            "biz_practice_session.score_text",
+            "ALTER TABLE biz_practice_session ADD COLUMN score_text FLOAT NOT NULL DEFAULT 0",
+        ))
+    if practice_cols and "attempt_kind" not in practice_cols:
+        patches.append((
+            "biz_practice_session.attempt_kind",
+            "ALTER TABLE biz_practice_session ADD COLUMN attempt_kind "
+            "VARCHAR(16) NOT NULL DEFAULT 'PRACTICE'",
+        ))
+    if practice_cols and "exam_group_id" not in practice_cols:
+        patches.append((
+            "biz_practice_session.exam_group_id",
+            "ALTER TABLE biz_practice_session ADD COLUMN exam_group_id "
+            "VARCHAR(40) NOT NULL DEFAULT ''",
+        ))
+    if practice_cols and "exam_index" not in practice_cols:
+        patches.append((
+            "biz_practice_session.exam_index",
+            "ALTER TABLE biz_practice_session ADD COLUMN exam_index INTEGER NOT NULL DEFAULT 0",
+        ))
+    if practice_cols and "exam_total" not in practice_cols:
+        patches.append((
+            "biz_practice_session.exam_total",
+            "ALTER TABLE biz_practice_session ADD COLUMN exam_total INTEGER NOT NULL DEFAULT 0",
+        ))
+    if practice_cols and "hint_step" not in practice_cols:
+        patches.append((
+            "biz_practice_session.hint_step",
+            "ALTER TABLE biz_practice_session ADD COLUMN hint_step INTEGER NOT NULL DEFAULT 0",
+        ))
+
     if patches:
         with engine.begin() as conn:
             for name, sql in patches:
@@ -160,6 +207,15 @@ def _patch_schema() -> None:
             print("[schema_patch] + 已建表 biz_student_application")
         except Exception as e:  # noqa: BLE001
             print(f"[schema_patch] x 建表 biz_student_application 失败：{e}")
+            if is_sqlite:
+                raise
+    if "biz_text_quiz_attempt" not in tables:
+        try:
+            from app.db.models.text_quiz_attempt import TextQuizAttempt
+            TextQuizAttempt.__table__.create(bind=engine, checkfirst=True)
+            print("[schema_patch] + 已建表 biz_text_quiz_attempt")
+        except Exception as e:  # noqa: BLE001
+            print(f"[schema_patch] x 建表 biz_text_quiz_attempt 失败：{e}")
             if is_sqlite:
                 raise
 

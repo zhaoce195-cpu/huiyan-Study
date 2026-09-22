@@ -81,6 +81,15 @@ class StudentCaseOut(_CamelModel):
     image_paths: Optional[Dict[str, Any]] = None
     image_count: int = 0
     teacher_name: str = ""
+    # 演示正文：开始练习前不给这些，演示页必须给，否则只是病例陈列
+    teaching_points: str = ""
+    gold_diagnosis: str = ""
+    gold_grade_text: str = ""
+    category_text: str = ""
+    difficulty_text: str = ""
+    lesions: List[Dict[str, Any]] = Field(default_factory=list)
+    annotations: List[Dict[str, Any]] = Field(default_factory=list)
+    lesion_mask_url: str = ""
     expired_at: Optional[datetime] = None
     teaching_case_id: Optional[int] = None
 

@@ -209,11 +209,8 @@ class PatientService:
     def _to_report_item(
         case: ScreeningCase, latest: Optional[ScreeningResult],
     ) -> PatientReportItem:
-        images: List[str] = []
-        if case.image_paths:
-            for v in case.image_paths.values():
-                if isinstance(v, list):
-                    images.extend(v)
+        from app.common.case_utils import flatten_image_paths
+        images = flatten_image_paths(case.image_paths)
         doctor_name = ""
         if latest and latest.doctor:
             doctor_name = (
@@ -237,7 +234,7 @@ class PatientService:
             chief_complaint=case.chief_complaint or "",
             medical_history=case.medical_history or "",
             images=images,
-            image_count=case.image_count or len(images),
+            image_count=len(images),
             status=case.status,
             status_text=_STATUS_TEXT.get(case.status, case.status),
             dr_grade=(latest.dr_grade if latest else ""),

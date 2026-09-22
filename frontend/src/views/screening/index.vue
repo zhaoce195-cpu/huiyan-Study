@@ -136,10 +136,11 @@ const riskTextMap: Record<RiskLevel, string> = {
   yellow: '中危 · 建议随访',
   green: '正常'
 }
-const eyeMap: Record<Eye, { label: string; type: 'primary' | 'success' | 'warning' }> = {
+const eyeMap: Record<Eye, { label: string; type: 'primary' | 'success' | 'warning' | 'info' }> = {
   OD: { label: 'OD 右眼', type: 'primary' },
   OS: { label: 'OS 左眼', type: 'success' },
-  OU: { label: 'OU 双眼', type: 'warning' }
+  OU: { label: 'OU 双眼', type: 'warning' },
+  UK: { label: '眼别未知', type: 'info' }
 }
 
 /* ================== Mock 兜底（后端未就绪时使用） ================== */

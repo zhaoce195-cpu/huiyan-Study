@@ -125,7 +125,12 @@ const riskTextMap: Record<RiskLevel, string> = {
   yellow: '中危',
   green: '正常'
 }
-const eyeMap: Record<Eye, string> = { OD: 'OD 右眼', OS: 'OS 左眼', OU: 'OU 双眼' }
+const eyeMap: Record<Eye, string> = {
+  OD: 'OD 右眼',
+  OS: 'OS 左眼',
+  OU: 'OU 双眼',
+  UK: '眼别未知'
+}
 
 /* ===== 报告预览 ===== */
 const previewVisible = ref(false)

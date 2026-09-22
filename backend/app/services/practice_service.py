@@ -7,6 +7,8 @@
 - 个人台账 / 教师统计
 """
 
+import re
+import uuid
 from datetime import datetime
 from random import shuffle
 from typing import List, Optional, Tuple
@@ -58,7 +60,8 @@ DIFFICULTY_TEXT = {"EASY": "入门", "MEDIUM": "中级", "HARD": "高级"}
 
 # 标注分算法当前版本。改公式时必须同步 +1，否则新旧分数混在一起
 # 就再也分不清某个成绩是按哪套规则算出来的。
-SCORE_RULE_VERSION = 2
+# 3：没有金标准框且学员也没标时，标注「未考」，不再记 100，权重摊给其余项。
+SCORE_RULE_VERSION = 4
 
 DR_GRADE_TEXT = {
     "0": "0 级 无 DR",
@@ -83,6 +86,17 @@ def _bbox_of(points: List[Point2D]) -> Optional[Tuple[float, float, float, float
     xs = [p.x for p in points]
     ys = [p.y for p in points]
     return (min(xs), min(ys), max(xs), max(ys))
+
+
+def _is_finding_mark(ann) -> bool:
+    """指出征象位置的扩展标记，不参与金标准框的重合评分。"""
+    if isinstance(ann, dict):
+        layer = ann.get("layer") or ""
+        tool = ann.get("tool") or ""
+    else:
+        layer = getattr(ann, "layer", "") or ""
+        tool = getattr(ann, "tool", "") or ""
+    return layer == "finding" or tool in ("point", "quadrant")
 
 
 def _iou_box(a, b) -> float:
@@ -140,6 +154,27 @@ def _gold_to_annotations(case: TrainingCase) -> List[PracticeAnnotation]:
     return out
 
 
+def _lesion_mask_url(db: Session, case_id: int) -> str:
+    """彩色病灶图优先，其次叠加图。没有就返回空，调用方要如实说「没有」。"""
+    from app.db.models.case_image import CaseImage
+
+    rows = (
+        db.query(CaseImage)
+        .filter(
+            CaseImage.case_table == "training",
+            CaseImage.case_id == case_id,
+            CaseImage.role.in_(["color_mask", "overlay"]),
+        )
+        .all()
+    )
+    by_role = {
+        r.role: r.file_url
+        for r in rows
+        if (r.file_size or 0) >= 500 and r.file_url
+    }
+    return by_role.get("color_mask") or by_role.get("overlay") or ""
+
+
 # ====================== 评分核心 ======================
 
 def _score(
@@ -148,6 +183,8 @@ def _score(
     student_diagnosis: str,
     student_anns: List[PracticeAnnotation],
     structured: Optional[dict] = None,
+    text_ids: Optional[List[str]] = None,
+    text_values: Optional[dict] = None,
 ) -> Tuple[dict, List[ErrorPoint]]:
     """
     自动比对评分
@@ -187,6 +224,8 @@ def _score(
     used_g = set()
 
     for sa in student_anns:
+        if _is_finding_mark(sa):
+            continue
         s_box = _bbox_of(sa.points)
         if not s_box:
             continue
@@ -249,20 +288,22 @@ def _score(
         ))
 
     iou_avg = (iou_sum / iou_cnt) if iou_cnt else 0.0
-    accuracy = (recall / len(gold_anns)) if gold_anns else (1.0 if not student_anns else 0.0)
+    has_gold_boxes = len(gold_anns) > 0
+    student_drew = iou_cnt > 0
+    # 没有标准框、学员也没画，这项无从对错，不能记成 100。
+    # 有标准框没标到，或没有标准框却乱标，仍然要计分（都是 0）。
+    annotation_applicable = has_gold_boxes or student_drew
+    if has_gold_boxes:
+        accuracy = recall / len(gold_anns)
+    else:
+        accuracy = 0.0
 
-    # 标注得分：召回率 70% + 平均 IoU 30%。
-    #
-    # 但没有任何框可以比对时（iou_cnt == 0），IoU 这一项什么也没度量，
-    # 却仍旧占着 30% 的权重 —— 学员在「无病灶病例」上完全答对，
-    # 标注分也只有 70，总分被压到 85。全库 88 例里有 82 例没有金标准
-    # 标注框，这不是边角情况而是主路径（遗留清单 D-002）。
-    #
-    # 此时把 IoU 的权重并回召回率，即只按「该找的都找到了、
-    # 不该标的没乱标」计分。其余情况一律不变：
-    #   · 有金标准但学员没标 → accuracy 为 0，仍得 0 分
-    #   · 无金标准但学员乱标 → accuracy 为 0，仍得 0 分
-    if iou_cnt == 0:
+    # 有框可比：召回率 70% + 平均 IoU 30%。
+    # 一个框都没画（iou_cnt == 0）时 IoU 没被度量，只按召回率。
+    # 有标准框但没标 → 召回 0 → 0 分；没有标准框却乱标 → 0 分。
+    if not annotation_applicable:
+        score_annotation = 0.0
+    elif iou_cnt == 0:
         score_annotation = round(accuracy * 100.0, 2)
     else:
         score_annotation = round(accuracy * 70.0 + iou_avg * 30.0, 2)
@@ -305,20 +346,45 @@ def _score(
     missed_cnt = sum(1 for e in error_points if e.type == "missed")
     fp_cnt = sum(1 for e in error_points if e.type == "false_positive")
 
-    # ----- 总分加权 -----
-    # 标准权重：分级 30% + 标注 50% + 诊断 20%。
-    # 分级不适用时把这 30% 按原比例分摊给标注与诊断，
-    # 使非 DR 病例的满分仍是 100，而不是最高只能拿 70。
-    if grade_applicable:
-        score_total = round(
-            score_grade * 0.3 + score_annotation * 0.5 + score_diagnosis * 0.2,
-            2,
+    # ----- 文字题 -----
+    # 没有题号的是旧练习，不把文字题算进总分，权重仍是分级 30 / 标注 50 / 诊断 20。
+    # 新练习在点「开始练习」时就定下一组题，没写的按错，占总分 20%。
+    from app.services.text_quiz import BY_ID, grade_answers
+
+    bound_ids = [qid for qid in (text_ids or []) if qid in BY_ID]
+    text_applicable = bool(bound_ids)
+    text_values = text_values or {}
+    if text_applicable:
+        graded_text = grade_answers([(qid, str(text_values.get(qid, ""))) for qid in bound_ids])
+        score_text = float(graded_text["score"])
+        text_hit = (
+            graded_text["correct_count"],
+            graded_text["question_count"],
         )
     else:
-        score_total = round(
-            score_annotation * (0.5 / 0.7) + score_diagnosis * (0.2 / 0.7),
-            2,
-        )
+        score_text = 0.0
+        text_hit = None
+
+    # ----- 总分加权 -----
+    # 有文字题：分级 25% + 标注 40% + 诊断 15% + 文字题 20%。
+    # 没有文字题的旧卷：分级 30% + 标注 50% + 诊断 20%。
+    # 某一项未考时，把它的权重摊给仍在考的项，满分仍是 100。
+    if text_applicable:
+        w_grade, w_ann, w_diag, w_text = 0.25, 0.40, 0.15, 0.20
+    else:
+        w_grade, w_ann, w_diag, w_text = 0.30, 0.50, 0.20, 0.0
+    parts: List[Tuple[float, float]] = []
+    if grade_applicable:
+        parts.append((score_grade, w_grade))
+    if annotation_applicable:
+        parts.append((score_annotation, w_ann))
+    parts.append((score_diagnosis, w_diag))
+    if text_applicable:
+        parts.append((score_text, w_text))
+    weight_sum = sum(w for _, w in parts)
+    score_total = round(
+        sum(s * w for s, w in parts) / weight_sum, 2,
+    ) if weight_sum else 0.0
 
     pass_score = case.pass_score or 60
     is_passed = score_total >= pass_score
@@ -331,12 +397,16 @@ def _score(
         tips.append("标注定位精度偏低，建议放大病灶后再勾画。")
     for msg in structured_errors:
         tips.append(msg)
+    if not annotation_applicable:
+        tips.append("本病例没有金标准标注框，标注不计入成绩，没画框也不会记成 100 分。")
     if missed_cnt > 0:
         tips.append(f"存在 {missed_cnt} 处漏诊，请重点关注金标准图层中标注的病灶。")
     if fp_cnt > 0:
         tips.append(f"存在 {fp_cnt} 处误诊，请结合 AI 热力图与教学要点核对。")
     if scoring_mode == "keyword" and not student_diagnosis:
         tips.append("未填写诊断结论，建议结合分级与典型病变做规范化书写。")
+    if text_hit and text_hit[0] < text_hit[1]:
+        tips.append(f"文字题答对 {text_hit[0]}/{text_hit[1]}，已计入总分。")
     if not tips:
         tips.append("整体表现良好，继续保持规范化阅片习惯。")
 
@@ -349,7 +419,10 @@ def _score(
             "score_total": score_total,
             "score_grade": score_grade,
             "score_annotation": score_annotation,
+            "annotation_applicable": annotation_applicable,
             "score_diagnosis": score_diagnosis,
+            "score_text": score_text,
+            "text_applicable": text_applicable,
             "iou_avg": round(iou_avg, 4),
             "accuracy": round(accuracy, 4),
             "missed_count": missed_cnt,
@@ -364,17 +437,172 @@ def _score(
 
 # ====================== 转换 ======================
 
-def _to_out(record: PracticeSession) -> PracticeOut:
+def _question_ids(record: PracticeSession) -> list:
+    raw = record.text_question_ids or []
+    if isinstance(raw, str):
+        import json
+        try:
+            raw = json.loads(raw)
+        except (TypeError, ValueError):
+            return []
+    return list(raw) if isinstance(raw, list) else []
+
+
+def _ensure_text_paper(record: PracticeSession) -> bool:
+    """开始练习时定下一组文字题。已有题号就不再换，避免刷新后题目变了。"""
+    if _question_ids(record):
+        return False
+    from app.services.text_quiz import build_paper
+    record.text_question_ids = [item.id for item in build_paper(4)]
+    return True
+
+
+def _text_questions(record: PracticeSession) -> list:
+    from app.services.text_quiz import BY_ID, public_question
+    out = []
+    for qid in _question_ids(record):
+        item = BY_ID.get(qid)
+        if item is None:
+            continue
+        face = public_question(item)
+        out.append({
+            "id": face["id"],
+            "kind": face["kind"],
+            "kindText": face["kind_text"],
+            "stem": face["stem"],
+            "options": face["options"],
+        })
+    return out
+
+
+def _text_items(record: PracticeSession) -> list:
+    from app.services.text_quiz import BY_ID, KIND_TEXT, is_correct
+    answers = {}
+    for row in record.text_answers or []:
+        if isinstance(row, dict) and row.get("id"):
+            answers[row["id"]] = row.get("value") or ""
+    items = []
+    for qid in _question_ids(record):
+        item = BY_ID.get(qid)
+        if item is None:
+            continue
+        value = answers.get(qid, "")
+        items.append({
+            "id": item.id,
+            "kind": item.kind,
+            "kindText": KIND_TEXT[item.kind],
+            "stem": item.stem,
+            "yours": value,
+            "expected": item.answer,
+            "correct": is_correct(item, value),
+            "explanation": item.explanation,
+        })
+    return items
+
+
+EXAM_PAPER_SIZE = 3
+
+
+def _is_exam(record: PracticeSession) -> bool:
+    return (record.attempt_kind or "PRACTICE") == "EXAM"
+
+
+def _answers_open(db: Session, record: PracticeSession) -> bool:
+    """平时练习交卷即开放答案。正式考试要同一场全部交卷。"""
+    done = record.status in (
+        PracticeStatusEnum.SUBMITTED.value,
+        PracticeStatusEnum.REVIEWED.value,
+    )
+    if not _is_exam(record):
+        return done
+    group_id = (record.exam_group_id or "").strip()
+    if not group_id:
+        return done
+    pending = (
+        db.query(PracticeSession.id)
+        .filter(
+            PracticeSession.exam_group_id == group_id,
+            PracticeSession.status == PracticeStatusEnum.DRAFT.value,
+        )
+        .first()
+    )
+    return pending is None
+
+
+def exam_locks_answers(db: Session, user_id: int, case_id: int) -> bool:
+    """这名学员有一场还没交完、并且包含该病例的考试。"""
+    rows = (
+        db.query(PracticeSession)
+        .filter(
+            PracticeSession.user_id == user_id,
+            PracticeSession.case_id == case_id,
+            PracticeSession.attempt_kind == "EXAM",
+        )
+        .all()
+    )
+    return any(not _answers_open(db, row) for row in rows)
+
+
+def _hint_catalog(record: PracticeSession, case: Optional[TrainingCase]) -> List[str]:
+    """平时练习的提示阶梯。不含标准分级、金标准框和文字题标准答案。"""
+    from app.services.text_quiz import BY_ID
+
+    lines = [
+        "先确认眼别和图像是否清楚，再看视盘、血管和黄斑，把出血、渗出、微动脉瘤分开记。",
+    ]
+    raw = (case.teaching_points or "").strip() if case else ""
+    if raw:
+        parts = [
+            part.strip()
+            for part in re.split(r"[\n；;。]", raw)
+            if len(part.strip()) >= 4
+        ]
+        for part in parts[:2]:
+            lines.append(part[:160])
+    for qid in _question_ids(record):
+        item = BY_ID.get(qid)
+        if item and item.explanation:
+            lines.append(item.explanation)
+    return lines[:6]
+
+
+def _next_exam_item(db: Session, record: PracticeSession) -> Tuple[int, int]:
+    if not _is_exam(record) or not (record.exam_group_id or "").strip():
+        return 0, 0
+    nxt = (
+        db.query(PracticeSession)
+        .filter(
+            PracticeSession.exam_group_id == record.exam_group_id,
+            PracticeSession.status == PracticeStatusEnum.DRAFT.value,
+            PracticeSession.id != record.id,
+        )
+        .order_by(PracticeSession.exam_index.asc(), PracticeSession.id.asc())
+        .first()
+    )
+    if nxt is None:
+        return 0, 0
+    return int(nxt.id), int(nxt.case_id)
+
+
+def _to_out(record: PracticeSession, db: Session) -> PracticeOut:
     case = record.case
     user = record.user
     teacher = record.teacher
 
     images = _flatten_images(case.image_paths) if case else []
     case_no = case.case_no if case else ""
-    case_title = case.title if case else ""
+    revealed = _answers_open(db, record)
+    raw_title = case.title if case else ""
+    case_title = raw_title if revealed else (f"病例 {case_no}" if case_no else "待判读病例")
     case_category = case.category if case else ""
     case_diff = case.difficulty if case else ""
-    case_dr = (case.gold_dr_grade or "0") if case else "0"
+    case_dr = (case.gold_dr_grade or "") if (case and revealed) else ""
+    # 按病例当前的金标准框判断，不看当时存下来的标注分。
+    # 旧记录可能把「没有框」存成 100，界面仍应显示「未考」。
+    gold_boxes = _gold_to_annotations(case) if case else []
+    student_marks = record.student_annotations or []
+    scoring_marks = [m for m in student_marks if not _is_finding_mark(m)]
+    annotation_applicable = bool(gold_boxes) or bool(scoring_marks)
 
     return PracticeOut(
         id=record.id,
@@ -397,18 +625,22 @@ def _to_out(record: PracticeSession) -> PracticeOut:
         student_annotations=record.student_annotations or [],
         student_measurements=record.student_measurements or [],
         viewport=record.viewport_snapshot,
-        score_total=record.score_total or 0.0,
-        score_grade=record.score_grade or 0.0,
-        score_annotation=record.score_annotation or 0.0,
-        score_diagnosis=record.score_diagnosis or 0.0,
-        iou_avg=record.iou_avg or 0.0,
-        accuracy=record.accuracy or 0.0,
-        grade_match=bool(record.grade_match),
-        is_passed=bool(record.is_passed),
-        missed_count=record.missed_count or 0,
-        false_positive_count=record.false_positive_count or 0,
-        error_points=record.error_points or [],
-        suggestion=record.suggestion or "",
+        score_total=(record.score_total or 0.0) if revealed else 0.0,
+        score_grade=(record.score_grade or 0.0) if revealed else 0.0,
+        score_annotation=(record.score_annotation or 0.0) if revealed else 0.0,
+        annotation_applicable=annotation_applicable,
+        score_diagnosis=(record.score_diagnosis or 0.0) if revealed else 0.0,
+        score_text=(record.score_text or 0.0) if revealed else 0.0,
+        text_questions=_text_questions(record),
+        text_items=_text_items(record) if revealed else [],
+        iou_avg=(record.iou_avg or 0.0) if revealed else 0.0,
+        accuracy=(record.accuracy or 0.0) if revealed else 0.0,
+        grade_match=bool(record.grade_match) if revealed else False,
+        is_passed=bool(record.is_passed) if revealed else False,
+        missed_count=(record.missed_count or 0) if revealed else 0,
+        false_positive_count=(record.false_positive_count or 0) if revealed else 0,
+        error_points=(record.error_points or []) if revealed else [],
+        suggestion=(record.suggestion or "") if revealed else "",
         started_at=record.started_at,
         submitted_at=record.submitted_at,
         duration_seconds=record.duration_seconds or 0,
@@ -417,13 +649,28 @@ def _to_out(record: PracticeSession) -> PracticeOut:
         teacher_name=(teacher.real_name or teacher.username) if teacher else "",
         created_at=record.created_at,
         updated_at=record.updated_at,
+        attempt_kind=record.attempt_kind or "PRACTICE",
+        exam_group_id=record.exam_group_id or "",
+        exam_index=record.exam_index or 0,
+        exam_total=record.exam_total or 0,
+        answers_open=revealed,
+        hints=(
+            []
+            if _is_exam(record)
+            else _hint_catalog(record, case)[: int(record.hint_step or 0)]
+        ),
+        hints_left=(
+            0
+            if _is_exam(record) or revealed
+            else max(0, len(_hint_catalog(record, case)) - int(record.hint_step or 0))
+        ),
+        next_session_id=_next_exam_item(db, record)[0],
+        next_case_id=_next_exam_item(db, record)[1],
     )
 
 
 def _has_answered(db: Session, user: User, case_id: int) -> bool:
     """该用户是否已对此病例提交过作答（盲态解除的唯一依据，服务端判定）"""
-    if _is_teacher_or_admin(user):
-        return True
     return (
         db.query(PracticeSession.id)
         .filter(
@@ -444,8 +691,8 @@ def _to_brief(case: TrainingCase, *, user: Optional[User] = None,
     """
     练习病例摘要。
 
-    盲训内容策略：学员在提交作答前，摘要中不得出现正确 DR 分级与含答案的标题
-    （报告 P0：自主练习入口在「开始练习」前即显示疾病名称与正确分级）。
+    盲训内容策略：开始练习的卡片不出现正确 DR 分级，标题里的分级也会换成病例号。
+    以前是否交过卷不影响这张卡片；交卷后的评分报告才展示标准分级。
     """
     images = _flatten_images(case.image_paths)
     dr_raw = case.gold_dr_grade  # 空 = DR 分级不适用
@@ -520,7 +767,7 @@ def _passback_to_lms(db: Session, user: User, record: PracticeSession) -> None:
     )
 
 
-def _replay_or_reject(record: PracticeSession, request_id: str) -> PracticeOut:
+def _replay_or_reject(db: Session, record: PracticeSession, request_id: str) -> PracticeOut:
     """
     会话已不是草稿时，判断这是「同一次提交的重试」还是「另一次提交」。
 
@@ -532,11 +779,33 @@ def _replay_or_reject(record: PracticeSession, request_id: str) -> PracticeOut:
     成绩已经产生，不允许覆盖。
     """
     if request_id and record.submit_request_id == request_id:
-        return _to_out(record)
+        return _to_out(record, db)
     # 不是重试就是真的重复提交。合法性交给状态机判，
     # 免得这里和状态机各写一套规则、日后改一处漏一处。
     workflow.PRACTICE.ensure(record.status, PracticeStatusEnum.SUBMITTED.value)
-    return _to_out(record)
+    return _to_out(record, db)
+
+
+def _pick_across_grades(cases: List[TrainingCase], n: int) -> List[TrainingCase]:
+    """抽卷时尽量让不同 DR 分级都出现，避免三题都落在重度。"""
+    by_grade: dict = {}
+    for case in cases:
+        by_grade.setdefault(str(case.gold_dr_grade or ""), []).append(case)
+    for group in by_grade.values():
+        shuffle(group)
+    grades = list(by_grade)
+    shuffle(grades)
+    picked: List[TrainingCase] = []
+    while len(picked) < n and grades:
+        still = []
+        for grade in grades:
+            bucket = by_grade[grade]
+            if bucket and len(picked) < n:
+                picked.append(bucket.pop())
+            if bucket:
+                still.append(grade)
+        grades = still
+    return picked
 
 
 def _ensure_case_visible(case: TrainingCase, user: User) -> None:
@@ -643,6 +912,11 @@ class PracticeService:
         _ensure_case_visible(case, user)
 
         if not _is_teacher_or_admin(user):
+            if exam_locks_answers(db, user.id, case_id):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="正式考试要全部交卷后才能查看金标准",
+                )
             # 学员需要至少有一次该病例的提交记录
             submitted = (
                 db.query(PracticeSession.id)
@@ -672,6 +946,7 @@ class PracticeService:
             teaching_points=case.teaching_points or "",
             annotations=_gold_to_annotations(case),
             lesions=case.gold_lesions or [],
+            lesion_mask_url=_lesion_mask_url(db, case.id),
             pass_score=case.pass_score or 60,
         )
 
@@ -694,6 +969,7 @@ class PracticeService:
                 PracticeSession.user_id == user.id,
                 PracticeSession.case_id == case.id,
                 PracticeSession.status == PracticeStatusEnum.DRAFT.value,
+                PracticeSession.attempt_kind != "EXAM",
             )
             .order_by(desc(PracticeSession.id))
             .first()
@@ -703,20 +979,123 @@ class PracticeService:
                 user_id=user.id,
                 case_id=case.id,
                 mode=params.mode,
+                attempt_kind="PRACTICE",
                 status=PracticeStatusEnum.DRAFT.value,
                 started_at=datetime.now(),
             )
             db.add(record)
-            db.commit()
-            db.refresh(record)
         else:
             record.mode = params.mode
             if not record.started_at:
                 record.started_at = datetime.now()
-            db.commit()
-            db.refresh(record)
+        _ensure_text_paper(record)
+        db.commit()
+        db.refresh(record)
 
-        return _to_out(record)
+        return _to_out(record, db)
+
+    # ---------- 正式考试（多题，整卷交齐后才开放答案） ----------
+
+    @staticmethod
+    def start_exam(db: Session, user: User) -> PracticeOut:
+        open_row = (
+            db.query(PracticeSession)
+            .filter(
+                PracticeSession.user_id == user.id,
+                PracticeSession.attempt_kind == "EXAM",
+                PracticeSession.status == PracticeStatusEnum.DRAFT.value,
+            )
+            .order_by(PracticeSession.exam_index.asc(), PracticeSession.id.asc())
+            .first()
+        )
+        if open_row is not None:
+            return _to_out(open_row, db)
+
+        cases = (
+            db.query(TrainingCase)
+            .filter(
+                TrainingCase.is_published == True,  # noqa: E712
+                TrainingCase.archive_status == CaseArchiveStatusEnum.ACTIVE.value,
+            )
+            .all()
+        )
+        visible: List[TrainingCase] = []
+        for case in cases:
+            try:
+                _ensure_case_visible(case, user)
+            except HTTPException:
+                continue
+            visible.append(case)
+        picked = _pick_across_grades(visible, EXAM_PAPER_SIZE)
+        if not picked:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="暂无可考试的病例，请联系带教医师将病例加入实训",
+            )
+
+        group_id = uuid.uuid4().hex
+        total = len(picked)
+        first: Optional[PracticeSession] = None
+        for index, case in enumerate(picked, start=1):
+            record = PracticeSession(
+                user_id=user.id,
+                case_id=case.id,
+                mode=PracticeModeEnum.RANDOM.value,
+                attempt_kind="EXAM",
+                exam_group_id=group_id,
+                exam_index=index,
+                exam_total=total,
+                status=PracticeStatusEnum.DRAFT.value,
+                started_at=datetime.now(),
+            )
+            db.add(record)
+            db.flush()
+            _ensure_text_paper(record)
+            if first is None:
+                first = record
+        db.commit()
+        assert first is not None
+        db.refresh(first)
+        return _to_out(first, db)
+
+    @staticmethod
+    def next_hint(db: Session, user: User, record_id: int) -> PracticeOut:
+        record = (
+            db.query(PracticeSession)
+            .filter(PracticeSession.id == record_id)
+            .first()
+        )
+        if not record:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"练习记录不存在：{record_id}",
+            )
+        if record.user_id != user.id and not _is_teacher_or_admin(user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="无权查看该记录",
+            )
+        if _is_exam(record):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="正式考试不能查看提示，请交完全部题目后再看答案",
+            )
+        if record.status != PracticeStatusEnum.DRAFT.value:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="已经交卷，请直接看评分报告",
+            )
+        catalog = _hint_catalog(record, record.case)
+        step = int(record.hint_step or 0)
+        if step >= len(catalog):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="没有更多提示了",
+            )
+        record.hint_step = step + 1
+        db.commit()
+        db.refresh(record)
+        return _to_out(record, db)
 
     # ---------- 提交（自动评分） ----------
 
@@ -738,7 +1117,7 @@ class PracticeService:
                 detail="无权操作他人练习会话",
             )
         if record.status != PracticeStatusEnum.DRAFT.value:
-            return _replay_or_reject(record, params.request_id)
+            return _replay_or_reject(db, record, params.request_id)
 
         case = record.case
         if not case:
@@ -748,12 +1127,17 @@ class PracticeService:
             )
 
         # 评分
+        if _ensure_text_paper(record):
+            db.flush()
+        text_values = {row.id: row.value for row in params.text_answers}
         result, error_points = _score(
             case=case,
             student_dr_grade=params.student_dr_grade,
             student_diagnosis=params.student_diagnosis,
             student_anns=params.annotations,
             structured=params.diagnosis or None,
+            text_ids=_question_ids(record),
+            text_values=text_values,
         )
 
         # 抢占式置为已提交：WHERE status='DRAFT' 由数据库保证只有一个请求成功。
@@ -774,7 +1158,7 @@ class PracticeService:
         )
         if not claimed:
             db.expire(record)
-            return _replay_or_reject(record, params.request_id)
+            return _replay_or_reject(db, record, params.request_id)
 
         # 落库
         record.student_dr_grade = params.student_dr_grade or ""
@@ -788,11 +1172,16 @@ class PracticeService:
 
         record.student_diagnosis_form = params.diagnosis or None
         record.scoring_mode = result.get("scoring_mode", "keyword")
-        record.score_rule_version = SCORE_RULE_VERSION
+        record.score_rule_version = SCORE_RULE_VERSION if result.get("text_applicable") else 3
         record.score_total = result["score_total"]
         record.score_grade = result["score_grade"]
         record.score_annotation = result["score_annotation"]
         record.score_diagnosis = result["score_diagnosis"]
+        record.score_text = result.get("score_text") or 0.0
+        record.text_answers = [
+            {"id": qid, "value": text_values.get(qid, "")}
+            for qid in _question_ids(record)
+        ]
         record.iou_avg = result["iou_avg"]
         record.accuracy = result["accuracy"]
         record.missed_count = result["missed_count"]
@@ -827,7 +1216,7 @@ class PracticeService:
         )
 
         _passback_to_lms(db, user, record)
-        return _to_out(record)
+        return _to_out(record, db)
 
     # ---------- 教师点评 ----------
 
@@ -873,7 +1262,7 @@ class PracticeService:
                 extra=f"学员 {record.user_id} 总分 {record.score_total}",
             ),
         )
-        return _to_out(record)
+        return _to_out(record, db)
 
     # ---------- 列表与详情 ----------
 
@@ -910,7 +1299,7 @@ class PracticeService:
             total=total,
             page=query.page,
             page_size=query.page_size,
-            list=[_to_out(r) for r in rows],
+            list=[_to_out(r, db) for r in rows],
         )
 
     @staticmethod
@@ -930,7 +1319,10 @@ class PracticeService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="无权查看该记录",
             )
-        return _to_out(record)
+        if record.status == PracticeStatusEnum.DRAFT.value and _ensure_text_paper(record):
+            db.commit()
+            db.refresh(record)
+        return _to_out(record, db)
 
     # ---------- 个人 / 班级统计 ----------
 

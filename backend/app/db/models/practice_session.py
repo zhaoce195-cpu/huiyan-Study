@@ -48,6 +48,25 @@ class PracticeSession(Base, TimestampMixin):
         String(16), nullable=False, default=PracticeModeEnum.RANDOM.value,
         comment="练习模式：RANDOM/SELECTED",
     )
+    # PRACTICE：平时练习，作答中可以逐则看提示。
+    # EXAM：正式考试，同一场多题，全部交卷前不下发答案。
+    attempt_kind: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="PRACTICE",
+        comment="PRACTICE 平时练习 / EXAM 正式考试",
+    )
+    exam_group_id: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="",
+        comment="同一场考试的分组号，平时练习为空",
+    )
+    exam_index: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, comment="本场第几题，从 1 起",
+    )
+    exam_total: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, comment="本场题数",
+    )
+    hint_step: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, comment="平时练习已打开的提示则数",
+    )
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default=PracticeStatusEnum.DRAFT.value,
         index=True, comment="状态：DRAFT/SUBMITTED/REVIEWED",
@@ -117,6 +136,16 @@ class PracticeSession(Base, TimestampMixin):
     score_diagnosis: Mapped[float] = mapped_column(
         Float, nullable=False, default=0.0,
         comment="诊断书写得分 0~100",
+    )
+    score_text: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.0,
+        comment="文字题得分 0~100，计入总分",
+    )
+    text_question_ids: Mapped[Optional[list]] = mapped_column(
+        JSON, nullable=True, comment="本次练习的文字题题号",
+    )
+    text_answers: Mapped[Optional[list]] = mapped_column(
+        JSON, nullable=True, comment="文字题作答 [{id, value}]",
     )
 
     iou_avg: Mapped[float] = mapped_column(

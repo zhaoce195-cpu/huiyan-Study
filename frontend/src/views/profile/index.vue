@@ -8,8 +8,8 @@ import {
   type FormRules,
   type UploadRequestOptions
 } from 'element-plus'
-import { Lock, User, Setting, Picture, Camera, Bell } from '@element-plus/icons-vue'
-import { LoginApi } from '@/api'
+import { Lock, User, Setting, Camera, Bell } from '@element-plus/icons-vue'
+import { LoginApi, RotationApi } from '@/api'
 import { useUserStore } from '@/stores/user'
 import { applyFontSize } from '@/utils/appearance'
 import NotificationInbox from '@/views/notices/NotificationInbox.vue'
@@ -27,6 +27,9 @@ const forcePwd = computed(
 const userInfo = computed<Partial<LoginApi.UserInfo>>(() => userStore.userInfo)
 const userLoading = ref(false)
 
+const isStudent = computed(() => userStore.isTrainee)
+const isStaff = computed(() => userStore.isAdmin || userStore.isDoctor)
+const rotationText = ref('')
 const displayName = computed(() => userStore.displayName)
 const avatarLetter = computed(() => displayName.value.charAt(0).toUpperCase())
 const roleName = computed(() => userStore.roleName)
@@ -96,8 +99,8 @@ const submitProfile = async () => {
         realName: profileForm.realName || undefined,
         phone: profileForm.phone || undefined,
         email: profileForm.email || undefined,
-        department: profileForm.department || undefined,
-        title: profileForm.title || undefined
+        department: isStaff.value ? profileForm.department || undefined : undefined,
+        title: isStaff.value ? profileForm.title || undefined : undefined
       })
       userStore.setUser(u)
     } catch {
@@ -295,6 +298,17 @@ watch(activeTab, (v) => {
 onMounted(() => {
   fetchProfile()
   fetchSetting()
+  if (isStudent.value) {
+    RotationApi.getHome()
+      .then((home) => {
+        if (home.role !== 'student' || !home.rotation) return
+        const due = home.rotation.dueOn ? `，截止 ${home.rotation.dueOn}` : ''
+        rotationText.value = `${home.rotation.title}${due}`
+      })
+      .catch(() => {
+        rotationText.value = ''
+      })
+  }
 })
 </script>
 
@@ -329,13 +343,11 @@ onMounted(() => {
           <div class="user-name">{{ displayName }}</div>
           <div class="user-meta">
             <el-tag size="small" type="primary" effect="plain">{{ roleName }}</el-tag>
-            <span v-if="userInfo.hospital" class="meta-item">
-              <el-icon><Picture /></el-icon>{{ userInfo.hospital }}
-            </span>
-            <span v-if="userInfo.department" class="meta-item">
+            <span v-if="isStaff && userInfo.department" class="meta-item">
               <el-icon><Setting /></el-icon>{{ userInfo.department }}
             </span>
-            <span v-if="userInfo.title" class="meta-item">{{ userInfo.title }}</span>
+            <span v-if="isStaff && userInfo.title" class="meta-item">{{ userInfo.title }}</span>
+            <span v-if="isStudent && rotationText" class="meta-item">{{ rotationText }}</span>
           </div>
           <div v-if="userInfo.lastLoginAt" class="user-last-login">
             上次登录：{{ userInfo.lastLoginAt }}
@@ -379,11 +391,17 @@ onMounted(() => {
               <el-form-item label="邮箱" prop="email">
                 <el-input v-model="profileForm.email" maxlength="64" />
               </el-form-item>
-              <el-form-item label="所属科室">
+              <el-form-item v-if="isStaff" label="所属科室">
                 <el-input v-model="profileForm.department" maxlength="64" />
               </el-form-item>
-              <el-form-item label="职称">
-                <el-input v-model="profileForm.title" maxlength="32" />
+              <el-form-item v-if="isStaff" label="职称">
+                <el-input v-model="profileForm.title" maxlength="32" placeholder="如副主任医师" />
+              </el-form-item>
+              <el-form-item v-if="isStudent" label="身份">
+                <el-input model-value="学员" disabled />
+              </el-form-item>
+              <el-form-item v-if="isStudent" label="当前轮转">
+                <el-input :model-value="rotationText || '老师尚未布置轮转'" disabled />
               </el-form-item>
               <el-form-item>
                 <el-button

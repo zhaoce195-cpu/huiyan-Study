@@ -181,3 +181,164 @@ def test_skip_existing_on_second_run(db, admin, tmp_path):
     assert second.imported_cases == 0
     assert second.skipped_cases == 2
     assert db.query(TrainingCase).count() == 2
+
+
+def test_soft_exudate_is_severe_npdr_not_proliferative():
+    from app.services.idrid_import_service import grade_from_lesion_counts
+
+    grade, text = grade_from_lesion_counts(
+        {"MA": 10, "HE": 100, "EX": 100, "SE": 50},
+    )
+    assert grade == "3"
+    assert "重度" in text
+    assert "不能据此诊断增殖期" in text
+
+
+def test_small_lesions_are_moderate_and_ma_only_is_mild():
+    from app.services.idrid_import_service import grade_from_lesion_counts
+
+    moderate, _ = grade_from_lesion_counts({"MA": 10, "HE": 2000, "EX": 2000, "SE": 0})
+    large, _ = grade_from_lesion_counts({"HE": 80_000, "SE": 0, "MA": 1})
+    mild, _ = grade_from_lesion_counts({"MA": 12})
+    assert moderate == "2"
+    assert large == "3"
+    assert mild == "1"
+
+
+def test_reviewed_nve_image_is_pdr_without_calling_it_vitreous_hemorrhage():
+    from app.services.idrid_import_service import grade_from_lesion_counts
+
+    grade, text = grade_from_lesion_counts(
+        {"HE": 1_000_000, "SE": 40_000},
+        "IDRiD_17",
+    )
+    assert grade == "4"
+    assert "NVE" in text
+    assert "不把本例写成弥漫性玻璃体积血" in text
+
+
+def _add_case(db, admin, case_no, lesions):
+    db.add(TrainingCase(
+        case_no=case_no,
+        title="旧标题 · DR 4 级",
+        description="",
+        category="DR",
+        difficulty="HARD",
+        patient_name="x",
+        patient_gender="U",
+        patient_phone="",
+        clinical_info="增殖性 / 进展期 DR：检出软性渗出",
+        gold_dr_grade="4",
+        gold_diagnosis="增殖性",
+        gold_lesions=lesions,
+        teaching_points="",
+        is_published=True,
+        is_train_case=True,
+        creator_id=admin["admin"].id,
+    ))
+
+
+def test_refresh_balances_train_pool_and_keeps_scores(db, admin):
+    from app.db.models import PracticeSession
+    from app.services.idrid_import_service import refresh_idrid_spectrum
+
+    _add_case(db, admin, "IDRID-T-IDRiD_17", [
+        {"type": "HE", "pixel_count": 1_000_000},
+        {"type": "SE", "pixel_count": 1000},
+    ])
+    _add_case(db, admin, "IDRID-T-IDRiD_29", [
+        {"type": "HE", "pixel_count": 2000},
+        {"type": "EX", "pixel_count": 2000},
+        {"type": "MA", "pixel_count": 100},
+    ])
+    _add_case(db, admin, "IDRID-T-IDRiD_43", [
+        {"type": "EX", "pixel_count": 3000},
+        {"type": "MA", "pixel_count": 100},
+    ])
+    _add_case(db, admin, "IDRID-T-IDRiD_35", [
+        {"type": "SE", "pixel_count": 8000},
+        {"type": "HE", "pixel_count": 200_000},
+    ])
+    _add_case(db, admin, "IDRID-T-IDRiD_59", [
+        {"type": "SE", "pixel_count": 9000},
+        {"type": "HE", "pixel_count": 100_000},
+    ])
+    _add_case(db, admin, "IDRID-T-IDRiD_25", [
+        {"type": "SE", "pixel_count": 4000},
+        {"type": "HE", "pixel_count": 100_000},
+    ])
+    _add_case(db, admin, "IDRID-T-IDRiD_33", [
+        {"type": "HE", "pixel_count": 200_000},
+        {"type": "EX", "pixel_count": 1000},
+    ])
+    _add_case(db, admin, "IDRID-T-IDRiD_01", [
+        {"type": "SE", "pixel_count": 10},
+        {"type": "HE", "pixel_count": 10},
+    ])
+    db.add(TrainingCase(
+        case_no="T2026005",
+        title="增殖性 DR（PDR，DR 4 级）",
+        description="",
+        category="DR",
+        difficulty="HARD",
+        patient_name="x",
+        patient_gender="M",
+        patient_phone="",
+        clinical_info="糖尿病 20 年，视力骤降，玻璃体出血史",
+        gold_dr_grade="4",
+        gold_diagnosis="增殖性糖尿病视网膜病变，可见视盘新生血管（NVD）",
+        gold_lesions=[{"type": "NV", "count": 3}],
+        gold_annotations=[{"id": "g1", "tool": "rect", "label": "新生血管", "points": []}],
+        teaching_points="PDR",
+        is_published=True,
+        is_train_case=True,
+        creator_id=admin["admin"].id,
+    ))
+    db.flush()
+    case = db.query(TrainingCase).filter(TrainingCase.case_no == "IDRID-T-IDRiD_17").one()
+    db.add(PracticeSession(
+        user_id=admin["student"].id,
+        case_id=case.id,
+        mode="RANDOM",
+        status="SUBMITTED",
+        score_total=88,
+        attempt_kind="PRACTICE",
+    ))
+    db.commit()
+
+    refresh_idrid_spectrum(db)
+
+    kept = db.query(PracticeSession).one()
+    assert kept.score_total == 88
+    assert kept.status == "SUBMITTED"
+
+    nve = db.query(TrainingCase).filter(TrainingCase.case_no == "IDRID-T-IDRiD_17").one()
+    assert nve.gold_dr_grade == "4"
+    assert nve.is_train_case is True
+    assert "NVE" in nve.gold_diagnosis
+    assert "NVE" not in (nve.clinical_info or "")
+
+    cotton = db.query(TrainingCase).filter(TrainingCase.case_no == "IDRID-T-IDRiD_01").one()
+    assert cotton.gold_dr_grade == "3"
+    assert cotton.is_train_case is False
+    assert cotton.gold_diagnosis.startswith("重度 NPDR")
+
+    demo = db.query(TrainingCase).filter(TrainingCase.case_no == "T2026005").one()
+    assert demo.gold_dr_grade == "2"
+    assert demo.is_train_case is False
+    assert demo.is_published is False
+    assert demo.gold_annotations == []
+    assert "NVD" not in demo.gold_diagnosis
+
+
+def test_exam_paper_spreads_grades():
+    from app.services.practice_service import _pick_across_grades
+
+    class Row:
+        def __init__(self, grade):
+            self.gold_dr_grade = grade
+
+    cases = [Row("3")] * 8 + [Row("2")] * 2 + [Row("0"), Row("4")]
+    picked = _pick_across_grades(cases, 3)
+    assert len(picked) == 3
+    assert len({row.gold_dr_grade for row in picked}) == 3

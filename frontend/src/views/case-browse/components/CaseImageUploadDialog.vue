@@ -45,7 +45,7 @@ const dialogVisible = computed({
 
 const uploadRef = ref<UploadInstance | null>(null)
 const role = ref<CaseImageRole>('original')
-const eye = ref<EyeSide>('OU')
+const eye = ref<EyeSide>('UK')
 const files = ref<File[]>([])
 const previews = ref<string[]>([])
 const uploading = ref(false)
@@ -65,7 +65,7 @@ watch(
   ([v, def]) => {
     if (v) {
       role.value = (def as CaseImageRole) || 'original'
-      eye.value = 'OU'
+      eye.value = 'UK'
       files.value = []
       previews.value = []
       uploadPercent.value = 0
@@ -166,7 +166,9 @@ const onSubmit = async () => {
           <el-radio-button value="OD">OD 右眼</el-radio-button>
           <el-radio-button value="OS">OS 左眼</el-radio-button>
           <el-radio-button value="OU">OU 双眼</el-radio-button>
+          <el-radio-button value="UK">自动判断</el-radio-button>
         </el-radio-group>
+        <div class="hint">未指定眼别时，按视盘位置自动判断左眼、右眼或双眼；对不准则标为眼别未知。</div>
       </el-form-item>
       <el-form-item label="影像文件">
         <div class="upload-area">

@@ -23,7 +23,7 @@ class _CamelModel(BaseModel):
 
 RiskLiteral = Literal["red", "yellow", "green"]
 ScreeningStatusLiteral = Literal["queued", "analyzing", "done", "failed"]
-EyeSideLiteral = Literal["OD", "OS", "OU"]
+EyeSideLiteral = Literal["OD", "OS", "OU", "UK"]
 GenderLiteral = Literal["男", "女"]
 SortByLiteral = Literal["risk", "createdAt", "confidence"]
 SortOrderLiteral = Literal["asc", "desc"]

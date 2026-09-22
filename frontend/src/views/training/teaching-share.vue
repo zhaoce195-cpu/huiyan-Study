@@ -8,6 +8,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, View, RemoveFilled } from '@element-plus/icons-vue'
 import { TeachingApi } from '@/api'
+import TeachingDemoBody from './components/TeachingDemoBody.vue'
 
 type Share = TeachingApi.TeachingShare
 
@@ -146,6 +147,9 @@ onMounted(fetchList)
         <el-table-column label="病例" min-width="220">
           <template #default="{ row }">
             <div class="case-title">{{ row.desensitizedData?.title || '—' }}</div>
+            <div v-if="row.desensitizedData?.teaching_points" class="muted small teach-line">
+              {{ row.desensitizedData.teaching_points }}
+            </div>
             <div class="muted small">
               {{ row.sourceType === 'SCREENING' ? '筛查' : '实训' }}#{{ row.sourceCaseId }}
               · 影像{{ row.desensitizedData?.image_count ?? row.desensitizedData?.imageCount ?? 0 }}张
@@ -212,7 +216,7 @@ onMounted(fetchList)
     </div>
 
     <!-- 详情 -->
-    <el-dialog v-model="detailVisible" title="分享详情" width="560">
+    <el-dialog v-model="detailVisible" title="分享详情" width="880">
       <div v-if="detail" class="detail">
         <div class="row">
           <span class="lbl">类型</span>
@@ -228,10 +232,7 @@ onMounted(fetchList)
           <span class="lbl">教学标题</span>
           <span>{{ detail.desensitizedData?.title || '—' }}</span>
         </div>
-        <div class="row" v-if="detail.desensitizedData?.description">
-          <span class="lbl">教学描述</span>
-          <span class="multiline">{{ detail.desensitizedData.description }}</span>
-        </div>
+        <TeachingDemoBody :source="detail.desensitizedData" />
         <div class="row">
           <span class="lbl">来源病例</span>
           <span>{{ detail.sourceType === 'SCREENING' ? '筛查' : '实训' }}#{{ detail.sourceCaseId }}</span>
@@ -284,6 +285,13 @@ onMounted(fetchList)
   padding: 16px 18px;
 }
 .case-title { color: #1d2129; font-weight: 500; }
+.teach-line {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 2px 0;
+}
 .muted { color: #86909c; font-size: 12px; }
 .muted.small { font-size: 11px; }
 .small { font-size: 12px; }

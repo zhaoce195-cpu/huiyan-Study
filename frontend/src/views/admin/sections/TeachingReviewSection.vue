@@ -8,6 +8,7 @@ import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Search, Check, Close, View, Bottom } from '@element-plus/icons-vue'
 import { TeachingApi } from '@/api'
+import TeachingDemoBody from '@/views/training/components/TeachingDemoBody.vue'
 import { useReviewActions } from '@/composables/useReviewActions'
 
 type Share = TeachingApi.TeachingShare
@@ -143,7 +144,9 @@ onMounted(fetchList)
           <template #default="{ row }">
             <div class="case-title">{{ row.desensitizedData?.title || '—' }}</div>
             <div class="muted small multiline">
-              {{ (row.desensitizedData?.description || '').substring(0, 80) }}{{ (row.desensitizedData?.description || '').length > 80 ? '…' : '' }}
+              {{
+                (row.desensitizedData?.teaching_points || row.desensitizedData?.gold_diagnosis || row.desensitizedData?.description || '').substring(0, 80)
+              }}
             </div>
           </template>
         </el-table-column>
@@ -228,26 +231,17 @@ onMounted(fetchList)
     </div>
 
     <!-- 详情 -->
-    <el-dialog v-model="detailVisible" title="病例详情" width="640">
+    <el-dialog v-model="detailVisible" title="病例详情" width="880">
       <div v-if="detail" class="detail">
         <div class="row"><span class="lbl">病例标题</span><span>{{ detail.desensitizedData?.title || '—' }}</span></div>
-        <div class="row" v-if="detail.desensitizedData?.description">
-          <span class="lbl">教学描述</span>
-          <span class="multiline">{{ detail.desensitizedData.description }}</span>
-        </div>
         <div class="row"><span class="lbl">提交医生</span><span>{{ detail.teacherName }}</span></div>
         <div class="row"><span class="lbl">来源</span>
           <span>{{ detail.sourceType === 'SCREENING' ? '筛查' : '实训' }}病例 #{{ detail.sourceCaseId }}</span>
         </div>
         <div class="row"><span class="lbl">病例分类</span>
-          <span>{{ detail.desensitizedData?.category || '—' }} / {{ detail.desensitizedData?.difficulty || '—' }}</span>
+          <span>{{ detail.desensitizedData?.category_text || detail.desensitizedData?.category || '—' }} / {{ detail.desensitizedData?.difficulty_text || detail.desensitizedData?.difficulty || '—' }}</span>
         </div>
-        <div class="row"><span class="lbl">脱敏临床信息</span>
-          <span class="multiline">{{ detail.desensitizedData?.clinical_info || detail.desensitizedData?.clinicalInfo || '—' }}</span>
-        </div>
-        <div class="row"><span class="lbl">影像数量</span>
-          <span>{{ detail.desensitizedData?.image_count ?? detail.desensitizedData?.imageCount ?? 0 }} 张</span>
-        </div>
+        <TeachingDemoBody :source="detail.desensitizedData" />
         <div class="row"><span class="lbl">状态</span>
           <el-tag :type="statusMap[detail.status]?.type || 'info'" size="small">
             {{ statusMap[detail.status]?.label || detail.status }}

@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { PracticeApi, ReadingApi } from '@/api'
+import { PracticeApi } from '@/api'
 import { useUserStore } from '@/stores/user'
 import { isDrGradeNotApplicable } from '@/utils/filter-presets'
 
@@ -10,7 +10,7 @@ const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
 
-type TabName = 'pick' | 'history' | 'readings' | 'stats'
+type TabName = 'pick' | 'history' | 'stats'
 
 const isStudent = computed(() => userStore.isTrainee)
 const isTeacher = computed(() => userStore.isDoctor || userStore.isAdmin)
@@ -37,6 +37,17 @@ watch(drLevelDisabled, (off) => {
 })
 
 const randomCase = ref<PracticeApi.CaseBriefForPractice | null>(null)
+/** 同一地址挂在左右眼两栏时，卡片只显示一张 */
+const cardImages = computed(() => {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const img of randomCase.value?.images || []) {
+    if (!img || seen.has(img)) continue
+    seen.add(img)
+    out.push(img)
+  }
+  return out
+})
 const randomLoading = ref(false)
 const fetchRandom = async () => {
   randomLoading.value = true
@@ -64,6 +75,22 @@ const startPractice = async (mode: PracticeApi.PracticeMode, caseId: number) => 
     })
   } catch {
     /* ignore */
+  }
+}
+
+const examStarting = ref(false)
+const startExam = async () => {
+  examStarting.value = true
+  try {
+    const rec = await PracticeApi.startExam()
+    router.push({
+      path: '/practice/workstation',
+      query: { sessionId: String(rec.id), caseId: String(rec.caseId) }
+    })
+  } catch {
+    /* ignore */
+  } finally {
+    examStarting.value = false
   }
 }
 
@@ -139,51 +166,10 @@ const removeRecord = async (rec: PracticeApi.PracticeRecord) => {
 
 const statusTagType = (s: PracticeApi.PracticeStatus) => {
   if (s === 'DRAFT') return 'info'
-  if (s === 'SUBMITTED') return 'warning'
   return 'success'
 }
 const statusText = (s: PracticeApi.PracticeStatus) =>
-  s === 'DRAFT' ? '草稿' : s === 'SUBMITTED' ? '已提交' : '已点评'
-
-const reviewCol = (row: PracticeApi.PracticeRecord) => {
-  if (row.status === 'DRAFT') return null
-  if (row.status === 'SUBMITTED') return { pending: true }
-  return {
-    pending: false,
-    grade: row.isPassed ? '合格' : '不合格',
-    comment: row.teacherComment || ''
-  }
-}
-
-/* ========== 我的阅片 ========== */
-
-const readingLoading = ref(false)
-const readingList = ref<ReadingApi.ReadingRecord[]>([])
-const readingPage = ref({ page: 1, pageSize: 20, total: 0 })
-
-const fetchReadings = async () => {
-  readingLoading.value = true
-  try {
-    const r = await ReadingApi.getReadingList({
-      page: readingPage.value.page,
-      pageSize: readingPage.value.pageSize
-    })
-    readingList.value = (r.list || []).filter((row) => row.status !== 'DRAFT')
-    readingPage.value.total = r.total || 0
-  } catch {
-    readingList.value = []
-    readingPage.value.total = 0
-  } finally {
-    readingLoading.value = false
-  }
-}
-
-const openReading = (row: ReadingApi.ReadingRecord) => {
-  router.push({
-    path: '/training/reading',
-    query: { caseId: String(row.caseId), recordId: String(row.id) }
-  })
-}
+  s === 'DRAFT' ? '草稿' : '已评分'
 
 /* ========== 统计 ========== */
 
@@ -206,14 +192,10 @@ const fetchStats = async (target: 'me' | 'all' = 'me') => {
 }
 
 /* ========== 初始化 ========== */
-watch(activeTab, (tab) => {
-  if (tab === 'readings') fetchReadings()
-})
-
 onMounted(async () => {
   const tab = String(route.query.tab || '')
-  if (tab === 'readings' || tab === 'history') {
-    activeTab.value = tab === 'readings' ? 'readings' : 'history'
+  if (tab === 'history') {
+    activeTab.value = 'history'
   }
   await fetchRandom()
   fetchList()
@@ -301,7 +283,7 @@ onMounted(async () => {
               <div class="case-card-body">
                 <div class="case-thumbs">
                   <el-image
-                    v-for="(img, i) in randomCase.images.slice(0, 3)"
+                    v-for="(img, i) in cardImages.slice(0, 3)"
                     :key="i"
                     :src="img"
                     fit="cover"
@@ -324,11 +306,12 @@ onMounted(async () => {
                     </el-tag>
                     <el-tag v-else size="small" type="info" effect="plain">分级待判读</el-tag>
                     <el-tag size="small" effect="plain">
-                      共 {{ randomCase.imageCount }} 张影像
+                      共 {{ cardImages.length }} 张影像
                     </el-tag>
                   </div>
                   <div class="pass-line">
-                    通过分数线：<strong>{{ randomCase.passScore }}</strong> 分
+                    通过分数线：<strong>{{ randomCase.passScore }}</strong> 分。
+                    平时练习可以逐则看提示。正式考试共 3 题，全部交卷后才显示答案。
                   </div>
                   <div class="case-actions">
                     <el-button
@@ -337,6 +320,14 @@ onMounted(async () => {
                       @click="startPractice('RANDOM', randomCase.caseId)"
                     >
                       开始练习
+                    </el-button>
+                    <el-button
+                      size="large"
+                      type="warning"
+                      :loading="examStarting"
+                      @click="startExam"
+                    >
+                      进入考试
                     </el-button>
                     <el-button size="large" @click="fetchRandom">换一份</el-button>
                   </div>
@@ -361,8 +352,8 @@ onMounted(async () => {
                     style="width: 140px"
                   >
                     <el-option label="草稿" value="DRAFT" />
-                    <el-option label="已提交" value="SUBMITTED" />
-                    <el-option label="已点评" value="REVIEWED" />
+                    <el-option label="已评分" value="SUBMITTED" />
+                    <el-option label="已评分（较早记录）" value="REVIEWED" />
                   </el-select>
                 </el-form-item>
                 <el-form-item label="是否通过">
@@ -393,6 +384,11 @@ onMounted(async () => {
               <el-table-column prop="caseNo" label="病例编号" min-width="120" />
               <el-table-column prop="caseTitle" label="病例" min-width="160" />
               <el-table-column prop="caseDifficulty" label="难度" width="80" />
+              <el-table-column label="方式" width="88">
+                <template #default="{ row }">
+                  {{ row.attemptKind === 'EXAM' ? '考试' : '练习' }}
+                </template>
+              </el-table-column>
               <el-table-column label="状态" width="90">
                 <template #default="{ row }">
                   <el-tag size="small" :type="statusTagType(row.status)">
@@ -400,18 +396,21 @@ onMounted(async () => {
                   </el-tag>
                 </template>
               </el-table-column>
-              <el-table-column label="得分" width="100">
+              <el-table-column label="得分" width="120">
                 <template #default="{ row }">
-                  <strong v-if="row.status !== 'DRAFT'">
+                  <strong v-if="row.answersOpen">
                     {{ Number(row.scoreTotal || 0).toFixed(1) }}
                   </strong>
+                  <span v-else-if="row.attemptKind === 'EXAM' && row.status !== 'DRAFT'">
+                    交卷后公布
+                  </span>
                   <span v-else style="color: #c9cdd4">—</span>
                 </template>
               </el-table-column>
               <el-table-column label="是否通过" width="90">
                 <template #default="{ row }">
                   <el-tag
-                    v-if="row.status !== 'DRAFT'"
+                    v-if="row.answersOpen"
                     :type="row.isPassed ? 'success' : 'danger'"
                     size="small"
                   >
@@ -423,20 +422,6 @@ onMounted(async () => {
               <el-table-column label="耗时" width="90">
                 <template #default="{ row }">
                   {{ row.durationSeconds ? Math.round(row.durationSeconds / 60) + '分' : '—' }}
-                </template>
-              </el-table-column>
-              <el-table-column label="教师评定" min-width="200">
-                <template #default="{ row }">
-                  <span v-if="!reviewCol(row)" style="color: #c9cdd4">—</span>
-                  <el-tag v-else-if="reviewCol(row)?.pending" size="small" type="warning">
-                    待审核
-                  </el-tag>
-                  <div v-else class="review-cell">
-                    <el-tag size="small" :type="row.isPassed ? 'success' : 'danger'">
-                      {{ reviewCol(row)?.grade }}
-                    </el-tag>
-                    <span class="review-comment">{{ reviewCol(row)?.comment || '（无评语）' }}</span>
-                  </div>
                 </template>
               </el-table-column>
               <el-table-column prop="submittedAt" label="提交时间" width="170" />
@@ -482,53 +467,6 @@ onMounted(async () => {
               @size-change="onSizeChange"
             />
           </div>
-        </el-tab-pane>
-
-        <el-tab-pane v-if="isStudent" label="我的阅片" name="readings">
-          <el-table
-            v-loading="readingLoading"
-            :data="readingList"
-            border
-            stripe
-            size="default"
-          >
-            <el-table-column prop="caseNo" label="病例" min-width="140" />
-            <el-table-column label="状态" width="110">
-              <template #default="{ row }">
-                <el-tag size="small" :type="ReadingApi.READING_STATUS_META[row.status]?.tag">
-                  {{ ReadingApi.READING_STATUS_META[row.status]?.label || row.status }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="教师评定" min-width="220">
-              <template #default="{ row }">
-                <el-tag
-                  v-if="row.status === 'SUBMITTED'"
-                  size="small"
-                  type="warning"
-                >
-                  待审核
-                </el-tag>
-                <div v-else class="review-cell">
-                  <el-tag
-                    size="small"
-                    :type="ReadingApi.READING_STATUS_META[row.status]?.tag"
-                  >
-                    {{ ReadingApi.READING_STATUS_META[row.status]?.label }}
-                  </el-tag>
-                  <span class="review-comment">{{ row.reviewComment || '（无评语）' }}</span>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column prop="updatedAt" label="更新时间" width="180" />
-            <el-table-column label="操作" width="120">
-              <template #default="{ row }">
-                <el-button size="small" type="primary" @click="openReading(row)">
-                  查看
-                </el-button>
-              </template>
-            </el-table-column>
-          </el-table>
         </el-tab-pane>
 
         <!-- 统计 -->

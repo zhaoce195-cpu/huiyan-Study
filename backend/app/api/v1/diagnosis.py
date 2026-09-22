@@ -61,7 +61,7 @@ async def diag_ma(
     db: DbSession,
     current_user: CurrentUser,
     file: UploadFile = File(..., description="眼底图（支持 PNG/JPG/TIFF/WEBP）"),
-    eye: str = Form("OU", description="OD/OS/OU"),
+    eye: str = Form("UK", description="OD/OS/OU；UK 或空则按影像自动判断"),
     model_id: Optional[int] = Form(None, description="可选：CSU-EYES 模型 ID"),
 ):
     data = await DiagnosisService.ma_detection(

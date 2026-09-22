@@ -95,8 +95,14 @@ const routes: RouteRecordRaw[] = [
     path: '/training',
     component: () => import('@/layout/portals/TrainingPortal.vue'),
     meta: { scene: 'training' },
-    redirect: (to) => ({ path: '/training/cases', query: to.query }),
+    redirect: (to) => ({ path: '/training/home', query: to.query }),
     children: [
+      {
+        path: 'home',
+        name: 'TrainingHome',
+        component: () => import('@/views/training/home.vue'),
+        meta: { title: '首页', allowedRoles: ['admin', 'doctor', 'trainee'] }
+      },
       {
         path: 'cases',
         name: 'TrainingCases',

@@ -13,7 +13,7 @@ CaseImageRoleLiteral = Literal[
     "color_mask", "overlay", "class_mask", "other",
 ]
 CaseTableLiteral = Literal["screening", "training"]
-EyeSideLiteral = Literal["OD", "OS", "OU"]
+EyeSideLiteral = Literal["OD", "OS", "OU", "UK"]
 
 
 class _CamelModel(BaseModel):
@@ -31,7 +31,7 @@ class CaseImageOut(_CamelModel):
     case_id: int
     role: CaseImageRoleLiteral
     role_text: str = ""
-    eye: EyeSideLiteral = "OU"
+    eye: EyeSideLiteral = "UK"
     file_url: str
     file_name: str = ""
     file_size: int = 0

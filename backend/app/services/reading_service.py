@@ -26,7 +26,9 @@ from app.common import workflow
 from app.common.image_safety import (
     DEFAULT_MODALITY,
     DEFAULT_MODALITY_TEXT,
+    EYE_TEXT,
     build_image_meta,
+    eye_text,
     summarize_safety,
 )
 from app.services.op_log_service import OpLogService
@@ -45,7 +47,7 @@ def _flatten_images(image_paths: Optional[dict]) -> List[dict]:
         return []
     out: List[dict] = []
     idx = 0
-    for side in ("OD", "OS", "OU"):
+    for side in ("OD", "OS", "OU", "UK"):
         arr = image_paths.get(side) or []
         if isinstance(arr, list):
             for url in arr:
@@ -105,6 +107,42 @@ def _is_teacher_or_admin(user: User) -> bool:
     return ut in ("teacher", "admin")
 
 
+def _fill_unknown_original_eyes(safety_meta: list) -> None:
+    """原图眼别为空或未知时，按视盘位置补显示用的左/右眼。
+
+    只改本次返回的元数据，不回写数据库。中间区域对不准就保持未知，不猜。
+    视盘 mask 等派生图不参与判断。
+    """
+    from app.common.eye_infer import infer_eye_laterality, resolve_static_file
+
+    for item in safety_meta:
+        if not item.get("isOriginal"):
+            continue
+        eye = (item.get("eye") or "").upper()
+        if eye in EYE_TEXT:
+            item["eye"] = eye
+            continue
+        path = resolve_static_file(item.get("url") or "")
+        guessed = infer_eye_laterality(path) if path else "UK"
+        if guessed not in EYE_TEXT:
+            continue
+        item["eye"] = guessed
+        item["eyeText"] = eye_text(guessed)
+        item["eyeInferred"] = True
+
+
+def _gold_payload(case: TrainingCase) -> list:
+    from app.services.practice_service import _gold_to_annotations
+
+    return [a.model_dump() for a in _gold_to_annotations(case)]
+
+
+def _mask_url(db: Session, case_id: int) -> str:
+    from app.services.practice_service import _lesion_mask_url
+
+    return _lesion_mask_url(db, case_id) or ""
+
+
 def _patient_block(case: TrainingCase, viewer: User) -> dict:
     """
     阅片页患者信息脱敏块。
@@ -158,6 +196,9 @@ class ReadingService:
         )
         groups: dict = defaultdict(list)
         for r in ci_records:
+            # 不足 500 字节的占位图不是另一只眼，也不进阅片列表
+            if (r.file_size or 0) < 500:
+                continue
             groups[r.role].append(r.file_url)
 
         # 学员可见性：仅当已对该病例 SUBMITTED 或 REVIEWED 才解锁金标准 mask
@@ -179,6 +220,26 @@ class ReadingService:
             )
             if submitted:
                 show_gold = True
+        if not show_gold:
+            from app.db.models.practice_session import PracticeSession, PracticeStatusEnum
+            practiced = (
+                db.query(PracticeSession.id)
+                .filter(
+                    PracticeSession.case_id == case.id,
+                    PracticeSession.user_id == user.id,
+                    PracticeSession.status.in_([
+                        PracticeStatusEnum.SUBMITTED.value,
+                        PracticeStatusEnum.REVIEWED.value,
+                    ]),
+                )
+                .first()
+            )
+            if practiced:
+                show_gold = True
+        if show_gold and not _is_teacher_or_admin(user):
+            from app.services.practice_service import exam_locks_answers
+            if exam_locks_answers(db, user.id, case.id):
+                show_gold = False
 
         if not show_gold:
             for r in list(groups.keys()):
@@ -191,7 +252,8 @@ class ReadingService:
         )
 
         # 「images」一维：原图优先；若新表无原图，回退老 image_paths
-        images = list(groups.get("original") or legacy_images)
+        from app.common.case_utils import unique_image_urls
+        images = unique_image_urls(list(groups.get("original") or legacy_images))
         # 把 original 之外的全部 role 顺序追加到 images 末尾，便于旧客户端切换
         for r in ["MA", "HE", "EX", "SE", "OD", "color_mask", "overlay", "class_mask"]:
             for u in groups.get(r, []):
@@ -203,7 +265,10 @@ class ReadingService:
         # ============ 安全标识（报告 P0/P1） ============
         # 元数据优先取自 biz_case_image（含眼别与影像角色），
         # 老病例回退到 image_paths；两者都会做眼别交叉校验。
-        visible_records = [r for r in ci_records if r.role in groups]
+        visible_records = [
+            r for r in ci_records
+            if r.role in groups and (r.file_size or 0) >= 500
+        ]
         # 质量结果为派生对象，单独查表；缺失即「未评估」，不伪造合格
         from app.services.image_quality_service import ImageQualityService
         q_map = ImageQualityService.quality_map(
@@ -212,7 +277,9 @@ class ReadingService:
         safety_meta = build_image_meta(
             records=visible_records, legacy=meta, quality_map=q_map,
         )
+        _fill_unknown_original_eyes(safety_meta)
         safety = summarize_safety(safety_meta)
+        safety["gradedTotal"] = ImageQualityService.graded_original_count(db)
 
         # PACS 对照。PACS 不可用不能影响阅片 —— 取不到就当没有 DICOM，
         # 前端照常用 JPG，而不是让整页打不开。
@@ -261,6 +328,9 @@ class ReadingService:
             image_complete=bool(comp["complete"]),
             missing_roles=list(comp["missing_roles"]),
             show_gold_layers=show_gold,
+            gold_annotations=_gold_payload(case) if show_gold else [],
+            lesion_mask_url=_mask_url(db, case.id) if show_gold else "",
+            heatmap_url=(case.gold_heatmap_path or "") if show_gold else "",
             dicom_instances=dicom_instances,
             segmentation=segmentation,
             **_patient_block(case, user),

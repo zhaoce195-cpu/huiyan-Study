@@ -22,11 +22,15 @@ CSU-EYES 诊断 API 客户端
 
 from __future__ import annotations
 
+import contextvars
 import io
 import logging
 import mimetypes
+import threading
+import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from urllib.parse import urlsplit, urlunsplit
 
 import requests
 from fastapi import HTTPException, status
@@ -166,7 +170,120 @@ def _classify_4xx(status_code: int, message: str, url: str) -> HTTPException:
 
 # 连通性预检的超时。推理本身慢是正常的，但「连得上却永不回数据」
 # 应当立刻判定，而不是让用户干等。
+# 连接超时单独收短：配错的内网地址（如 192.168.2.103:5000）不应每次都占满 4 秒。
+PREFLIGHT_CONNECT_TIMEOUT = 1.5
 PREFLIGHT_TIMEOUT = 4.0
+
+# 配置里的内网地址（如 192.168.2.103:5000）不在同一网段时会超时。
+# 公网 9050 是同一套 CSU-EYES 接口，预检失败时改走这里，避免质量评估整批失败。
+PUBLIC_CSU_EYES_BASE = "http://113.219.243.122:9050"
+
+# 刚成功过的地址，短时间内 HEAD 偶发超时不再把整次判读打成 503。
+# 上一张图能判、下一张图却报「通道断开」，就是预检在正式上传前被一次超时否决。
+_GOOD_BASE_TTL = 600.0
+_UNREACHABLE_COOLDOWN = 60.0
+_route_lock = threading.Lock()
+_last_good_base = ""
+_last_good_at = 0.0
+_unreachable_until: Dict[str, float] = {}
+
+# 本次调用实际选中的算法地址。只在 preflight() 里写入。
+_selected_base: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "csu_eyes_selected_base", default="",
+)
+
+
+def _candidate_bases() -> List[str]:
+    primary = (settings.CSU_EYES_BASE_URL or "").rstrip("/")
+    bases: List[str] = []
+    if primary:
+        bases.append(primary)
+    if PUBLIC_CSU_EYES_BASE not in bases:
+        bases.append(PUBLIC_CSU_EYES_BASE)
+    return bases
+
+
+def _remember_good_base(base: str) -> None:
+    global _last_good_base, _last_good_at
+    base = (base or "").rstrip("/")
+    if not base:
+        return
+    with _route_lock:
+        _last_good_base = base
+        _last_good_at = time.monotonic()
+        _unreachable_until.pop(base, None)
+
+
+def _recent_good_base() -> str:
+    with _route_lock:
+        if _last_good_base and (time.monotonic() - _last_good_at) < _GOOD_BASE_TTL:
+            return _last_good_base
+    return ""
+
+
+def _mark_unreachable(base: str) -> None:
+    with _route_lock:
+        _unreachable_until[base] = time.monotonic() + _UNREACHABLE_COOLDOWN
+
+
+def _is_cooling_down(base: str) -> bool:
+    with _route_lock:
+        return _unreachable_until.get(base, 0.0) > time.monotonic()
+
+
+def _reset_route_memory() -> None:
+    """单测隔离用，清掉进程内记住的可用地址。"""
+    global _last_good_base, _last_good_at
+    with _route_lock:
+        _last_good_base = ""
+        _last_good_at = 0.0
+        _unreachable_until.clear()
+
+
+def _probe_once(base: str) -> Optional[str]:
+    """
+    探真正会用到的 API 前缀，不要探根路径。
+
+    实测过一次教训：探 `GET /` 时上游有响应，判定「可用」放行，
+    而正式的 `POST /api/v1/...` 依旧挂到超时。
+    返回 None 表示这个地址可以发正式请求；
+    "down" 表示连不上，"timeout" 表示连上了却不回数据。
+    """
+    try:
+        requests.head(
+            f"{base}/api/v1",
+            timeout=(PREFLIGHT_CONNECT_TIMEOUT, PREFLIGHT_TIMEOUT),
+            allow_redirects=False,
+        )
+        return None
+    except requests.exceptions.ConnectTimeout:
+        return "down"
+    except requests.exceptions.ConnectionError:
+        return "down"
+    except requests.exceptions.Timeout:
+        return "timeout"
+    except Exception:
+        # 其它异常（如该路径本就返回 404/405）不代表不可用
+        return None
+
+
+def _probe_base(base: str) -> Optional[str]:
+    # 公网隧道偶发一次 HEAD 超时，紧接着的下一张图不应直接失败。
+    attempts = 2 if base.rstrip("/") == PUBLIC_CSU_EYES_BASE else 1
+    last: Optional[str] = "down"
+    for _ in range(attempts):
+        last = _probe_once(base)
+        if last is None or last == "down":
+            return last
+    return last
+
+
+def _rewrite_base(url: str, base: str) -> str:
+    src = urlsplit(url)
+    dst = urlsplit(base)
+    if not dst.scheme or not dst.netloc:
+        return url
+    return urlunsplit((dst.scheme, dst.netloc, src.path, src.query, src.fragment))
 
 
 def preflight() -> Optional[str]:
@@ -175,30 +292,44 @@ def preflight() -> Optional[str]:
 
     为什么需要这一步：推理服务经 SSH 反向隧道映射到本机端口，隧道断掉后
     端口仍在监听（sshd 照常 accept），TCP 连得上、HTTP 永远不回数据。
-    此时不做预检，请求会一路耗到 90 秒超时、再重试一次，用户在界面上
-    干等近三分钟才看到失败 —— 那三分钟里他不知道是在算还是已经坏了。
+    此时不做预检，请求会一路耗到超时，用户不知道是在算还是已经坏了。
+
+    配置的内网地址超时或拒绝连接时，再试公网 9050。两个都不通才判定失败。
     """
-    base = (settings.CSU_EYES_BASE_URL or "").rstrip("/")
-    if not base:
+    bases = _candidate_bases()
+    if not bases:
         return "未配置算法服务地址"
-    # 探真正会用到的 API 前缀，不要探根路径。
-    #
-    # 实测过一次教训：探 `GET /` 时上游有响应，判定「可用」放行，
-    # 而正式的 `POST /api/v1/...` 依旧挂到 90 秒超时 ——
-    # 预检等于没做。反向代理/隧道往往只有部分路径是通的。
-    try:
-        requests.head(f"{base}/api/v1", timeout=PREFLIGHT_TIMEOUT,
-                      allow_redirects=False)
+    recent = _recent_good_base()
+    if recent:
+        bases = [recent] + [b for b in bases if b != recent]
+    primary = (settings.CSU_EYES_BASE_URL or "").rstrip("/") or bases[0]
+    last = "算法服务未启动或网络不通"
+    saw_timeout = False
+    for base in bases:
+        if _is_cooling_down(base) and base != recent:
+            continue
+        reason = _probe_base(base)
+        if reason is None:
+            _selected_base.set(base)
+            if base != primary:
+                logger.warning(
+                    "[csu-eyes] %s 不可用，改用 %s", primary, base,
+                )
+            return None
+        if reason == "down":
+            _mark_unreachable(base)
+            last = "算法服务未启动或网络不通"
+        else:
+            saw_timeout = True
+            last = "算法服务无响应（推理通道可能已断开），请联系管理员"
+    if saw_timeout and recent:
+        logger.warning(
+            "[csu-eyes] 预检超时，沿用刚刚成功的地址 %s", recent,
+        )
+        _selected_base.set(recent)
         return None
-    except requests.exceptions.Timeout:
-        # 连得上但不回话 —— 隧道断了的典型形态
-        return "算法服务无响应（推理通道可能已断开），请联系管理员"
-    except requests.exceptions.ConnectionError:
-        return "算法服务未启动或网络不通"
-    except Exception:
-        # 其它异常（如该路径本就返回 405）不代表不可用，
-        # 放行让正式请求去判断
-        return None
+    _selected_base.set("")
+    return last
 
 
 def _post_form_sync(
@@ -208,11 +339,15 @@ def _post_form_sync(
     data: Optional[Dict[str, str]] = None,
     timeout: float = 90.0,
 ) -> dict:
+    _selected_base.set("")
     reason = preflight()
     if reason:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=reason,
         )
+    chosen = _selected_base.get()
+    if chosen:
+        url = _rewrite_base(url, chosen)
 
     last_err: Optional[Exception] = None
     # 仅 5xx / 网络错误重试一次；4xx 直接抛出。
@@ -229,6 +364,8 @@ def _post_form_sync(
             )
             if 200 <= resp.status_code < 300:
                 try:
+                    if chosen:
+                        _remember_good_base(chosen)
                     return resp.json()
                 except ValueError:
                     raise HTTPException(

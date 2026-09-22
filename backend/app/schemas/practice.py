@@ -57,6 +57,8 @@ class GoldStandardData(_CamelModel):
     teaching_points: str = ""
     annotations: List[PracticeAnnotation] = Field(default_factory=list)
     lesions: List[Dict[str, Any]] = Field(default_factory=list)
+    # 彩色病灶图或叠加图。空字符串表示这例没有金标准图像，只有可能有标注框。
+    lesion_mask_url: str = ""
     pass_score: int = 60
 
 
@@ -74,6 +76,11 @@ class PracticeStartParams(_CamelModel):
     mode: PracticeModeLiteral = "SELECTED"
 
 
+class TextQuizAnswerIn(_CamelModel):
+    id: str
+    value: str = ""
+
+
 class PracticeSubmitParams(_CamelModel):
     session_id: int
     student_dr_grade: str = Field(..., description="DR 分级 0~4")
@@ -84,6 +91,7 @@ class PracticeSubmitParams(_CamelModel):
     )
     annotations: List[PracticeAnnotation] = Field(default_factory=list)
     measurements: List[PracticeAnnotation] = Field(default_factory=list)
+    text_answers: List[TextQuizAnswerIn] = Field(default_factory=list)
     viewport: Optional[Dict[str, Any]] = None
     duration_seconds: int = 0
     request_id: str = Field(
@@ -173,8 +181,11 @@ class PracticeOut(_CamelModel):
     # 这份成绩按哪套口径判的。存量记录是 keyword，新记录是 structured，
     # 分数不可直接横向比较，界面上要说清楚
     scoring_mode: str = "keyword"
-    # 标注分算法版本。1 与 2 的分数不可直接横向比较：
-    # 版本 1 在没有金标准标注框的病例上，全对也只有 70 分。
+    # 标注分算法版本。分数不可直接横向比较：
+    # 1：没有金标准框时标注分最高 70，总分封顶 85。
+    # 2：没有框时把「没标」记成 100。
+    # 3：没有框且没标则标注未考，权重摊给其余项。
+    # 4：文字题占 20%，分级 25%、标注 40%、诊断 15%。
     score_rule_version: int = 1
     student_annotations: List[Dict[str, Any]] = Field(default_factory=list)
     student_measurements: List[Dict[str, Any]] = Field(default_factory=list)
@@ -183,7 +194,23 @@ class PracticeOut(_CamelModel):
     score_total: float = 0.0
     score_grade: float = 0.0
     score_annotation: float = 0.0
+    # 假：这例没有金标准框，学员也没画。界面显示「未考」，不要把库存的 100 当成答对。
+    annotation_applicable: bool = True
     score_diagnosis: float = 0.0
+    score_text: float = 0.0
+    # 作答前只有题面。交卷后 text_items 才带标准答案和讲解。
+    text_questions: List[Dict[str, Any]] = Field(default_factory=list)
+    text_items: List[Dict[str, Any]] = Field(default_factory=list)
+    # PRACTICE 平时练习可逐则看提示；EXAM 正式考试整卷交齐后才开放答案。
+    attempt_kind: str = "PRACTICE"
+    exam_group_id: str = ""
+    exam_index: int = 0
+    exam_total: int = 0
+    answers_open: bool = False
+    hints: List[str] = Field(default_factory=list)
+    hints_left: int = 0
+    next_session_id: int = 0
+    next_case_id: int = 0
     iou_avg: float = 0.0
     accuracy: float = 0.0
     grade_match: bool = False
@@ -230,3 +257,40 @@ class PracticeStats(_CamelModel):
     total_duration: int = 0
     weak_labels: List[WeakLabelItem] = Field(default_factory=list)
     by_difficulty: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+# ====================== 文字题 ======================
+
+class TextQuizQuestionOut(_CamelModel):
+    id: str
+    kind: Literal["knowledge", "choice", "blank"]
+    kind_text: str
+    stem: str
+    options: List[str] = Field(default_factory=list)
+
+
+class TextQuizPaperOut(_CamelModel):
+    questions: List[TextQuizQuestionOut] = Field(default_factory=list)
+
+
+class TextQuizSubmitIn(_CamelModel):
+    answers: List[TextQuizAnswerIn] = Field(default_factory=list)
+
+
+class TextQuizItemResult(_CamelModel):
+    id: str
+    kind: str
+    kind_text: str
+    stem: str
+    yours: str = ""
+    expected: str = ""
+    correct: bool = False
+    explanation: str = ""
+
+
+class TextQuizResultOut(_CamelModel):
+    score: int = 0
+    correct_count: int = 0
+    question_count: int = 0
+    passed: bool = False
+    items: List[TextQuizItemResult] = Field(default_factory=list)

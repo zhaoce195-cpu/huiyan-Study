@@ -49,6 +49,11 @@ class ImageSource(_CamelModel):
     image_complete: bool = True
     missing_roles: List[str] = Field(default_factory=list)
     show_gold_layers: bool = False
+    # 金标准与病灶提示图只在已解锁时下发。未解锁时保持空，
+    # 前端开关仍在，但会说明为什么画面上没有图层。
+    gold_annotations: List[Dict[str, Any]] = Field(default_factory=list)
+    lesion_mask_url: str = ""
+    heatmap_url: str = ""
 
     # 影像 URL → PACS 中对应 DICOM 实例的 UID。
     # 只收录在 PACS 中确实核对到的那些：对不上就不给，前端退回 JPG。

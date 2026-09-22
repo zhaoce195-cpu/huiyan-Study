@@ -89,7 +89,7 @@ const activeOption = computed(
 const singleFile = ref<File | null>(null)
 const leftEyeFile = ref<File | null>(null)
 const rightEyeFile = ref<File | null>(null)
-const eye = ref<'OD' | 'OS' | 'OU'>('OU')
+const eye = ref<'OD' | 'OS' | 'OU' | 'UK'>('UK')
 
 const previewSingle = ref('')
 const previewLeft = ref('')
@@ -333,6 +333,7 @@ import { drGradeColorNum as drGradeColor } from '@/utils/dr-format'
             <el-radio-button value="OD">OD 右眼</el-radio-button>
             <el-radio-button value="OS">OS 左眼</el-radio-button>
             <el-radio-button value="OU">OU 双眼</el-radio-button>
+            <el-radio-button value="UK">自动判断</el-radio-button>
           </el-radio-group>
         </div>
       </div>

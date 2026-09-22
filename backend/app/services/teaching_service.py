@@ -5,8 +5,9 @@
 - 全程 OpLog 日志
 """
 
+import json
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy import desc, func, or_
@@ -43,8 +44,7 @@ def _desensitize_screening(case: ScreeningCase) -> dict:
         "patient_age": case.age,
         "patient_gender": case.gender or "U",
         "clinical_info": f"{case.chief_complaint}\n{case.medical_history}".strip(),
-        "image_paths": case.image_paths,
-        "image_count": case.image_count or 0,
+        **_image_block(case.image_paths),
         "category": "DR",
         "difficulty": "MEDIUM",
     }
@@ -57,8 +57,8 @@ def _desensitize_training(case: TrainingCase) -> dict:
         "patient_age": case.patient_age,
         "patient_gender": case.patient_gender or "U",
         "clinical_info": case.clinical_info,
-        "image_paths": case.image_paths,
-        "image_count": len(_flatten(case.image_paths)),
+        "teaching_points": case.teaching_points or "",
+        **_image_block(case.image_paths),
         "category": case.category,
         "difficulty": case.difficulty,
         "gold_dr_grade": case.gold_dr_grade,
@@ -69,24 +69,176 @@ def _desensitize_training(case: TrainingCase) -> dict:
 
 
 def _flatten(image_paths) -> list:
-    if not isinstance(image_paths, dict):
-        return []
-    out = []
-    for side in ("OD", "OS", "OU"):
-        arr = image_paths.get(side) or []
-        if isinstance(arr, list):
-            out.extend(arr)
-    return out
+    from app.common.case_utils import flatten_image_paths
+    return flatten_image_paths(image_paths)
 
 
-def _to_out(s: TeachingShare) -> TeachingShareOut:
+def _image_block(image_paths) -> dict:
+    """同一文件挂在左右眼两栏时，列表和张数都按一张计。"""
+    from app.common.case_utils import collapse_duplicate_image_paths
+    paths = collapse_duplicate_image_paths(image_paths)
+    return {
+        "image_paths": paths,
+        "image_count": len(_flatten(paths)),
+    }
+
+
+# IDRiD 导入用像素计数，HE 是出血；种子病例用处数，HE 是硬性渗出。
+# 两套缩写不能混用，否则演示会把出血讲成硬渗。
+_LESION_BY_PIXELS = {
+    "MA": "微动脉瘤",
+    "HE": "出血",
+    "EX": "硬性渗出",
+    "SE": "软性渗出",
+}
+_LESION_BY_COUNT = {
+    "MA": "微动脉瘤",
+    "HM": "出血",
+    "HE": "硬性渗出",
+    "NV": "新生血管",
+    "VB": "静脉串珠",
+    "IRMA": "视网膜内微血管异常",
+    "OpticDiskCupping": "视盘陷凹扩大",
+    "Drusen": "玻璃膜疣",
+}
+_CATEGORY_TEXT = {
+    "DR": "糖尿病视网膜病变",
+    "NORMAL": "正常眼底",
+    "AMD": "年龄相关性黄斑变性",
+    "GLAUCOMA": "青光眼",
+    "HYPERTENSION": "高血压眼底",
+    "OTHER": "其他",
+}
+_DIFFICULTY_TEXT = {
+    "EASY": "入门",
+    "MEDIUM": "中级",
+    "HARD": "高级",
+}
+
+
+def _as_list(raw: Any) -> list:
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (TypeError, ValueError):
+            return []
+    return raw if isinstance(raw, list) else []
+
+
+def lesion_rows(raw: Any) -> list:
+    """把库存病灶编码换成演示能直接念的中文。没有计数就不编造处数。"""
+    rows = []
+    for it in _as_list(raw):
+        if not isinstance(it, dict):
+            continue
+        code = str(it.get("type") or it.get("label") or "").strip()
+        if "pixel_count" in it:
+            name = _LESION_BY_PIXELS.get(code, code or "病灶")
+            detail = "着色图里有这块区域"
+        else:
+            name = _LESION_BY_COUNT.get(code, _LESION_BY_PIXELS.get(code, code or "病灶"))
+            count = it.get("count")
+            detail = f"约 {count} 处" if count else ""
+        rows.append({"name": name, "detail": detail})
+    return rows
+
+
+def grade_line(category: Optional[str], raw: Optional[str]) -> str:
+    from app.common.dr_grade import NOT_APPLICABLE_TEXT, grade_text, should_be_not_applicable
+
+    if should_be_not_applicable(category, raw):
+        return "本例不按 DR 分级"
+    text = grade_text(raw)
+    if not text or text == NOT_APPLICABLE_TEXT:
+        return "本例不做 DR 分级"
+    return text
+
+
+def _training_case_for_share(db: Session, share: TeachingShare):
+    if share.source_type != ShareSourceEnum.TRAINING.value:
+        return None
+    case = db.query(TrainingCase).filter(TrainingCase.id == share.source_case_id).first()
+    if case is None and share.teaching_case_id:
+        case = db.query(TrainingCase).filter(TrainingCase.id == share.teaching_case_id).first()
+    return case
+
+
+def _mask_url(db: Session, case_id: int) -> str:
+    from app.services.practice_service import _lesion_mask_url
+    return _lesion_mask_url(db, case_id)
+
+
+def demo_fields(db: Session, share: TeachingShare, snapshot: dict) -> dict:
+    """演示正文以仍在库里的实训病例为准。分享快照经常没存要点，标注框也是空的。"""
+    case = _training_case_for_share(db, share)
+    teaching_points = (snapshot.get("teaching_points") or "").strip()
+    gold_diagnosis = snapshot.get("gold_diagnosis") or ""
+    grade_raw = snapshot.get("gold_dr_grade") or ""
+    category = snapshot.get("category") or ""
+    difficulty = snapshot.get("difficulty") or ""
+    lesions = snapshot.get("gold_lesions")
+    annotations = snapshot.get("gold_annotations")
+    mask = ""
+    if case is not None:
+        if (case.teaching_points or "").strip():
+            teaching_points = case.teaching_points.strip()
+        if case.gold_diagnosis:
+            gold_diagnosis = case.gold_diagnosis
+        if case.gold_dr_grade:
+            grade_raw = case.gold_dr_grade
+        if case.category:
+            category = case.category
+        if case.difficulty:
+            difficulty = case.difficulty
+        if case.gold_lesions:
+            lesions = case.gold_lesions
+        if _as_list(case.gold_annotations):
+            annotations = case.gold_annotations
+        mask = _mask_url(db, case.id)
+    return {
+        "teaching_points": teaching_points,
+        "gold_diagnosis": gold_diagnosis or "",
+        "gold_grade_text": grade_line(category, grade_raw),
+        "category_text": _CATEGORY_TEXT.get(category, category or ""),
+        "difficulty_text": _DIFFICULTY_TEXT.get(difficulty, difficulty or ""),
+        "lesions": lesion_rows(lesions),
+        "annotations": _as_list(annotations),
+        "lesion_mask_url": mask,
+    }
+
+
+def _student_out(db: Session, share: TeachingShare) -> StudentCaseOut:
+    data = dict(share.desensitized_data or {})
+    demo = demo_fields(db, share, data)
+    return StudentCaseOut(
+        id=share.id,
+        share_type=share.share_type,
+        title=data.get("title", ""),
+        description=data.get("description", ""),
+        patient_age=data.get("patient_age"),
+        patient_gender=data.get("patient_gender", "U"),
+        clinical_info=data.get("clinical_info", ""),
+        category=data.get("category", ""),
+        difficulty=data.get("difficulty", ""),
+        **_image_block(data.get("image_paths")),
+        teacher_name=(share.teacher.real_name if share.teacher else ""),
+        expired_at=share.expired_at,
+        teaching_case_id=share.teaching_case_id,
+        **demo,
+    )
+
+
+def _to_out(s: TeachingShare, db: Optional[Session] = None) -> TeachingShareOut:
+    data = dict(s.desensitized_data or {})
+    if db is not None:
+        data.update(demo_fields(db, s, data))
     return TeachingShareOut(
         id=s.id,
         share_type=s.share_type,
         source_type=s.source_type,
         source_case_id=s.source_case_id,
         teaching_case_id=s.teaching_case_id,
-        desensitized_data=s.desensitized_data or {},
+        desensitized_data=data,
         share_scope=s.share_scope,
         expire_hours=s.expire_hours,
         expired_at=s.expired_at,
@@ -146,7 +298,7 @@ class TeachingService:
         )
         db.commit()
         db.refresh(share)
-        return _to_out(share)
+        return _to_out(share, db)
 
     @staticmethod
     def revoke_share(db: Session, *, user: User, share_id: int, ip: str = "") -> TeachingShareOut:
@@ -164,7 +316,7 @@ class TeachingService:
         )
         db.commit()
         db.refresh(share)
-        return _to_out(share)
+        return _to_out(share, db)
 
     @staticmethod
     def submit_for_review(
@@ -195,7 +347,7 @@ class TeachingService:
         )
         db.commit()
         db.refresh(share)
-        return _to_out(share)
+        return _to_out(share, db)
 
     @staticmethod
     def review(
@@ -216,7 +368,9 @@ class TeachingService:
 
         if params.accept:
             share.status = ShareStatusEnum.APPROVED.value
-            data = share.desensitized_data or {}
+            data = dict(share.desensitized_data or {})
+            data.update(_image_block(data.get("image_paths")))
+            share.desensitized_data = data
             from app.services.case_sn import generate_case_sn
             new_case = TrainingCase(
                 case_no=generate_case_sn(db, prefix="T"),
@@ -230,6 +384,7 @@ class TeachingService:
                 patient_gender=data.get("patient_gender", "U"),
                 patient_phone="",
                 clinical_info=data.get("clinical_info", ""),
+                teaching_points=data.get("teaching_points") or "",
                 image_paths=data.get("image_paths"),
                 gold_dr_grade=data.get("gold_dr_grade", "0"),
                 gold_diagnosis=data.get("gold_diagnosis", ""),
@@ -262,7 +417,7 @@ class TeachingService:
         )
         db.commit()
         db.refresh(share)
-        return _to_out(share)
+        return _to_out(share, db)
 
     @staticmethod
     def shelve(db: Session, *, user: User, share_id: int, ip: str = "") -> TeachingShareOut:
@@ -283,7 +438,7 @@ class TeachingService:
         )
         db.commit()
         db.refresh(share)
-        return _to_out(share)
+        return _to_out(share, db)
 
     @staticmethod
     def list_for_teacher(
@@ -297,7 +452,7 @@ class TeachingService:
             q = q.filter(TeachingShare.status == status_filter)
         total = q.count()
         rows = q.order_by(desc(TeachingShare.created_at)).offset((page - 1) * page_size).limit(page_size).all()
-        return TeachingSharePage(total=total, page=page, page_size=page_size, list=[_to_out(r) for r in rows])
+        return TeachingSharePage(total=total, page=page, page_size=page_size, list=[_to_out(r, db) for r in rows])
 
     @staticmethod
     def list_for_admin(
@@ -313,7 +468,7 @@ class TeachingService:
             )
         total = q.count()
         rows = q.order_by(desc(TeachingShare.created_at)).offset((page - 1) * page_size).limit(page_size).all()
-        return TeachingSharePage(total=total, page=page, page_size=page_size, list=[_to_out(r) for r in rows])
+        return TeachingSharePage(total=total, page=page, page_size=page_size, list=[_to_out(r, db) for r in rows])
 
     @staticmethod
     def list_for_student(
@@ -331,25 +486,7 @@ class TeachingService:
         )
         total = q.count()
         rows = q.order_by(desc(TeachingShare.created_at)).offset((page - 1) * page_size).limit(page_size).all()
-        items = []
-        for s in rows:
-            data = s.desensitized_data or {}
-            items.append(StudentCaseOut(
-                id=s.id,
-                share_type=s.share_type,
-                title=data.get("title", ""),
-                description=data.get("description", ""),
-                patient_age=data.get("patient_age"),
-                patient_gender=data.get("patient_gender", "U"),
-                clinical_info=data.get("clinical_info", ""),
-                category=data.get("category", ""),
-                difficulty=data.get("difficulty", ""),
-                image_paths=data.get("image_paths"),
-                image_count=data.get("image_count", 0),
-                teacher_name=(s.teacher.real_name if s.teacher else ""),
-                expired_at=s.expired_at,
-                teaching_case_id=s.teaching_case_id,
-            ))
+        items = [_student_out(db, s) for s in rows]
         return StudentCasePage(total=total, page=page, page_size=page_size, list=items)
 
     @staticmethod
@@ -371,20 +508,4 @@ class TeachingService:
             db, user=user, module="teaching", action="student_view",
             detail=f"学员查看演示病例#{share_id}", ip=ip, commit=True,
         )
-        data = share.desensitized_data or {}
-        return StudentCaseOut(
-            id=share.id,
-            share_type=share.share_type,
-            title=data.get("title", ""),
-            description=data.get("description", ""),
-            patient_age=data.get("patient_age"),
-            patient_gender=data.get("patient_gender", "U"),
-            clinical_info=data.get("clinical_info", ""),
-            category=data.get("category", ""),
-            difficulty=data.get("difficulty", ""),
-            image_paths=data.get("image_paths"),
-            image_count=data.get("image_count", 0),
-            teacher_name=(share.teacher.real_name if share.teacher else ""),
-            expired_at=share.expired_at,
-            teaching_case_id=share.teaching_case_id,
-        )
+        return _student_out(db, share)

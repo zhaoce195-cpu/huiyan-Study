@@ -132,6 +132,12 @@ def resolve_mode(
     """
     role = (viewer_role or "").upper()
 
+    # 练习入口（开始练习 / 换一份）一律不给答案。
+    # 以前交过卷只解锁提交后的评分报告，不能让下一轮抽到的卡片提前出现 DR 等级。
+    # 教师自己做题时同样遮住；备课和病例库仍对教师开放。
+    if scene == Scene.PRACTICE:
+        return PresentationMode.TRAINING_BLINDED
+
     if role in _TEACHER_ROLES:
         # 教师与管理员需要看到答案才能备课、审核与点评
         return PresentationMode.TEACHING_DEMO

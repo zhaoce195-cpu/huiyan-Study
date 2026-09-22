@@ -1,28 +1,21 @@
 <script setup lang="ts">
 /**
- * 教师待审核：把阅片提交和练习提交收成一个入口。
- * 点「评定」带上 recordId / sessionId，工作站才能打开审核侧栏。
+ * 教师待审核：只收阅片作业。
+ * 自主练习提交后由系统评分，不进入这里。
  */
 import { onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Refresh } from '@element-plus/icons-vue'
-import { PracticeApi, ReadingApi } from '@/api'
+import { ReadingApi } from '@/api'
 import ReadingReviewDialog from '@/views/reading/components/ReadingReviewDialog.vue'
 
-type Kind = 'reading' | 'practice'
-
 const router = useRouter()
-const activeKind = ref<Kind>('reading')
 
 const readingStatus = ref<ReadingApi.ReadingStatus | ''>('SUBMITTED')
-const practiceStatus = ref<PracticeApi.PracticeStatus | ''>('SUBMITTED')
 
 const readingLoading = ref(false)
-const practiceLoading = ref(false)
 const readingList = ref<ReadingApi.ReadingRecord[]>([])
-const practiceList = ref<PracticeApi.PracticeRecord[]>([])
 const readingPage = reactive({ page: 1, pageSize: 20, total: 0 })
-const practicePage = reactive({ page: 1, pageSize: 20, total: 0 })
 
 const fetchReading = async () => {
   readingLoading.value = true
@@ -42,31 +35,9 @@ const fetchReading = async () => {
   }
 }
 
-const fetchPractice = async () => {
-  practiceLoading.value = true
-  try {
-    const r = await PracticeApi.getPracticeList({
-      status: practiceStatus.value || undefined,
-      page: practicePage.page,
-      pageSize: practicePage.pageSize
-    })
-    practiceList.value = (r.list || []).filter((row) => row.status !== 'DRAFT')
-    practicePage.total = r.total || 0
-  } catch {
-    practiceList.value = []
-    practicePage.total = 0
-  } finally {
-    practiceLoading.value = false
-  }
-}
-
 const onReadingFilter = () => {
   readingPage.page = 1
   fetchReading()
-}
-const onPracticeFilter = () => {
-  practicePage.page = 1
-  fetchPractice()
 }
 
 const reviewVisible = ref(false)
@@ -93,29 +64,11 @@ const goReadingReview = (row: ReadingApi.ReadingRecord) => {
   })
 }
 
-const goPracticeReview = (row: PracticeApi.PracticeRecord) => {
-  router.push({
-    path: '/training/practice/workstation',
-    query: {
-      caseId: String(row.caseId),
-      sessionId: String(row.id),
-      review: '1'
-    }
-  })
-}
-
 const readingMeta = (status: ReadingApi.ReadingStatus) =>
   ReadingApi.READING_STATUS_META[status] || { label: status, tag: 'info' as const }
 
-const practiceReviewText = (row: PracticeApi.PracticeRecord) => {
-  if (row.status === 'SUBMITTED') return { label: '待审核', type: 'warning' as const }
-  if (row.status === 'REVIEWED') return { label: '已点评', type: 'success' as const }
-  return { label: '草稿', type: 'info' as const }
-}
-
 onMounted(() => {
   fetchReading()
-  fetchPractice()
 })
 </script>
 
@@ -125,20 +78,19 @@ onMounted(() => {
       <div class="head-left">
         <h2>待审核</h2>
         <div class="muted">
-          学员提交的阅片作业与练习自评。阅片作业也可从「阅片工作台 → 质量评估」进入。
+          这里只评定学员提交的阅片作业。自主练习提交后由系统直接评分，不送到教师端。
         </div>
       </div>
       <el-button
         :icon="Refresh"
         size="small"
-        @click="activeKind === 'reading' ? fetchReading() : fetchPractice()"
+        @click="fetchReading"
       >
         刷新
       </el-button>
     </header>
 
-    <el-tabs v-model="activeKind" class="kind-tabs">
-      <el-tab-pane label="阅片作业" name="reading">
+    <div class="kind-tabs">
         <div class="toolbar">
           <el-select
             v-model="readingStatus"
@@ -157,11 +109,6 @@ onMounted(() => {
           <el-table-column prop="id" label="记录" width="80" />
           <el-table-column prop="userName" label="学员" min-width="120" />
           <el-table-column prop="caseNo" label="病例" min-width="140" />
-          <el-table-column label="类型" width="90">
-            <template #default>
-              <el-tag size="small" effect="plain">阅片</el-tag>
-            </template>
-          </el-table-column>
           <el-table-column label="状态" width="110">
             <template #default="{ row }">
               <el-tag size="small" :type="readingMeta(row.status).tag">
@@ -201,80 +148,7 @@ onMounted(() => {
             @current-change="fetchReading"
           />
         </div>
-      </el-tab-pane>
-
-      <el-tab-pane label="练习自评" name="practice">
-        <div class="toolbar">
-          <el-select
-            v-model="practiceStatus"
-            placeholder="状态"
-            clearable
-            size="small"
-            style="width: 140px"
-            @change="onPracticeFilter"
-          >
-            <el-option label="待审核" value="SUBMITTED" />
-            <el-option label="已点评" value="REVIEWED" />
-          </el-select>
-        </div>
-        <el-table v-loading="practiceLoading" :data="practiceList" size="small" stripe>
-          <el-table-column prop="userName" label="学员" min-width="120" />
-          <el-table-column label="病例" min-width="180">
-            <template #default="{ row }">
-              <div>{{ row.caseTitle || row.caseNo }}</div>
-              <div class="muted">{{ row.caseNo }}</div>
-            </template>
-          </el-table-column>
-          <el-table-column label="类型" width="90">
-            <template #default>
-              <el-tag size="small" type="warning" effect="plain">练习</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="系统分" width="90">
-            <template #default="{ row }">
-              {{ Number(row.scoreTotal || 0).toFixed(1) }}
-            </template>
-          </el-table-column>
-          <el-table-column label="是否通过" width="90">
-            <template #default="{ row }">
-              <el-tag size="small" :type="row.isPassed ? 'success' : 'danger'">
-                {{ row.isPassed ? '合格' : '不合格' }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="教师评定" width="110">
-            <template #default="{ row }">
-              <el-tag size="small" :type="practiceReviewText(row).type">
-                {{ practiceReviewText(row).label }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column prop="submittedAt" label="提交时间" width="180" />
-          <el-table-column label="操作" width="100" fixed="right">
-            <template #default="{ row }">
-              <el-button text type="primary" size="small" @click="goPracticeReview(row)">
-                评定
-              </el-button>
-            </template>
-          </el-table-column>
-          <template #empty>
-            <div class="empty">{{ practiceLoading ? '加载中…' : '暂无待审核作业' }}</div>
-          </template>
-        </el-table>
-        <div v-if="practicePage.total > practicePage.pageSize" class="pagination">
-          <el-pagination
-            v-model:current-page="practicePage.page"
-            v-model:page-size="practicePage.pageSize"
-            :total="practicePage.total"
-            :page-sizes="[10, 20, 50]"
-            background
-            layout="total, sizes, prev, pager, next"
-            @size-change="fetchPractice"
-            @current-change="fetchPractice"
-          />
-        </div>
-      </el-tab-pane>
-    </el-tabs>
+    </div>
 
     <ReadingReviewDialog
       v-model="reviewVisible"

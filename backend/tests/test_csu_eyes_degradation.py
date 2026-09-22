@@ -22,6 +22,13 @@ def files():
     return {"file": ("a.jpg", b"x", "image/jpeg")}
 
 
+@pytest.fixture(autouse=True)
+def _clear_route_memory():
+    client._reset_route_memory()
+    yield
+    client._reset_route_memory()
+
+
 # --------------------------------------------------------------------------
 # 预检
 # --------------------------------------------------------------------------
@@ -33,6 +40,8 @@ def test_preflight_passes_when_service_answers(monkeypatch):
 
 def test_preflight_detects_dead_tunnel(monkeypatch):
     """连得上但不回话 —— 隧道断了的典型形态"""
+    client._reset_route_memory()
+
     def _timeout(*a, **k):
         raise requests.exceptions.Timeout()
 
@@ -41,7 +50,41 @@ def test_preflight_detects_dead_tunnel(monkeypatch):
     assert reason and "无响应" in reason
 
 
+def test_preflight_reuses_recent_base_when_head_times_out(monkeypatch):
+    """上一张图刚判读成功时，下一次 HEAD 超时不应把这张图打成 503。"""
+    client._reset_route_memory()
+    client._remember_good_base(client.PUBLIC_CSU_EYES_BASE)
+
+    def _timeout(*a, **k):
+        raise requests.exceptions.Timeout()
+
+    monkeypatch.setattr(client.requests, "head", _timeout)
+    try:
+        assert client.preflight() is None
+        assert client._selected_base.get().rstrip("/").endswith(":9050")
+    finally:
+        client._reset_route_memory()
+
+
+def test_preflight_falls_back_when_configured_host_times_out(monkeypatch):
+    """内网地址超时后改用公网 9050，不能把质量评估整批判失败。"""
+    monkeypatch.setattr(
+        client.settings, "CSU_EYES_BASE_URL", "http://192.168.2.103:5000",
+    )
+
+    def _head(url, *a, **k):
+        if "192.168.2.103" in url:
+            raise requests.exceptions.Timeout()
+        return object()
+
+    monkeypatch.setattr(client.requests, "head", _head)
+    assert client.preflight() is None
+    assert client._selected_base.get().endswith(":9050")
+
+
 def test_preflight_detects_refused(monkeypatch):
+    client._reset_route_memory()
+
     def _refused(*a, **k):
         raise requests.exceptions.ConnectionError()
 

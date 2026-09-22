@@ -186,26 +186,137 @@ def _count_lesion_pixels(p: Path, threshold: int = 10) -> int:
         return 0
 
 
-def _heuristic_grade(lesions: Dict[str, int], total_px: int) -> Tuple[str, str]:
-    has = {k: v > 0 for k, v in lesions.items()}
-    ratio = {k: v / max(1, total_px) for k, v in lesions.items()}
-    if has.get("SE"):
-        return "4", "增殖性 / 进展期 DR：检出软性渗出（CWS），结合其他征象判读"
-    if has.get("HE") and ratio.get("HE", 0) > 0.001:
-        return "3", "重度 NPDR：大面积视网膜出血"
-    if has.get("HE") or (has.get("EX") and ratio.get("EX", 0) > 0.0015):
-        return "3", "重度 NPDR：明显出血或硬性渗出"
-    if has.get("EX"):
-        return "2", "中度 NPDR：检出硬性渗出"
-    if has.get("MA"):
-        return "1", "轻度 NPDR：仅见微血管瘤"
-    return "0", "未见明显 DR 征象"
+# 约 4288×2848 的原图上，出血像素达到这一量级就按重度 NPDR（4-2-1 的大范围出血），
+# 不再把几乎每例出血都写成重度，也不把棉绒斑写成增殖期。
+SEVERE_HEMORRHAGE_PX = 80_000
+
+# 掩膜只有 MA/HE/EX/SE/OD，看不到新生血管。只有对过原图的病例才允许写成 PDR。
+_REVIEWED_GRADE = {
+    "IDRiD_17": {
+        "grade": "4",
+        "label": "PDR（NVE）",
+        "conclusion": (
+            "增殖性糖尿病视网膜病变（PDR）。上方血管弓旁可见扇形新生血管（NVE，位于视盘外）。"
+            "下方可见舟状视网膜前积血，眼底结构仍可辨认，因此不把本例写成弥漫性玻璃体积血。"
+            "视盘是否另有新生血管不能单凭此图定论，教学结论以明确的 NVE 为准。"
+        ),
+        "teaching": (
+            "NVE 是长在视盘以外的新生血管，常沿血管弓呈扇形。"
+            "视网膜前积血呈舟状、有液平面，后方的视网膜还能看见。"
+            "玻璃体积血会把后极部蒙暗，血管看不清。"
+            "棉绒斑和出血再多，只要没有新生血管，仍是重度 NPDR，不是 PDR。"
+        ),
+    },
+}
+
+_GRADE_LABEL = {
+    "0": "无 DR",
+    "1": "轻度 NPDR",
+    "2": "中度 NPDR",
+    "3": "重度 NPDR",
+    "4": "PDR",
+}
+
+_GRADE_CONCLUSION = {
+    "0": "未见明显糖尿病视网膜病变征象。",
+    "1": "轻度 NPDR：仅见微动脉瘤，无出血、硬性渗出或棉绒斑。",
+    "2": "中度 NPDR：可见视网膜出血和/或硬性渗出，未见棉绒斑，也未见新生血管。",
+    "3": (
+        "重度 NPDR：棉绒斑或较多视网膜出血。"
+        "棉绒斑属于重度非增殖期，不能据此诊断增殖期。"
+    ),
+    "4": "增殖性糖尿病视网膜病变（PDR）：须见到新生血管或玻璃体积血。",
+}
+
+_GRADE_TEACHING = {
+    "0": "正常眼底：视盘边界清楚，血管走形自然，没有微动脉瘤、出血、渗出或新生血管。",
+    "1": "轻度 NPDR 只有微动脉瘤。一旦出现出血或硬性渗出，就至少是中度。",
+    "2": "中度 NPDR 可以有微动脉瘤、点片状出血和硬性渗出，但还没有达到 4-2-1 的重度标准，也没有新生血管。",
+    "3": (
+        "重度 NPDR 看 4-2-1：四个象限较多出血、至少两个象限静脉串珠，或一个象限 IRMA。"
+        "棉绒斑常同时出现，但它不是新生血管，不能写成 PDR。"
+    ),
+    "4": "PDR 要看到视盘新生血管（NVD）、视盘外新生血管（NVE）或玻璃体积血。",
+}
+
+# 学员随机练习用的代表病例。中度和重度只用掩膜分级对得上、并且看过原图的编号。
+_SPECTRUM_MODERATE = ("IDRiD_29", "IDRiD_43")
+_SPECTRUM_SEVERE = ("IDRiD_35", "IDRiD_59", "IDRiD_25", "IDRiD_33")
+_SPECTRUM_PDR = ("IDRiD_17",)
+_SPECTRUM_MODERATE_TARGET = 4
+
+IDRID_CLINICAL_NEUTRAL = "眼底彩色照片。请根据图像判断有没有糖尿病视网膜病变，以及轻到重的程度。"
+
+
+def grade_from_lesion_counts(
+    lesions: Dict[str, int],
+    stem: str = "",
+) -> Tuple[str, str]:
+    """
+    由分割掩膜像素数给出 DR 0–4。
+
+    软性渗出（SE / 棉绒斑）是重度 NPDR 的征象，不是新生血管，不能返回 4。
+    这套图没有「只有微动脉瘤」和「完全没有病灶」的样本，0 级和 1 级不会从掩膜里产生。
+    """
+    reviewed = _REVIEWED_GRADE.get(stem)
+    if reviewed:
+        return reviewed["grade"], reviewed["conclusion"]
+    he = int(lesions.get("HE") or 0)
+    ex = int(lesions.get("EX") or 0)
+    se = int(lesions.get("SE") or 0)
+    ma = int(lesions.get("MA") or 0)
+    if se > 0 or he >= SEVERE_HEMORRHAGE_PX:
+        return "3", _GRADE_CONCLUSION["3"]
+    if he > 0 or ex > 0:
+        return "2", _GRADE_CONCLUSION["2"]
+    if ma > 0:
+        return "1", _GRADE_CONCLUSION["1"]
+    return "0", _GRADE_CONCLUSION["0"]
+
+
+def _heuristic_grade(
+    lesions: Dict[str, int],
+    total_px: int,
+    stem: str = "",
+) -> Tuple[str, str]:
+    del total_px  # 旧接口保留参数；分级改用绝对像素，避免小图比例失真
+    return grade_from_lesion_counts(lesions, stem)
+
+
+def _grade_label(grade: str, stem: str = "") -> str:
+    reviewed = _REVIEWED_GRADE.get(stem)
+    if reviewed:
+        return reviewed["label"]
+    return _GRADE_LABEL.get(grade, grade)
+
+
+def _teaching_for(grade: str, stem: str = "") -> str:
+    reviewed = _REVIEWED_GRADE.get(stem)
+    if reviewed:
+        return reviewed["teaching"]
+    return _GRADE_TEACHING.get(grade, _GRADE_TEACHING["2"])
+
+
+def _lesion_counts(gold_lesions) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    for item in gold_lesions or []:
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("type") or "")
+        if not code:
+            continue
+        raw = item.get("pixel_count", item.get("count", 0))
+        try:
+            counts[code] = int(raw or 0)
+        except (TypeError, ValueError):
+            counts[code] = 0
+    return counts
 
 
 def _difficulty_for(grade: str) -> str:
     if grade in ("0", "1"):
         return CaseDifficultyEnum.EASY.value
-    if grade in ("2", "3"):
+    if grade == "2":
         return CaseDifficultyEnum.MEDIUM.value
     return CaseDifficultyEnum.HARD.value
 
@@ -350,7 +461,7 @@ def run_idrid_import(
                     continue
                 p = _find_mask(gt_split / cfg["folder"], stem, cfg["suffix"])
                 counts[cfg["code"]] = _count_lesion_pixels(p) if p else 0
-            grade, conclusion = _heuristic_grade(counts, total_px)
+            grade, conclusion = _heuristic_grade(counts, total_px, stem)
             grade_dist[grade] += 1
 
             if dry_run:
@@ -410,10 +521,10 @@ def run_idrid_import(
             if not tc:
                 tc = TrainingCase(
                     case_no=case_no_t,
-                    title=f"IDRiD {stem} · DR {grade} 级",
+                    title=f"{stem} · {_grade_label(grade, stem)}",
                     description=(
                         f"来源：IDRiD 多病灶分割（{split_tag}）\n"
-                        f"金标准 DR 分级：{grade}\n"
+                        f"金标准 DR 分级：{grade}（{_grade_label(grade, stem)}）\n"
                         f"病灶检出：" + (
                             ", ".join(f"{k}:{v}px" for k, v in counts.items() if v > 0) or "无"
                         )
@@ -424,7 +535,7 @@ def run_idrid_import(
                     patient_age=patient.age,
                     patient_gender=patient.gender,
                     patient_phone=patient.phone,
-                    clinical_info=conclusion,
+                    clinical_info=IDRID_CLINICAL_NEUTRAL,
                     image_paths={"OU": [url_records[0][1]]} if url_records else {},
                     gold_dr_grade=grade,
                     gold_diagnosis=conclusion,
@@ -436,9 +547,7 @@ def run_idrid_import(
                     gold_heatmap_path=next(
                         (u for r, u, _, _ in url_records if r == "overlay"), "",
                     ),
-                    teaching_points=(
-                        "教学要点：MA 多见于轻度；EX 反映慢性渗漏；HE 大面积出血提示重度；SE 警惕前增殖期。"
-                    ),
+                    teaching_points=_teaching_for(grade, stem),
                     pass_score=60,
                     is_published=False,
                     is_train_case=False,
@@ -501,7 +610,7 @@ def run_idrid_import(
                     rec = CaseImageService.register_external(
                         db,
                         case_table=tbl, case_id=cid,
-                        role=role, eye="OU",
+                        role=role, eye="UK",
                         file_url=url, file_name=fname, file_size=size,
                         uploaded_by=creator_id,
                     )
@@ -545,9 +654,166 @@ def run_idrid_import(
     )
 
 
+def _idrid_stem(case_no: str) -> str:
+    prefix = "IDRID-T-"
+    if case_no.startswith(prefix):
+        return case_no[len(prefix):]
+    return ""
+
+
+def _spectrum_stems(graded: Dict[str, Tuple[str, int]]) -> set:
+    """graded: 文件名 -> (分级, 出血像素)。只把分级对得上的代表病例放进学员库。"""
+    chosen = set()
+    for stem in _SPECTRUM_PDR:
+        if graded.get(stem, ("", 0))[0] == "4":
+            chosen.add(stem)
+    for stem in _SPECTRUM_SEVERE:
+        if graded.get(stem, ("", 0))[0] == "3":
+            chosen.add(stem)
+    moderates = [
+        stem for stem in _SPECTRUM_MODERATE
+        if graded.get(stem, ("", 0))[0] == "2"
+    ]
+    extras = sorted(
+        (
+            (he, stem)
+            for stem, (grade, he) in graded.items()
+            if grade == "2" and stem not in moderates
+        )
+    )
+    for stem in moderates:
+        chosen.add(stem)
+    need = _SPECTRUM_MODERATE_TARGET - len(moderates)
+    for _he, stem in extras[: max(0, need)]:
+        chosen.add(stem)
+    return chosen
+
+
+def _strip_neovascular_marks(case: TrainingCase) -> None:
+    case.gold_annotations = [
+        ann for ann in (case.gold_annotations or [])
+        if not (isinstance(ann, dict) and "新生血管" in str(ann.get("label") or ""))
+    ]
+    case.gold_lesions = [
+        item for item in (case.gold_lesions or [])
+        if not (isinstance(item, dict) and str(item.get("type") or "") in {"NV", "NVD", "NVE"})
+    ]
+
+
+def _keep_seed_endpoints_in_pool(db: Session) -> None:
+    """正常眼底和轻度 NPDR 这套分割图里没有，继续用已有教学示例。"""
+    for case_no in ("T2026001", "T2026002"):
+        row = db.query(TrainingCase).filter(TrainingCase.case_no == case_no).first()
+        if row is None:
+            continue
+        if row.archive_status != CaseArchiveStatusEnum.ACTIVE.value:
+            continue
+        row.is_published = True
+        row.is_train_case = True
+
+
+def _correct_demo_labels(db: Session) -> List[str]:
+    """示例图上没有新生血管，去掉写错的 NVD / 玻璃体积血结论。不改已有练习成绩。"""
+    notes: List[str] = []
+    severe = db.query(TrainingCase).filter(TrainingCase.case_no == "T2026004").first()
+    if severe is not None:
+        _strip_neovascular_marks(severe)
+        note = "本示例图不作为新生血管（NVD/NVE）教学。"
+        if note not in (severe.teaching_points or ""):
+            severe.teaching_points = ((severe.teaching_points or "").rstrip() + "\n" + note).strip()
+        notes.append("T2026004")
+    pdr = db.query(TrainingCase).filter(TrainingCase.case_no == "T2026005").first()
+    if pdr is not None:
+        pdr.gold_dr_grade = "2"
+        pdr.title = "中度 NPDR（教学示例）"
+        pdr.gold_diagnosis = (
+            "中度 NPDR：少量微动脉瘤与小簇硬性渗出。"
+            "本图未见视盘或视盘外新生血管，也未见玻璃体积血。"
+        )
+        pdr.clinical_info = "糖尿病史。请按眼底图判读。"
+        pdr.teaching_points = (
+            "这张示例图只有少量微动脉瘤和硬性渗出，按中度 NPDR。"
+            "图上没有新生血管，也没有蒙住眼底的玻璃体积血，不能判成 PDR。"
+        )
+        pdr.difficulty = CaseDifficultyEnum.MEDIUM.value
+        pdr.description = "教学示例。金标准已按图像改回中度 NPDR，不再标成视盘新生血管。"
+        _strip_neovascular_marks(pdr)
+        pdr.gold_lesions = [{"type": "MA", "count": 4}, {"type": "EX", "count": 1}]
+        pdr.is_train_case = False
+        pdr.is_published = False
+        notes.append("T2026005")
+    return notes
+
+
+def refresh_idrid_spectrum(db: Session) -> Dict[str, object]:
+    """
+    按掩膜重写 IDRiD 金标准分级，并放出一条从中度到 PDR 的学员练习谱。
+
+    只改病例上的分级、诊断和是否进入实训库。不改练习会话里已经记下的分数。
+    """
+    cases = (
+        db.query(TrainingCase)
+        .filter(TrainingCase.case_no.like("IDRID-T-%"))
+        .all()
+    )
+    graded: Dict[str, Tuple[str, int]] = {}
+    paired: List[Tuple[str, TrainingCase]] = []
+    for case in cases:
+        stem = _idrid_stem(case.case_no)
+        counts = _lesion_counts(case.gold_lesions)
+        grade, conclusion = grade_from_lesion_counts(counts, stem)
+        label = _grade_label(grade, stem)
+        case.gold_dr_grade = grade
+        case.gold_diagnosis = conclusion
+        case.clinical_info = IDRID_CLINICAL_NEUTRAL
+        case.teaching_points = _teaching_for(grade, stem)
+        case.difficulty = _difficulty_for(grade)
+        case.title = f"{stem} · {label}"[:128]
+        detected = ", ".join(
+            f"{k}:{v}px" for k, v in counts.items() if v > 0 and k != "OD"
+        ) or "无"
+        case.description = (
+            f"来源：IDRiD 多病灶分割\n"
+            f"金标准 DR 分级：{grade}（{label}）\n"
+            f"病灶检出：{detected}"
+        )
+        graded[stem] = (grade, int(counts.get("HE") or 0))
+        paired.append((stem, case))
+        screening = (
+            db.query(ScreeningCase)
+            .filter(ScreeningCase.case_no == f"IDRID-P-{stem}")
+            .first()
+        )
+        if screening is not None:
+            screening.medical_history = conclusion
+
+    chosen = _spectrum_stems(graded)
+    for stem, case in paired:
+        in_pool = (
+            stem in chosen
+            and case.archive_status == CaseArchiveStatusEnum.ACTIVE.value
+        )
+        case.is_published = in_pool
+        case.is_train_case = in_pool
+    _keep_seed_endpoints_in_pool(db)
+    demo_notes = _correct_demo_labels(db)
+    db.commit()
+    return {
+        "updated": len(cases),
+        "grade_distribution": dict(Counter(grade for grade, _he in graded.values())),
+        "train_distribution": dict(
+            Counter(grade for stem, (grade, _he) in graded.items() if stem in chosen)
+        ),
+        "train_stems": sorted(chosen),
+        "demo_adjusted": demo_notes,
+    }
+
+
 __all__ = [
     "run_idrid_import",
     "probe_idrid_source",
+    "refresh_idrid_spectrum",
+    "grade_from_lesion_counts",
     "resolved_idrid_root",
     "DEFAULT_IDRID_ROOT",
 ]

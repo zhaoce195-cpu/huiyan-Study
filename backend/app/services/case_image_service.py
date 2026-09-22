@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Tuple
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
+from app.common.eye_infer import resolve_static_file, resolve_uploaded_eye
 from app.common.utils import (
     delete_fundus_file,
     save_fundus_image,
@@ -58,7 +59,7 @@ def _validate_table(case_table: str) -> str:
 
 
 def _validate_eye(eye: str) -> str:
-    if eye not in ("OD", "OS", "OU"):
+    if eye not in ("OD", "OS", "OU", "UK"):
         raise HTTPException(400, detail=f"非法 eye：{eye}")
     return eye
 
@@ -78,6 +79,43 @@ def _get_case(db: Session, case_table: str, case_id: int):
 def _is_teacher_or_admin(user: User) -> bool:
     role_code = user.role.code if user.role else ""
     return role_code in (RoleEnum.TEACHER.value, RoleEnum.ADMIN.value)
+
+
+def _single_original_eye(db: Session, case_table: str, case_id: int) -> str:
+    """该病例原图只有一种明确眼别时返回它，供 mask / 标注层继承。"""
+    rows = (
+        db.query(CaseImage.eye)
+        .filter(
+            CaseImage.case_table == case_table,
+            CaseImage.case_id == case_id,
+            CaseImage.role == "original",
+        )
+        .all()
+    )
+    eyes = set()
+    for (value,) in rows:
+        code = (value or "").upper()
+        if code in ("OD", "OS", "OU"):
+            eyes.add(code)
+    if len(eyes) == 1:
+        return next(iter(eyes))
+    return ""
+
+
+def _append_original_path(case, eye: str, rel_url: str) -> None:
+    """原图写入 image_paths 的对应眼别桶，避免新图继续落在过期的 OU 桶。"""
+    if not hasattr(case, "image_paths"):
+        return
+    paths = dict(case.image_paths or {})
+    bucket = [u for u in (paths.get(eye) or []) if u]
+    if rel_url not in bucket:
+        bucket.append(rel_url)
+    paths[eye] = bucket
+    case.image_paths = paths
+    if hasattr(case, "image_count"):
+        case.image_count = sum(
+            len(v) for v in paths.values() if isinstance(v, list)
+        )
 
 
 def _to_out(item: CaseImage) -> CaseImageOut:
@@ -221,18 +259,30 @@ class CaseImageService:
         case_id: int,
         file: UploadFile,
         role: str,
-        eye: str = "OU",
+        eye: str = "UK",
     ) -> CaseImage:
         if not _is_teacher_or_admin(user):
             raise HTTPException(403, detail="仅医生 / 管理员可上传影像")
         _validate_table(case_table)
         _validate_role(role)
-        _validate_eye(eye)
-        _get_case(db, case_table, case_id)  # 校验存在
+        eye_in = _validate_eye((eye or "UK").strip().upper() or "UK")
+        case = _get_case(db, case_table, case_id)
         rel_url, file_name, size = await save_fundus_image(file, user.id)
+        inherited = ""
+        if eye_in not in ("OD", "OS", "OU") and role != "original":
+            inherited = _single_original_eye(db, case_table, case_id)
+        eye_out = resolve_uploaded_eye(
+            eye_in,
+            file_name=file.filename or "",
+            image_path=resolve_static_file(rel_url),
+            role=role,
+            inherited=inherited,
+        )
+        if role == "original":
+            _append_original_path(case, eye_out, rel_url)
         rec = CaseImage(
             case_table=case_table, case_id=case_id,
-            role=role, eye=eye,
+            role=role, eye=eye_out,
             file_url=rel_url, file_name=file_name, file_size=size,
             uploaded_by=user.id,
         )
@@ -247,7 +297,7 @@ class CaseImageService:
     def register_external(
         db: Session, *,
         case_table: str, case_id: int,
-        role: str, eye: str = "OU",
+        role: str, eye: str = "UK",
         file_url: str, file_name: str = "",
         file_size: int = 0, width: int = 0, height: int = 0,
         uploaded_by: Optional[int] = None,

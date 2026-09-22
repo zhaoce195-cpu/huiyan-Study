@@ -37,6 +37,7 @@ interface SafetySummary {
   unevaluatedCount?: number
   hasUngradable?: boolean
   qualityChecked?: boolean
+  gradedTotal?: number
   eyesText?: string
   hasLateralityConflict?: boolean
   lateralityConflicts?: string[]
@@ -165,8 +166,11 @@ const conflict = computed(
         <span class="label">质控</span>
         <span class="value">
           {{ safety.qualityChecked
-            ? '已完成'
-            : `未完成（${safety.unevaluatedCount ?? 0} 张未评估）` }}
+            ? '本病例已完成'
+            : `本病例未完成（${safety.unevaluatedCount ?? 0} 张未评估）` }}
+          <template v-if="safety.gradedTotal != null">
+            · 累计 {{ safety.gradedTotal }} 张
+          </template>
         </span>
       </div>
 
@@ -226,8 +230,9 @@ const conflict = computed(
 }
 
 .label {
-  color: #8a8f99;
-  font-size: 12px;
+  color: #d5dae3;
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .value {
@@ -258,8 +263,8 @@ const conflict = computed(
   padding: 1px 8px;
   border: 1px solid #3a3f4a;
   border-radius: 10px;
-  color: #b8bcc4;
-  font-size: 12px;
+  color: #e8eaed;
+  font-size: 13px;
 }
 
 @media (max-width: 1366px) {

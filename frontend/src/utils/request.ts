@@ -167,6 +167,7 @@ service.interceptors.response.use(
       msg = '网络连接异常'
     }
     if (showError) ElMessage.error(msg)
+    error.message = msg
     return Promise.reject(error)
   }
 )

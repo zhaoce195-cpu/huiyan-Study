@@ -18,7 +18,7 @@ export type CaseImageRole =
   | 'overlay'
   | 'class_mask'
   | 'other'
-export type EyeSide = 'OD' | 'OS' | 'OU'
+export type EyeSide = 'OD' | 'OS' | 'OU' | 'UK'
 
 export interface CaseImageItem {
   id: number
@@ -153,7 +153,7 @@ export const uploadCaseImages = (
   caseId: number,
   files: File[],
   role: CaseImageRole,
-  eye: EyeSide = 'OU',
+  eye: EyeSide = 'UK',
   onProgress?: (percent: number) => void
 ) => {
   const fd = new FormData()

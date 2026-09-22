@@ -89,7 +89,7 @@ const rules: FormRules = {
 }
 
 /* ===== 影像 ===== */
-const imageEye = ref<EyeSide>('OU')
+const imageEye = ref<EyeSide | 'UK'>('UK')
 const images = ref<ScreeningApi.CaseImageItem[]>([])
 const imageLoading = ref(false)
 const uploading = ref(false)
@@ -332,8 +332,9 @@ const onSave = async () => {
               <el-radio-button value="OD">OD 右眼</el-radio-button>
               <el-radio-button value="OS">OS 左眼</el-radio-button>
               <el-radio-button value="OU">OU 双眼</el-radio-button>
+              <el-radio-button value="UK">自动判断</el-radio-button>
             </el-radio-group>
-            <span class="hint">支持 PNG/JPG/JPEG/WEBP/BMP，单张 ≤ {{ MAX_SIZE_MB }}MB</span>
+            <span class="hint">自动判断按视盘位置区分左眼、右眼或双眼。支持 PNG/JPG/JPEG/WEBP/BMP，单张 ≤ {{ MAX_SIZE_MB }}MB</span>
           </div>
 
           <div v-loading="imageLoading" class="image-grid">
