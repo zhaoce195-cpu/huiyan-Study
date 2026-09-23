@@ -183,26 +183,49 @@ def test_skip_existing_on_second_run(db, admin, tmp_path):
     assert db.query(TrainingCase).count() == 2
 
 
-def test_soft_exudate_is_severe_npdr_not_proliferative():
+def test_soft_exudate_is_moderate_not_severe_or_proliferative():
     from app.services.idrid_import_service import grade_from_lesion_counts
 
     grade, text = grade_from_lesion_counts(
         {"MA": 10, "HE": 100, "EX": 100, "SE": 50},
     )
-    assert grade == "3"
-    assert "重度" in text
-    assert "不能据此诊断增殖期" in text
+    assert grade == "2"
+    assert "中度 NPDR" in text
+    assert "不能按 4-2-1 写成重度 NPDR" in text
+    assert "不能诊断 PDR" in text
+    assert "前增殖期" not in text
+    assert "重度非增殖期" not in text
 
 
-def test_small_lesions_are_moderate_and_ma_only_is_mild():
+def test_hemorrhage_pixels_do_not_make_severe_npdr_or_pdr():
     from app.services.idrid_import_service import grade_from_lesion_counts
 
-    moderate, _ = grade_from_lesion_counts({"MA": 10, "HE": 2000, "EX": 2000, "SE": 0})
-    large, _ = grade_from_lesion_counts({"HE": 80_000, "SE": 0, "MA": 1})
+    modest, modest_text = grade_from_lesion_counts({"MA": 10, "HE": 2000, "EX": 2000, "SE": 0})
+    huge, huge_text = grade_from_lesion_counts({"HE": 1_180_000, "SE": 0, "MA": 1})
     mild, _ = grade_from_lesion_counts({"MA": 12})
-    assert moderate == "2"
-    assert large == "3"
+    assert modest == "2"
+    assert huge == "2"
+    assert "不能按 4-2-1 写成重度 NPDR" in modest_text
+    assert "不能按 4-2-1 写成重度 NPDR" in huge_text
     assert mild == "1"
+
+
+def test_421_needs_recorded_findings_and_pdr_needs_neovascularization():
+    from app.services.idrid_import_service import grade_from_lesion_counts
+
+    severe, severe_text = grade_from_lesion_counts({"VB": 2, "IRMA": 1, "HE": 24})
+    irma_only, _ = grade_from_lesion_counts({"IRMA": 1})
+    one_bead, one_text = grade_from_lesion_counts({"VB": 1, "HE": 500_000})
+    pdr, pdr_text = grade_from_lesion_counts({"NV": 1, "HE": 10, "SE": 10})
+    assert severe == "3"
+    assert "两个象限" in severe_text
+    assert "没有新生血管" in severe_text
+    assert irma_only == "3"
+    assert one_bead == "2"
+    assert "重度 NPDR" not in one_text.split("不能按")[0]
+    assert pdr == "4"
+    assert "已见到新生血管" in pdr_text
+    assert "不能代替新生血管" in pdr_text
 
 
 def test_reviewed_nve_image_is_pdr_without_calling_it_vitreous_hemorrhage():
@@ -319,9 +342,14 @@ def test_refresh_balances_train_pool_and_keeps_scores(db, admin):
     assert "NVE" not in (nve.clinical_info or "")
 
     cotton = db.query(TrainingCase).filter(TrainingCase.case_no == "IDRID-T-IDRiD_01").one()
-    assert cotton.gold_dr_grade == "3"
-    assert cotton.is_train_case is False
-    assert cotton.gold_diagnosis.startswith("重度 NPDR")
+    assert cotton.gold_dr_grade == "2"
+    assert cotton.gold_diagnosis.startswith("中度 NPDR")
+    assert "不能按 4-2-1 写成重度 NPDR" in cotton.gold_diagnosis
+    assert "不能诊断 PDR" in cotton.gold_diagnosis
+    for stem in ("IDRiD_35", "IDRiD_59", "IDRiD_25", "IDRiD_33"):
+        row = db.query(TrainingCase).filter(TrainingCase.case_no == f"IDRID-T-{stem}").one()
+        assert row.gold_dr_grade == "2"
+        assert "重度 NPDR" not in (row.title or "")
 
     demo = db.query(TrainingCase).filter(TrainingCase.case_no == "T2026005").one()
     assert demo.gold_dr_grade == "2"

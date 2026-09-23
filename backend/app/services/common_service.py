@@ -37,6 +37,116 @@ _READING_DONE = (
     ReadingStatusEnum.SUBMITTED.value,
     ReadingStatusEnum.REVIEWED.value,
 )
+
+_EMPTY_PROGRESS = {
+    "practice_count": 0,
+    "completed_cases": 0,
+    "avg_score": 0.0,
+    "score_sum": 0.0,
+    "score_count": 0,
+    "total_seconds": 0,
+    "avg_iou": 0.0,
+    "iou_sum": 0.0,
+    "iou_count": 0,
+    "passed": 0,
+}
+
+
+def learner_progress(db: Session, user_ids: Optional[List[int]] = None) -> Dict[int, dict]:
+    """学员、教师、管理员共用的练习次数、完成病例、平均成绩和学时。
+
+    练习次数、成绩、学时只数已交卷的练习。草稿不算。
+    完成病例是已交卷练习和已提交阅片的病例并集，同一病例多次只算一例。
+    """
+    if user_ids is not None and not user_ids:
+        return {}
+
+    practice_q = db.query(
+        PracticeSession.user_id,
+        PracticeSession.case_id,
+        PracticeSession.score_total,
+        PracticeSession.duration_seconds,
+        PracticeSession.iou_avg,
+        PracticeSession.is_passed,
+    ).filter(PracticeSession.status.in_(_PRACTICE_DONE))
+    reading_q = db.query(
+        ReadingAnnotation.user_id,
+        ReadingAnnotation.case_id,
+    ).filter(ReadingAnnotation.status.in_(_READING_DONE))
+    if user_ids is not None:
+        practice_q = practice_q.filter(PracticeSession.user_id.in_(user_ids))
+        reading_q = reading_q.filter(ReadingAnnotation.user_id.in_(user_ids))
+
+    buckets: Dict[int, dict] = {}
+
+    def bucket(uid: int) -> dict:
+        return buckets.setdefault(uid, {
+            "practice_count": 0,
+            "scores": [],
+            "seconds": 0,
+            "ious": [],
+            "passed": 0,
+            "cases": set(),
+        })
+
+    for uid, case_id, score, secs, iou, passed in practice_q.all():
+        row = bucket(int(uid))
+        row["practice_count"] += 1
+        if score is not None:
+            row["scores"].append(float(score))
+        row["seconds"] += int(secs or 0)
+        if iou is not None and float(iou) >= 0:
+            row["ious"].append(float(iou))
+        if passed:
+            row["passed"] += 1
+        if case_id:
+            row["cases"].add(int(case_id))
+
+    for uid, case_id in reading_q.distinct().all():
+        if case_id:
+            bucket(int(uid))["cases"].add(int(case_id))
+
+    out: Dict[int, dict] = {}
+    for uid, row in buckets.items():
+        count = row["practice_count"]
+        ious = row["ious"]
+        scores = row["scores"]
+        out[uid] = {
+            "practice_count": count,
+            "completed_cases": len(row["cases"]),
+            "avg_score": round(sum(scores) / len(scores), 2) if scores else 0.0,
+            "score_sum": sum(scores),
+            "score_count": len(scores),
+            "total_seconds": row["seconds"],
+            "avg_iou": round(sum(ious) / len(ious), 4) if ious else 0.0,
+            "iou_sum": sum(ious),
+            "iou_count": len(ious),
+            "passed": row["passed"],
+        }
+    if user_ids is not None:
+        for uid in user_ids:
+            out.setdefault(uid, dict(_EMPTY_PROGRESS))
+    return out
+
+
+def learner_progress_sum(rows: Dict[int, dict]) -> dict:
+    """把每人的数加总。完成病例按人累加，两人完成同一例算两例。"""
+    count = sum(row["practice_count"] for row in rows.values())
+    seconds = sum(row["total_seconds"] for row in rows.values())
+    passed = sum(row["passed"] for row in rows.values())
+    cases = sum(row["completed_cases"] for row in rows.values())
+    score_count = sum(row["score_count"] for row in rows.values())
+    score_sum = sum(row["score_sum"] for row in rows.values())
+    iou_count = sum(row["iou_count"] for row in rows.values())
+    iou_sum = sum(row["iou_sum"] for row in rows.values())
+    return {
+        "practice_count": count,
+        "completed_cases": cases,
+        "avg_score": round(score_sum / score_count, 2) if score_count else 0.0,
+        "total_seconds": seconds,
+        "avg_iou": round(iou_sum / iou_count, 4) if iou_count else 0.0,
+        "passed": passed,
+    }
 from app.schemas.common import (
     DepartmentOut,
     DepartmentSaveParams,
@@ -346,7 +456,8 @@ class CommonService:
 
         # IoU 与是否通过只有练习记录才有，分母也只能是练习提交数
         avg_iou = db.query(func.avg(PracticeSession.iou_avg)).filter(
-            PracticeSession.status.in_(_PRACTICE_DONE)
+            PracticeSession.status.in_(_PRACTICE_DONE),
+            PracticeSession.iou_avg >= 0,
         ).scalar()
 
         passed_cnt: int = (
@@ -434,52 +545,12 @@ class CommonService:
             return StudyHoursOut(total=total, list=[])
 
         user_ids = [u.id for u in users]
-
-        # 原先聚合的 TrainingRecord 没有任何写入方，三列恒为 0
-        #（用户测试报告：「学员页面显示已有练习和提交记录，但管理页面显示完成病例为 0」）。
-        # 学时与 IoU 只有练习记录才有这两个字段；完成病例则要把阅片提交也算进来，
-        # 否则学员在阅片工作台交的那些又会漏掉 —— 两张表的 case_id 都指向
-        # biz_training_case.id，可以直接按病例去重取并集。
-        agg_rows = (
-            db.query(
-                PracticeSession.user_id,
-                func.coalesce(func.sum(PracticeSession.duration_seconds), 0),
-                func.coalesce(func.avg(PracticeSession.iou_avg), 0),
-            )
-            .filter(
-                PracticeSession.user_id.in_(user_ids),
-                PracticeSession.status.in_(_PRACTICE_DONE),
-            )
-            .group_by(PracticeSession.user_id)
-            .all()
-        )
-        stat_map = {
-            uid: (int(secs or 0), float(avg or 0.0))
-            for uid, secs, avg in agg_rows
-        }
-
-        # 完成病例 = 练习已提交 ∪ 阅片已提交，按 (user, case) 去重
-        done_pairs: set = set()
-        for model, done_status in (
-            (PracticeSession, _PRACTICE_DONE),
-            (ReadingAnnotation, _READING_DONE),
-        ):
-            rows = (
-                db.query(model.user_id, model.case_id)
-                .filter(model.user_id.in_(user_ids), model.status.in_(done_status))
-                .distinct()
-                .all()
-            )
-            done_pairs.update(rows)
-
-        case_count_map: Dict[int, int] = {}
-        for uid, _case_id in done_pairs:
-            case_count_map[uid] = case_count_map.get(uid, 0) + 1
+        progress = learner_progress(db, user_ids)
 
         items: List[StudyHoursItem] = []
         for u in users:
-            secs, avg_iou = stat_map.get(u.id, (0, 0.0))
-            case_cnt = case_count_map.get(u.id, 0)
+            row = progress[u.id]
+            secs = row["total_seconds"]
             items.append(StudyHoursItem(
                 user_id=u.id,
                 username=u.username,
@@ -487,8 +558,10 @@ class CommonService:
                 department=u.department or "",
                 total_seconds=secs,
                 total_hours=round(secs / 3600, 2),
-                case_count=case_cnt,
-                avg_iou=round(avg_iou, 4),
+                practice_count=row["practice_count"],
+                case_count=row["completed_cases"],
+                avg_score=row["avg_score"],
+                avg_iou=row["avg_iou"],
             ))
 
         return StudyHoursOut(total=total, list=items)

@@ -58,6 +58,12 @@ const onFilter = () => {
   fetchList()
 }
 
+const clearFilters = () => {
+  filter.keyword = ''
+  filter.status = ''
+  onFilter()
+}
+
 /* ========== 通过 / 驳回（共享 composable） ========== */
 const { reviewing, approve, reject } = useReviewActions<unknown>({
   reviewFn: (id, payload) => TeachingApi.adminReview(id, payload),
@@ -134,6 +140,7 @@ onMounted(fetchList)
             <el-option label="已驳回" value="REJECTED" />
             <el-option label="已下架" value="SHELVED" />
           </el-select>
+          <el-button size="small" @click="clearFilters">清除</el-button>
           <el-button :icon="Refresh" size="small" @click="fetchList">刷新</el-button>
         </div>
       </div>

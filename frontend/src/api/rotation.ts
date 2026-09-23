@@ -29,14 +29,51 @@ export interface RotationTask {
   resourceId: number | null
   doneCount: number
   studentCount: number
+  tier: 'REQUIRED' | 'EXTENSION' | string
+  scope: 'ALL' | 'YEAR' | 'GROUP' | string
+  scopeValue: string
+  scopeText: string
+}
+
+export interface StudentTaskSnap {
+  taskId: number
+  status: string
+  statusText: string
+  score: number | null
 }
 
 export interface StudentProgress {
   userId: number
   name: string
+  username: string
+  studyYear: string
+  rotationBatch: string
+  mentorGroup: string
   done: number
   total: number
   progress: number
+  practiceCount: number
+  completedCases: number
+  avgScore: number
+  studySeconds: number
+  tasks: StudentTaskSnap[]
+}
+
+export interface WeakLabelBrief {
+  label: string
+  missed: number
+  falsePositive: number
+}
+
+export interface GroupSummary {
+  studyYear: string
+  rotationBatch: string
+  mentorGroup: string
+  studentCount: number
+  done: number
+  total: number
+  progress: number
+  weakLabels: WeakLabelBrief[]
 }
 
 export interface StudentHome {
@@ -44,6 +81,9 @@ export interface StudentHome {
   rotation: RotationBrief | null
   today: RotationTask[]
   tasks: RotationTask[]
+  studyYear: string
+  rotationBatch: string
+  mentorGroup: string
 }
 
 export interface TeacherHome {
@@ -51,6 +91,7 @@ export interface TeacherHome {
   rotation: RotationBrief | null
   tasks: RotationTask[]
   students: StudentProgress[]
+  groups: GroupSummary[]
 }
 
 export type HomePayload = StudentHome | TeacherHome
@@ -76,10 +117,23 @@ export const addTask = (body: {
   summary?: string
   passScore?: number
   dueOn?: string
+  tier?: 'REQUIRED' | 'EXTENSION'
+  scope?: 'ALL' | 'YEAR' | 'GROUP'
+  scopeValue?: string
 }) => http.post<TeacherHome>('/rotation/tasks', body)
 
 export const removeTask = (taskId: number) =>
   http.delete<TeacherHome>(`/rotation/tasks/${taskId}`)
 
+export const reorderTasks = (taskIds: number[]) =>
+  http.put<TeacherHome>('/rotation/tasks/order', { taskIds })
+
+export const arrangeTasks = () => http.post<TeacherHome>('/rotation/tasks/arrange')
+
 export const markLearned = (taskId: number) =>
   http.post<StudentHome>(`/rotation/tasks/${taskId}/learn`)
+
+export const setStudentGroup = (
+  userId: number,
+  body: { studyYear?: string; rotationBatch?: string; mentorGroup?: string }
+) => http.put<TeacherHome>(`/rotation/students/${userId}/group`, body)

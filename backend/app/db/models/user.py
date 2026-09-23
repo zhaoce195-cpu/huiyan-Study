@@ -62,6 +62,15 @@ class User(Base, TimestampMixin):
     title: Mapped[str] = mapped_column(
         String(32), nullable=False, default="", comment="职称（住院医师/主治医师/副主任医师等）"
     )
+    study_year: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="", comment="年级，如 2024级"
+    )
+    rotation_batch: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="", comment="轮转批次，如 2026年上半年"
+    )
+    mentor_group: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="", comment="带教组"
+    )
     avatar: Mapped[str] = mapped_column(
         String(255), nullable=False, default="", comment="头像URL"
     )

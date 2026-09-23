@@ -11,6 +11,7 @@ import { ElMessage } from 'element-plus'
 import { Refresh, View, Pointer } from '@element-plus/icons-vue'
 import { PracticeApi, TeachingApi } from '@/api'
 import TeachingDemoBody from './components/TeachingDemoBody.vue'
+import TeachingOutlineView from '@/components/TeachingOutlineView.vue'
 
 type StudentCase = TeachingApi.StudentCase
 
@@ -80,7 +81,7 @@ onMounted(fetchList)
     <header class="page-head">
       <div class="head-left">
         <h2>教师演示病例</h2>
-        <div class="muted">带教按图讲解：先看什么、标准结论、图上的病灶（共 {{ pagination.total }} 份）</div>
+        <div class="muted">课堂分享可能先不公布结论，请先独立判断（共 {{ pagination.total }} 份）</div>
       </div>
       <div class="head-right">
         <el-button :icon="Refresh" size="small" @click="fetchList">刷新</el-button>
@@ -108,18 +109,18 @@ onMounted(fetchList)
           <span v-if="c.difficultyText || c.difficulty" class="muted small">{{ c.difficultyText || c.difficulty }}</span>
         </div>
         <div class="patient-line">
-          <span>{{ c.patientGender === 'M' ? '男' : c.patientGender === 'F' ? '女' : '未知' }}</span>
-          <span v-if="c.patientAge" class="dot">·</span>
-          <span v-if="c.patientAge">{{ c.patientAge }} 岁</span>
-          <span class="dot">·</span>
           <span class="muted small">影像 {{ c.imageCount }} 张</span>
         </div>
-        <div v-if="c.goldGradeText" class="grade">{{ c.goldGradeText }}</div>
-        <div v-if="c.teachingPoints" class="desc multiline">
-          <span class="kicker">先看</span>{{ c.teachingPoints }}
-        </div>
-        <div v-else-if="c.goldDiagnosis" class="desc multiline">{{ c.goldDiagnosis }}</div>
-        <div v-else class="desc">这份分享还没有带教讲解</div>
+        <div v-if="c.answersRevealed === false" class="desc">请先独立判断，老师讨论结束后会公布标准结论。</div>
+        <template v-else>
+          <div v-if="c.goldGradeText" class="grade">{{ c.goldGradeText }}</div>
+          <div v-if="c.teachingPoints" class="desc multiline">
+            <span class="kicker">先看</span>
+            <TeachingOutlineView :text="c.teachingPoints" tone="dark" />
+          </div>
+          <div v-else-if="c.goldDiagnosis" class="desc multiline">{{ c.goldDiagnosis }}</div>
+          <div v-else class="desc">这份分享还没有带教讲解</div>
+        </template>
 
         <div class="card-actions">
           <el-button size="small" :icon="View" @click="showDetail(c)">查看详情</el-button>
@@ -156,9 +157,7 @@ onMounted(fetchList)
           <div class="hint">
             <el-tag size="small" type="info">教学演示</el-tag>
             <span class="who">
-              {{ detail.patientGender === 'M' ? '男' : detail.patientGender === 'F' ? '女' : '未知' }}
-              · {{ detail.patientAge ?? '—' }} 岁
-              · {{ detail.teacherName ? `${detail.teacherName} 老师` : '带教' }}
+              {{ detail.teacherName ? `${detail.teacherName} 老师` : '带教' }}
             </span>
           </div>
           <TeachingDemoBody :source="detail" />

@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search } from '@element-plus/icons-vue'
 
-import { LearningApi } from '@/api'
+import { LearningApi, RotationApi } from '@/api'
 import { useUserStore } from '@/stores/user'
 import ResourceCard from './components/ResourceCard.vue'
 import ResourcePreviewDialog from './components/ResourcePreviewDialog.vue'
@@ -17,6 +17,7 @@ type Note = LearningApi.LearningNote
 type TabName = 'resources' | 'favorites' | 'notes'
 
 const router = useRouter()
+const route = useRoute()
 const userStore = useUserStore()
 
 /* ========== 用户与权限 ========== */
@@ -36,6 +37,13 @@ const resQuery = ref<LearningApi.ResourceListQuery>({
 const resData = ref<Resource[]>([])
 const resTotal = ref(0)
 const resLoading = ref(false)
+
+const clearResources = () => {
+  resQuery.value.keyword = ''
+  resQuery.value.resourceType = ''
+  resQuery.value.page = 1
+  fetchResources()
+}
 
 const fetchResources = async () => {
   resLoading.value = true
@@ -67,6 +75,13 @@ const favData = ref<Resource[]>([])
 const favTotal = ref(0)
 const favLoading = ref(false)
 
+const clearFavorites = () => {
+  favQuery.value.keyword = ''
+  favQuery.value.resourceType = ''
+  favQuery.value.page = 1
+  fetchFavorites()
+}
+
 const fetchFavorites = async () => {
   favLoading.value = true
   try {
@@ -95,6 +110,12 @@ const noteQuery = ref<LearningApi.NoteListQuery>({
 const noteData = ref<Note[]>([])
 const noteTotal = ref(0)
 const noteLoading = ref(false)
+
+const clearNotes = () => {
+  noteQuery.value.keyword = ''
+  noteQuery.value.page = 1
+  fetchNotes()
+}
 
 const fetchNotes = async () => {
   noteLoading.value = true
@@ -148,9 +169,16 @@ const toggleFavorite = async (r: Resource) => {
 /* ========== 预览弹窗 ========== */
 const previewVisible = ref(false)
 const previewResource = ref<Resource | null>(null)
+const rotationTaskId = ref<number | null>(null)
 const openPreview = (r: Resource) => {
   previewResource.value = r
   previewVisible.value = true
+}
+const onRotationLearned = async () => {
+  if (!rotationTaskId.value) return
+  await RotationApi.markLearned(rotationTaskId.value)
+  ElMessage.success('已记入本轮转，教师端进度会一起更新')
+  router.push('/training/home')
 }
 const onPreviewFavChanged = (r: Resource) => {
   previewResource.value = r
@@ -246,8 +274,18 @@ const goToReadingFromNote = (n: Note) => {
 }
 
 /* ========== 初始化 ========== */
-onMounted(() => {
-  fetchResources()
+onMounted(async () => {
+  await fetchResources()
+  const resourceId = Number(route.query.resourceId || 0)
+  const taskId = Number(route.query.taskId || 0)
+  if (!resourceId) return
+  rotationTaskId.value = taskId || null
+  try {
+    const resource = await LearningApi.getResource(resourceId)
+    openPreview(resource)
+  } catch {
+    rotationTaskId.value = null
+  }
 })
 
 const onTabChange = (name: string | number) => {
@@ -290,6 +328,7 @@ const tagListOf = (s: string) =>
                 :value="o.value"
               />
             </el-select>
+            <el-button @click="clearResources">清除</el-button>
             <el-button type="primary" @click="(resQuery.page = 1, fetchResources())">
               查询
             </el-button>
@@ -358,6 +397,7 @@ const tagListOf = (s: string) =>
                 :value="o.value"
               />
             </el-select>
+            <el-button @click="clearFavorites">清除</el-button>
             <el-button type="primary" @click="(favQuery.page = 1, fetchFavorites())">
               查询
             </el-button>
@@ -404,6 +444,7 @@ const tagListOf = (s: string) =>
               @keyup.enter="(noteQuery.page = 1, fetchNotes())"
               @clear="(noteQuery.page = 1, fetchNotes())"
             />
+            <el-button @click="clearNotes">清除</el-button>
             <el-button type="primary" @click="(noteQuery.page = 1, fetchNotes())">
               查询
             </el-button>
@@ -479,8 +520,10 @@ const tagListOf = (s: string) =>
     <ResourcePreviewDialog
       v-model:visible="previewVisible"
       :resource="previewResource"
+      :rotation-task-id="rotationTaskId"
       @fav-changed="onPreviewFavChanged"
       @note="openNoteFromResource"
+      @learned="onRotationLearned"
     />
     <ResourceEditDialog
       v-model:visible="editVisible"

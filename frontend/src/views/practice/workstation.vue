@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Back, MagicStick } from '@element-plus/icons-vue'
 
-import { ReadingApi, PracticeApi } from '@/api'
+import { ReadingApi, PracticeApi, ExamApi } from '@/api'
 import { wadorsImageId } from '@/utils/cornerstone3d'
 import {
   buildAnswerSummary,
@@ -60,8 +60,104 @@ const textAnswers = ref<Record<string, string>>({})
 const textQuestions = computed(() => record.value?.textQuestions || [])
 const isExam = computed(() => record.value?.attemptKind === 'EXAM')
 const examContinues = computed(
-  () => isExam.value && (record.value?.nextSessionId || 0) > 0
+  () => isExam.value && !record.value?.allowBack && (record.value?.nextSessionId || 0) > 0
 )
+const examClock = ref(-1)
+let examTimer = 0
+const examTimingOut = ref(false)
+const stopExamClock = () => {
+  if (examTimer) window.clearInterval(examTimer)
+  examTimer = 0
+}
+const clockText = computed(() => {
+  if (examClock.value < 0) return ''
+  const min = Math.floor(examClock.value / 60)
+  const sec = examClock.value % 60
+  return `${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+})
+const currentPayload = () => {
+  const duration = Math.floor((Date.now() - startTime.value) / 1000)
+  return {
+    sessionId: record.value?.id,
+    studentDrGrade: structuredAnswer.value.dr_grade || diagForm.value.drGrade,
+    studentDiagnosis: diagForm.value.diagnosis,
+    diagnosis: structuredAnswer.value,
+    annotations: canvasState.annotations,
+    measurements: canvasState.measurements,
+    viewport: canvasState.viewport,
+    durationSeconds: duration,
+    textAnswers: textQuestions.value.map((q) => ({
+      id: q.id,
+      value: textAnswers.value[q.id] || ''
+    }))
+  }
+}
+const syncExamClock = () => {
+  stopExamClock()
+  const left = record.value?.examSecondsLeft
+  if (!record.value?.examPaperId || record.value.paperClosed || left == null || left < 0) {
+    examClock.value = -1
+    return
+  }
+  examClock.value = left
+  examTimer = window.setInterval(() => {
+    if (examClock.value <= 0) {
+      stopExamClock()
+      void timeoutHandIn()
+      return
+    }
+    examClock.value -= 1
+  }, 1000)
+}
+const openExamItem = async (sessionId: number, caseId: number) => {
+  if (!record.value?.examPaperId || !record.value.allowBack) return
+  if (sessionId === record.value.id) return
+  await ExamApi.saveDraft(record.value.examPaperId, currentPayload())
+  await router.replace({
+    path: '/practice/workstation',
+    query: { sessionId: String(sessionId), caseId: String(caseId) }
+  })
+}
+const timeoutHandIn = async () => {
+  if (examTimingOut.value || !record.value?.examPaperId || record.value.status !== 'DRAFT') return
+  examTimingOut.value = true
+  try {
+    await ExamApi.handIn(record.value.examPaperId, currentPayload())
+    ElMessage.warning('考试时间已到，答卷已交。老师收卷后公布成绩。')
+    router.push('/training/practice')
+  } catch {
+    examTimingOut.value = false
+    ElMessage.error('时间已到，但交卷没有成功，请再点一次交卷')
+  }
+}
+const handInPaper = async () => {
+  if (!record.value?.examPaperId) return
+  try {
+    await ElMessageBox.confirm(
+      '交卷后不能再改。还没做的题目按未答计分。成绩在老师收卷后公布。',
+      '交卷',
+      { type: 'warning', confirmButtonText: '交卷' }
+    )
+  } catch {
+    return
+  }
+  submitting.value = true
+  try {
+    const out = await ExamApi.handIn(record.value.examPaperId, currentPayload())
+    record.value = out
+    if (out.answersOpen) {
+      await loadGoldStandard()
+      ElMessage.success('整卷已交，可以查看答案')
+      return
+    }
+    ElMessage.success('已交卷。老师收卷后才公布成绩。')
+    router.push('/training/practice')
+  } catch {
+    ElMessage.error('交卷没有成功，作答还在本页')
+  } finally {
+    submitting.value = false
+  }
+}
 const goldData = ref<PracticeApi.GoldStandardData | null>(null)
 const goldAnnotations = computed<AnnotationItem[]>(() => {
   if (!record.value?.answersOpen || !goldData.value) return []
@@ -198,7 +294,7 @@ const epTagType = (t: PracticeApi.ErrorPointType) => {
   return 'info'
 }
 const studentMarkCount = computed(
-  () => (record.value?.studentAnnotations || []).filter((a) => a.layer !== 'finding').length
+  () => (record.value?.studentAnnotations || []).filter((a) => (a.points || []).length > 0).length
 )
 
 const locateTasks = computed(() => {
@@ -257,15 +353,11 @@ const onPickLabel = (label: string) => {
   if (!current.includes(code)) {
     structuredAnswer.value = { ...structuredAnswer.value, findings: [...current, code] }
   }
-  activeLocateCode.value = code
 }
 watch(
   () => locateTasks.value.map((task) => task.code).join(','),
-  (now, prev) => {
-    const prevCodes = new Set((prev || '').split(',').filter(Boolean))
-    const added = locateTasks.value.find((task) => !prevCodes.has(task.code))
-    if (added) activeLocateCode.value = added.code
-    else if (!locateTasks.value.some((task) => task.code === activeLocateCode.value)) {
+  () => {
+    if (!locateTasks.value.some((task) => task.code === activeLocateCode.value)) {
       activeLocateCode.value = ''
     }
   }
@@ -285,6 +377,7 @@ const annotationScoreText = computed(() => {
 const diagnosisScoreText = computed(() => Number(record.value?.scoreDiagnosis || 0).toFixed(0))
 const iouScoreText = computed(() => {
   if (!annotationExamined.value) return '未考'
+  if (Number(record.value?.iouAvg) < 0) return '不按重合'
   if (!studentMarkCount.value) return '未标注'
   return Number(record.value?.iouAvg || 0).toFixed(2)
 })
@@ -292,6 +385,14 @@ const foundScoreText = computed(() => {
   if (!annotationExamined.value) return '未考'
   if (!studentMarkCount.value && goldAnnotations.value.length > 0) return '0%'
   return `${(Number(record.value?.accuracy || 0) * 100).toFixed(0)}%`
+})
+const missedCountText = computed(() => {
+  if (!annotationExamined.value) return '未考'
+  return String(record.value?.missedCount ?? 0)
+})
+const extraCountText = computed(() => {
+  if (!annotationExamined.value) return '未考'
+  return String(record.value?.falsePositiveCount ?? 0)
 })
 const textScoreText = computed(() => {
   if ((record.value?.scoreRuleVersion || 1) < 4) return '未考'
@@ -303,12 +404,24 @@ const staleAnnotationCredit = computed(() => {
   if (!rec || rec.annotationApplicable !== false) return false
   return (rec.scoreRuleVersion || 1) < 3 && Number(rec.scoreAnnotation || 0) > 0
 })
+/** 版本 5 起按病例结论计分，画框不进总分。更早的成绩仍按当时的规则显示。 */
+const caseLearning = computed(() => (record.value?.scoreRuleVersion || 1) >= 5)
+const visitText = computed(() => {
+  const src = source.value
+  if (!src) return ''
+  const count = src.visitCount || 1
+  const when = src.examOn || ''
+  if (count <= 1 && !when) return ''
+  const date = when || '检查日期未提供'
+  if (count > 1) return `同一病人 第 ${src.visitIndex || 1} / ${count} 次 · ${date}`
+  return date
+})
 
 const epText = (t: PracticeApi.ErrorPointType) => {
   if (t === 'missed') return '漏标'
-  if (t === 'false_positive') return '误标'
+  if (t === 'false_positive') return '多标'
   if (t === 'wrong_label') return '标签错'
-  if (t === 'low_iou') return 'IoU 低'
+  if (t === 'low_iou') return '范围偏了'
   return '其他'
 }
 
@@ -383,27 +496,12 @@ const handleSubmit = async () => {
     ElMessage.warning('文字题还有没写的')
     return
   }
-  const missingLocate = locateTasks.value.filter((task) => locateCount(task) < 1)
-  if (missingLocate.length) {
-    activeLocateCode.value = missingLocate[0].code
-    ElMessage.warning(
-      `请在图上指出：${missingLocate.map((task) => `${task.label}（${task.methodText}）`).join('、')}`
-    )
-    return
-  }
-  // 最终摘要：把即将提交的结论摊开给学员核对。
-  // 只问一句「确认提交吗」提供不了任何信息，学员只能盲点确定。
   const rows = buildAnswerSummary(diagnosisForm.value, structuredAnswer.value)
-  const marks = canvasState.annotations.filter((item) => item.layer !== 'finding').length
-  const located = locateTasks.value
-    .map((task) => `${task.label} ${locateCount(task)} 处`)
-    .join('、')
-  const locatedNote = located ? `已指出位置：${located}。` : ''
   const submitNote = isExam.value
     ? examContinues.value
-      ? `另有标注 ${marks} 处、文字题 ${textQuestions.value.length} 道。本题交卷后进入下一题，整卷交齐前不显示答案。`
-      : `另有标注 ${marks} 处、文字题 ${textQuestions.value.length} 道。这是最后一题，交卷后才显示整场答案。`
-    : `另有标注 ${marks} 处、测量 ${canvasState.measurements.length} 处、文字题 ${textQuestions.value.length} 道。${locatedNote}文字题计入总分。提交后将自动评分，无法再修改本次作答。`
+      ? `按这例的分级、诊断和文字题评分。本题交卷后进入下一题。${record.value?.allowBack ? '' : '不能返回上一题。'}老师收卷前不显示答案。`
+      : `按这例的分级、诊断和文字题评分。这是最后一题。${record.value?.examPaperId ? '老师收卷后才显示答案。' : '交卷后才显示整场答案。'}`
+    : `按这例的分级、诊断和文字题评分。图上标位置不计入成绩。提交后自动评分，不能再改。`
   try {
     await ElMessageBox.confirm(
       summaryHtml(rows, submitNote),
@@ -451,9 +549,9 @@ const handleSubmit = async () => {
     )
     record.value = out
     submitRequestId.value = ''
-    if (out.attemptKind === 'EXAM' && out.nextSessionId) {
+    if (out.attemptKind === 'EXAM' && out.nextSessionId && !out.allowBack) {
       ElMessage.success(
-        `第 ${out.examIndex} 题已保存。答案要等 ${out.examTotal} 题全部交卷后才显示。`
+        `第 ${out.examIndex} 题已保存。不能返回上一题。老师收卷前不显示答案。`
       )
       textAnswers.value = {}
       structuredAnswer.value = {}
@@ -473,6 +571,11 @@ const handleSubmit = async () => {
       return
     }
     if (out.answersOpen) await loadGoldStandard()
+    if (out.attemptKind === 'EXAM' && out.examPaperId && !out.answersOpen) {
+      ElMessage.success('已交卷。老师收卷后才公布成绩。')
+      router.push('/training/practice')
+      return
+    }
     ElMessage.success(
       out.attemptKind === 'EXAM'
         ? '整卷已交，可以查看答案'
@@ -489,8 +592,10 @@ const handleSubmit = async () => {
   }
 }
 
+const fromRotation = computed(() => route.query.from === 'rotation')
+
 const goBack = () => {
-  router.push('/practice')
+  router.push(fromRotation.value ? '/training/home' : '/practice')
 }
 
 const retryPractice = async () => {
@@ -502,7 +607,11 @@ const retryPractice = async () => {
     })
     router.replace({
       path: '/practice/workstation',
-      query: { sessionId: String(next.id), caseId: String(record.value.caseId) }
+      query: {
+        sessionId: String(next.id),
+        caseId: String(record.value.caseId),
+        ...(fromRotation.value ? { from: 'rotation' } : {})
+      }
     })
     record.value = next
     diagForm.value = { drGrade: '', diagnosis: '' }
@@ -536,7 +645,10 @@ onMounted(async () => {
     await loadGoldStandard()
   }
   startTime.value = Date.now()
+  syncExamClock()
 })
+
+onUnmounted(stopExamClock)
 
 const hintLoading = ref(false)
 const revealHint = async () => {
@@ -562,6 +674,7 @@ watch(sessionId, async (id, prev) => {
   startTime.value = Date.now()
   await loadRecord()
   await fetchSource()
+  syncExamClock()
 })
 
 watch(currentImageIndex, () => {
@@ -574,23 +687,49 @@ watch(currentImageIndex, () => {
     <header class="ws-header">
       <div class="left">
         <el-button :icon="Back" text @click="goBack">
-          返回练习
+          {{ fromRotation ? '返回今日学习' : '返回病例学习' }}
         </el-button>
         <span class="ws-title">
-          {{ isExam ? '正式考试' : '自主练习工作站' }}
+          {{ isExam ? '正式考试' : '病例学习' }}
           <span v-if="isExam && record" class="case-no">
             · 第 {{ record.examIndex }} / {{ record.examTotal }} 题
+            <template v-if="record.examTitle"> · {{ record.examTitle }}</template>
           </span>
           <span v-else-if="record" class="case-no">· {{ record.caseNo }}</span>
+          <span v-if="visitText" class="case-no">· {{ visitText }}</span>
         </span>
       </div>
       <div class="right">
+        <el-tag v-if="clockText" size="small" type="warning">剩余 {{ clockText }}</el-tag>
         <el-tag v-if="record?.answersOpen" size="small" type="success">
           得分 {{ Number(record.scoreTotal || 0).toFixed(1) }}
           {{ record.isPassed ? '(通过)' : '(未通过)' }}
         </el-tag>
         <el-button
-          v-if="!viewMode && !reviewMode && record?.status === 'DRAFT'"
+          v-if="!viewMode && !reviewMode && record?.status === 'DRAFT' && record?.allowBack && record.prevSessionId"
+          size="small"
+          @click="openExamItem(record.prevSessionId, record.prevCaseId || 0)"
+        >
+          上一题
+        </el-button>
+        <el-button
+          v-if="!viewMode && !reviewMode && record?.status === 'DRAFT' && record?.allowBack && record.nextSessionId"
+          size="small"
+          @click="openExamItem(record.nextSessionId, record.nextCaseId || 0)"
+        >
+          下一题
+        </el-button>
+        <el-button
+          v-if="!viewMode && !reviewMode && record?.status === 'DRAFT' && record?.allowBack && record.examPaperId"
+          type="primary"
+          size="small"
+          :loading="submitting"
+          @click="handInPaper"
+        >
+          交卷
+        </el-button>
+        <el-button
+          v-else-if="!viewMode && !reviewMode && record?.status === 'DRAFT'"
           type="primary"
           size="small"
           :loading="submitting"
@@ -606,7 +745,8 @@ watch(currentImageIndex, () => {
       <ReadingToolbar
         v-if="!viewMode && !reviewMode"
         :tool="canvasState.tool"
-        :can-annotate="!viewMode && !reviewMode && record?.status === 'DRAFT'"
+        :can-annotate="false"
+        :show-marks="false"
         :can-undo="canvasState.history.length > 0"
         :can-redo="canvasState.redoStack.length > 0"
         @set-tool="setTool"
@@ -678,18 +818,32 @@ watch(currentImageIndex, () => {
             {{ record?.hintsLeft ? '查看下一则提示' : '没有更多提示了' }}
           </el-button>
         </div>
-        <div
-          v-if="!viewMode && !reviewMode && isExam && record?.status === 'DRAFT'"
-          class="panel-section"
-        >
+        <div v-if="isExam && record" class="panel-section">
           <h3>正式考试</h3>
           <p class="score-legend">
-            第 {{ record?.examIndex }} / {{ record?.examTotal }} 题。本场不能看提示，全部交卷后才显示答案和金标准。
+            第 {{ record.examIndex }} / {{ record.examTotal }} 题。本场不能看提示。
+            {{ record.allowBack ? '可以返回上一题修改。' : '不能返回上一题。' }}
+            {{ record.examPaperId ? '老师收卷后才显示答案和金标准。' : '全部交卷后才显示答案和金标准。' }}
           </p>
+          <p v-if="record.status !== 'DRAFT' && !record.answersOpen" class="score-legend">
+            你已交卷。老师收卷后公布成绩。
+          </p>
+          <div v-if="record.allowBack && record.examItems?.length" class="exam-nav">
+            <el-button
+              v-for="item in record.examItems"
+              :key="item.sessionId"
+              size="small"
+              :type="item.sessionId === record.id ? 'primary' : 'default'"
+              :disabled="record.status !== 'DRAFT'"
+              @click="openExamItem(item.sessionId, item.caseId)"
+            >
+              {{ item.index }}
+            </el-button>
+          </div>
         </div>
         <!-- 诊断表单（答题模式） -->
         <div v-if="!viewMode && !reviewMode && record?.status === 'DRAFT'" class="panel-section">
-          <h3>诊断作答</h3>
+          <h3>这例的结论</h3>
           <!-- 与阅片端共用同一套病种表单，保证两边结论口径一致 -->
           <DiagnosisForm
             v-if="diagnosisForm"
@@ -724,7 +878,7 @@ watch(currentImageIndex, () => {
         <div v-if="locateTasks.length" class="panel-section">
           <h3>指出位置</h3>
           <p class="score-legend">
-            勾选这些征象后，要在图上指出至少一处。微动脉瘤用点选，出血、渗出和新生血管用圈选，静脉串珠和 IRMA 标出象限。
+            想在图上标出看到的征象可以指出。这一步不计入成绩，不标也能交卷。
           </p>
           <div v-for="task in locateTasks" :key="task.code" class="locate-row">
             <div>
@@ -803,7 +957,7 @@ watch(currentImageIndex, () => {
               <span class="label">分级</span>
               <span class="value">{{ gradeScoreText }}</span>
             </div>
-            <div class="score-item">
+            <div v-if="!caseLearning" class="score-item">
               <span class="label">标注</span>
               <span class="value">{{ annotationScoreText }}</span>
             </div>
@@ -815,22 +969,35 @@ watch(currentImageIndex, () => {
               <span class="label">文字题</span>
               <span class="value">{{ textScoreText }}</span>
             </div>
-            <div class="score-item">
-              <span class="label">框重合</span>
-              <span class="value">{{ iouScoreText }}</span>
-            </div>
-            <div class="score-item">
-              <span class="label">找到比例</span>
-              <span class="value">{{ foundScoreText }}</span>
-            </div>
+            <template v-if="!caseLearning">
+              <div class="score-item">
+                <span class="label">范围接近</span>
+                <span class="value">{{ iouScoreText }}</span>
+              </div>
+              <div class="score-item">
+                <span class="label">找到比例</span>
+                <span class="value">{{ foundScoreText }}</span>
+              </div>
+              <div class="score-item">
+                <span class="label">漏标</span>
+                <span class="value">{{ missedCountText }}</span>
+              </div>
+              <div class="score-item">
+                <span class="label">多标</span>
+                <span class="value">{{ extraCountText }}</span>
+              </div>
+            </template>
           </div>
-          <p class="score-legend">
+          <p v-if="caseLearning" class="score-legend">
+            这次成绩看这例的结论：分级 40%、诊断 40%、文字题 20%。分级和标准结论差 1 级扣 25。诊断没写是 0。文字题没写算错。图上画框不计入总分。更早的成绩仍按当时的规则，不能和这次直接比。
+          </p>
+          <p v-else class="score-legend">
             分级：你判的 DR 等级和标准答案差几级。一致是 100，每差 1 级扣 25。这例不考分级时显示「未考」。
-            标注：金标准框有没有标到。没有框就显示「未考」，不会因为没画框给 100。有框但没标是 0。
+            标注：微动脉瘤和其他小病灶看有没有找对、漏了多少、多标了多少，不按标注面积重合来扣分。较大的出血和渗出再看范围是否接近。静脉串珠、IRMA 和新生血管看象限。没有标准标注时显示「未考」。
             诊断：结论和标准答案对上了多少。没写是 0。
-            框重合：你画的框和标准框重叠多少，1 是完全重合。没画框时显示「未标注」。
-            找到比例：标准框里你标中了几成，不是整张图的诊断对错。
-            文字题：知识点、选择和填空答对的比例。这次练习里它占总分的 20%，分级 25%、标注 40%、诊断 15%。没写算错。更早的成绩没有这项，显示「未考」。
+            范围接近：只用于出血和渗出，1 表示范围已经接近，不是必须完全重合。这例没有这类病灶时显示「不按重合」。
+            找到比例：标准病灶里你找对了几成。漏标和多标会拉低标注分。
+            文字题：知识点、选择和填空答对的比例。版本 4 的成绩里它占总分的 20%，分级 25%、标注 40%、诊断 15%。没写算错。更早的成绩没有这项，显示「未考」。
           </p>
           <div v-if="record?.textItems?.length" class="text-result">
             <h4>文字题</h4>
@@ -847,7 +1014,7 @@ watch(currentImageIndex, () => {
             这份是较早的成绩：当时没有金标准框，没画标注也被记成 100 并算进了总分。上面已改成「未考」。再练一次提交后，总分不再把这项算成满分。
           </p>
 
-          <div v-if="record?.errorPoints?.length" class="error-list">
+          <div v-if="record?.errorPoints?.length && !caseLearning" class="error-list">
             <h4>错误点</h4>
             <div v-for="(ep, i) in record.errorPoints" :key="i" class="error-item">
               <el-tag size="small" :type="epTagType(ep.type)">{{ epText(ep.type) }}</el-tag>
@@ -861,12 +1028,16 @@ watch(currentImageIndex, () => {
             <p>{{ record.suggestion }}</p>
           </div>
 
+          <p v-if="fromRotation && record && record.status !== 'DRAFT'" class="score-legend">
+            这次成绩会计入老师布置的今日学习任务，达到合格分才算完成。
+          </p>
+
           <p v-if="record && record.status !== 'DRAFT'" class="score-legend">
             {{ record.isPassed ? '系统判定合格' : '系统判定不合格' }}。
             {{
               isExam
                 ? '正式考试在全部题目交卷后才公布答案，不送教师评定。'
-                : '自主练习在提交时就算完分，不送教师评定。'
+                : '病例学习在提交时就算完分，不送教师评定。'
             }}
           </p>
 
@@ -898,7 +1069,7 @@ watch(currentImageIndex, () => {
 
           <div class="report-actions">
             <el-button type="primary" @click="retryPractice">再练一次</el-button>
-            <el-button @click="goBack">返回列表</el-button>
+            <el-button @click="goBack">{{ fromRotation ? '返回今日学习' : '返回列表' }}</el-button>
           </div>
         </div>
       </aside>
@@ -1011,6 +1182,8 @@ watch(currentImageIndex, () => {
 }
 .image-strip {
   position: absolute;
+  z-index: 6;
+  pointer-events: auto;
   bottom: 14px;
   left: 50%;
   transform: translateX(-50%);
@@ -1134,6 +1307,11 @@ watch(currentImageIndex, () => {
   font-size: 12px;
   line-height: 1.55;
   color: #d5dae3;
+}
+.exam-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .error-list {

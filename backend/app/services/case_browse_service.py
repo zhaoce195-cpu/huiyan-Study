@@ -9,6 +9,7 @@
 """
 
 from datetime import datetime
+import re
 from typing import List, Optional, Tuple
 
 from fastapi import HTTPException, status
@@ -20,10 +21,14 @@ from app.db.models import (
     CaseCategoryEnum,
     CaseDifficultyEnum,
     RoleEnum,
+    RotationTask,
+    RotationTaskAck,
+    RotationTaskKindEnum,
     TrainingCase,
     User,
 )
 from app.common.dr_grade import grade_level, grade_text
+from app.common.diagnosis_form import fundus_only as case_is_fundus_only
 from app.core.content_policy import PresentationMode, Scene, redact, resolve_mode
 from app.schemas.case_browse import (
     CaseArchiveParams,
@@ -31,7 +36,9 @@ from app.schemas.case_browse import (
     CaseBrowseItem,
     CaseBrowseQuery,
     CaseBrowsePage,
+    CaseVisitBrief,
     GoldStandardUpdate,
+    SubjectLinkUpdate,
 )
 
 
@@ -113,6 +120,99 @@ def _blind_mode_for(viewer: Optional[User], answered: bool) -> PresentationMode:
     )
 
 
+def _exam_order(case: TrainingCase):
+    text = (getattr(case, "exam_on", "") or "").strip()
+    return (0 if text else 1, text, case.id)
+
+
+def _series(db: Session, user: User, subject_nos: set) -> dict:
+    """同一教学编号下、当前角色能看见的检查，按日期从早到晚。没写日期的排在后面。"""
+    subjects = {(item or "").strip() for item in subject_nos if (item or "").strip()}
+    if not subjects:
+        return {}
+    rows = (
+        _scope_query(db, user)
+        .filter(TrainingCase.subject_no.in_(subjects))
+        .all()
+    )
+    grouped: dict = {}
+    for row in rows:
+        grouped.setdefault((row.subject_no or "").strip(), []).append(row)
+    for group in grouped.values():
+        group.sort(key=_exam_order)
+    return grouped
+
+
+def visit_context(db: Session, user: User, case: TrainingCase) -> dict:
+    """阅片、练习和病例库共用这一份时期关系。改病人编号或检查日期后，各处看到的是同一次检查。"""
+    index, count, visits = _visit_pair(
+        _series(db, user, {getattr(case, "subject_no", "") or ""}),
+        case,
+    )
+    exam_on = (getattr(case, "exam_on", "") or "").strip()
+    exam_date = None
+    if exam_on:
+        try:
+            exam_date = datetime.strptime(exam_on, "%Y-%m-%d")
+        except ValueError:
+            exam_on = ""
+    return {
+        "subject_no": (getattr(case, "subject_no", "") or "").strip(),
+        "exam_on": exam_on,
+        "exam_date": exam_date,
+        "visit_index": index,
+        "visit_count": count,
+        "visits": visits,
+    }
+
+
+def _visit_pair(series: dict, case: TrainingCase):
+    subject = (getattr(case, "subject_no", "") or "").strip()
+    group = series.get(subject) or []
+    if len(group) < 2:
+        return 1, 1, []
+    index = next((i for i, row in enumerate(group, start=1) if row.id == case.id), 1)
+    visits = [
+        CaseVisitBrief(
+            id=row.id,
+            case_no=row.case_no,
+            exam_on=(getattr(row, "exam_on", "") or "").strip(),
+            visit_index=i,
+        )
+        for i, row in enumerate(group, start=1)
+        if row.id != case.id
+    ]
+    return index, len(group), visits
+
+
+def _clean_exam_on(value: str) -> str:
+    text = (value or "").strip()
+    if not text:
+        return ""
+    try:
+        datetime.strptime(text, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="检查日期请写成 2024-03-01。没有日期就留空，不要编造",
+        )
+    return text
+
+
+_SUBJECT_PHONE = re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)")
+_SUBJECT_IDCARD = re.compile(r"(?<!\d)\d{17}[\dXx](?!\d)")
+
+
+def _clean_subject_no(value: str) -> str:
+    text = (value or "").strip()[:32]
+    if _SUBJECT_PHONE.search(text) or _SUBJECT_IDCARD.search(text):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="病人编号不要填手机号或身份证号",
+        )
+    return text
+
+
 def _to_item(
     case: TrainingCase,
     *,
@@ -121,8 +221,10 @@ def _to_item(
     viewer: Optional[User] = None,
     answered: bool = False,
     derived_count: int = 0,
+    visit_index: int = 1,
+    visit_count: int = 1,
 ) -> CaseBrowseItem:
-    from app.common.case_utils import mask_phone_by_role
+    from app.common.case_utils import learner_patient_fields, mask_phone_by_role
 
     creator_name = ""
     creator_role = ""
@@ -146,6 +248,12 @@ def _to_item(
         getattr(case, "patient_phone", "") or "",
         viewer_role,
     )
+    patient_name, patient_gender, patient_age = learner_patient_fields(
+        viewer_role,
+        getattr(case, "patient_name", "") or "",
+        case.patient_gender or "U",
+        case.patient_age,
+    )
 
     item = CaseBrowseItem(
         id=case.id,
@@ -168,13 +276,18 @@ def _to_item(
         thumb_url=_first_image(case.image_paths),
         image_count=image_count if image_count is not None else len(images),
         image_complete=image_complete,
+        fundus_only=case_is_fundus_only(case),
         derived_count=derived_count,
         missing_roles=missing_roles,
-        patient_name=getattr(case, "patient_name", "") or "",
-        patient_gender=case.patient_gender or "U",
-        patient_age=case.patient_age or 0,
+        patient_name=patient_name,
+        patient_gender=patient_gender,
+        patient_age=patient_age,
         patient_phone=phone_out,
         phone_visible=phone_visible,
+        subject_no=(getattr(case, "subject_no", "") or "").strip(),
+        exam_on=(getattr(case, "exam_on", "") or "").strip(),
+        visit_index=visit_index,
+        visit_count=visit_count,
         created_at=case.created_at,
         updated_at=case.updated_at,
     )
@@ -191,13 +304,29 @@ def _to_detail(
     image_count: Optional[int] = None,
     viewer: Optional[User] = None,
     answered: bool = False,
+    db: Optional[Session] = None,
 ) -> CaseBrowseDetail:
+    visit_index, visit_count, visits = 1, 1, []
+    if db is not None and viewer is not None:
+        visit_index, visit_count, visits = _visit_pair(
+            _series(db, viewer, {getattr(case, "subject_no", "") or ""}),
+            case,
+        )
     base = _to_item(
         case, comp=comp, image_count=image_count, viewer=viewer, answered=answered,
+        visit_index=visit_index, visit_count=visit_count,
     )
+    clinical = case.clinical_info or ""
+    stored_name = (getattr(case, "patient_name", "") or "").strip()
+    role_code = viewer.role.code if (viewer and viewer.role) else None
+    from app.common.case_utils import teaching_staff
+    if stored_name and not teaching_staff(role_code):
+        clinical = clinical.replace(stored_name, case.case_no)
+    if case_is_fundus_only(case) and not teaching_staff(role_code):
+        clinical = ""
     detail = CaseBrowseDetail(
         **base.model_dump(),
-        clinical_info=case.clinical_info or "",
+        clinical_info=clinical,
         image_paths=case.image_paths or {},
         images=_flatten_images(case.image_paths),
         gold_dr_grade=case.gold_dr_grade if case.gold_dr_grade is not None else "",
@@ -205,6 +334,7 @@ def _to_detail(
         teaching_points=case.teaching_points or "",
         gold_lesions=list(case.gold_lesions or []),
         pass_score=case.pass_score or 60,
+        visits=visits,
     )
     # base 已裁剪，此处再裁剪一次以覆盖 detail 独有的答案字段
     # （gold_diagnosis / teaching_points）
@@ -248,18 +378,23 @@ class CaseBrowseService:
 
         if query.keyword:
             kw = f"%{query.keyword.strip()}%"
-            q = q.outerjoin(User, User.id == TrainingCase.creator_id).filter(
-                or_(
-                    TrainingCase.case_no.like(kw),
-                    TrainingCase.case_sn.like(kw),
-                    TrainingCase.title.like(kw),
-                    TrainingCase.description.like(kw),
+            clauses = [
+                TrainingCase.case_no.like(kw),
+                TrainingCase.case_sn.like(kw),
+                TrainingCase.title.like(kw),
+                TrainingCase.description.like(kw),
+                User.real_name.like(kw),
+                User.username.like(kw),
+            ]
+            # 学员检索不能靠姓名或手机号把人找出来
+            role_code = user.role.code if user.role else None
+            from app.common.case_utils import teaching_staff
+            if teaching_staff(role_code):
+                clauses.extend([
                     TrainingCase.patient_name.like(kw),
                     TrainingCase.patient_phone.like(kw),
-                    User.real_name.like(kw),
-                    User.username.like(kw),
-                )
-            )
+                ])
+            q = q.outerjoin(User, User.id == TrainingCase.creator_id).filter(or_(*clauses))
 
         if query.category:
             q = q.filter(TrainingCase.category == query.category)
@@ -326,6 +461,7 @@ class CaseBrowseService:
 
         # 批量取本人已提交作答的病例，用于解除盲态（一次查询，避免 N+1）
         answered_ids = _answered_case_ids(db, user, ids)
+        series = _series(db, user, {(c.subject_no or "") for c in rows})
 
         items: List[CaseBrowseItem] = []
         for c in rows:
@@ -333,10 +469,13 @@ class CaseBrowseService:
                 db, case_table="training", case_id=c.id,
             )
             ic = count_map.get(c.id, 0) or len(_flatten_images(c.image_paths))
+            visit_index, visit_count, _visits = _visit_pair(series, c)
             items.append(_to_item(
                 c, comp=comp, image_count=ic, viewer=user,
                 answered=c.id in answered_ids,
                 derived_count=derived_map.get(c.id, 0),
+                visit_index=visit_index,
+                visit_count=visit_count,
             ))
 
         if query.only_incomplete:
@@ -374,6 +513,7 @@ class CaseBrowseService:
         return _to_detail(
             case,
             viewer=user,
+            db=db,
             answered=bool(_answered_case_ids(db, user, [case.id])),
         )
 
@@ -412,7 +552,33 @@ class CaseBrowseService:
         case.updated_at = datetime.now()
         db.commit()
         db.refresh(case)
-        return _to_detail(case, viewer=user)
+        return _to_detail(case, viewer=user, db=db)
+
+    @staticmethod
+    def set_subject(
+        db: Session,
+        user: User,
+        case_id: int,
+        params: SubjectLinkUpdate,
+    ) -> CaseBrowseDetail:
+        role_code = user.role.code if user.role else None
+        if role_code not in (RoleEnum.TEACHER.value, RoleEnum.ADMIN.value):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="只有教师可以关联同一病人的检查",
+            )
+        case = db.query(TrainingCase).filter(TrainingCase.id == case_id).first()
+        if not case:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="病例不存在")
+        if role_code == RoleEnum.TEACHER.value and case.creator_id != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="只能修改本人创建的病例",
+            )
+        case.subject_no = _clean_subject_no(params.subject_no)
+        case.exam_on = _clean_exam_on(params.exam_on)
+        db.commit()
+        return CaseBrowseService.get_detail(db, user, case.id)
 
     # ============================================================
     #                   加入实训
@@ -459,7 +625,7 @@ class CaseBrowseService:
             db.commit()
             db.refresh(case)
 
-        return _to_detail(case, viewer=user)
+        return _to_detail(case, viewer=user, db=db)
 
     @staticmethod
     def remove_from_training(
@@ -482,12 +648,27 @@ class CaseBrowseService:
                 detail=f"病例不存在：{case_id}",
             )
 
-        if case.is_train_case:
-            case.is_train_case = False
-            case.updated_at = datetime.now()
-            db.commit()
-            db.refresh(case)
-        return _to_detail(case, viewer=user)
+        case.is_train_case = False
+        case.updated_at = datetime.now()
+        task_ids = [
+            row[0]
+            for row in db.query(RotationTask.id)
+            .filter(
+                RotationTask.kind == RotationTaskKindEnum.CASE.value,
+                RotationTask.case_id == case.id,
+            )
+            .all()
+        ]
+        if task_ids:
+            db.query(RotationTaskAck).filter(RotationTaskAck.task_id.in_(task_ids)).delete(
+                synchronize_session=False
+            )
+            db.query(RotationTask).filter(RotationTask.id.in_(task_ids)).delete(
+                synchronize_session=False
+            )
+        db.commit()
+        db.refresh(case)
+        return _to_detail(case, viewer=user, db=db)
 
     # ============================================================
     #                   金标准修订 / 发布
@@ -563,4 +744,4 @@ class CaseBrowseService:
         case.updated_at = datetime.now()
         db.commit()
         db.refresh(case)
-        return _to_detail(case, viewer=user)
+        return _to_detail(case, viewer=user, db=db)

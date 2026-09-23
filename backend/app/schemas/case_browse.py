@@ -64,6 +64,10 @@ class CaseBrowseItem(_CamelModel):
     image_count: int = Field(0, description="原始影像张数，不含派生对象")
     derived_count: int = Field(0, description="派生对象数（mask/overlay/金标准）")
     image_complete: bool = True
+    fundus_only: bool = Field(
+        True,
+        description="只有眼底照相。没有 OCT、视力或其他病历资料",
+    )
     missing_roles: List[str] = Field(default_factory=list)
     # ============ 模拟患者信息（按调用者角色脱敏） ============
     patient_name: str = ""
@@ -71,6 +75,10 @@ class CaseBrowseItem(_CamelModel):
     patient_age: int = 0
     patient_phone: str = Field("", description="完整手机号或 mask 后的字符串，由后端按角色返回")
     phone_visible: bool = Field(True, description="当前调用者是否可见完整手机号")
+    subject_no: str = Field("", description="教学用病人编号。空表示这一行没有和其他时期连在一起")
+    exam_on: str = Field("", description="检查日期。空表示数据集没有提供，不是当天")
+    visit_index: int = Field(1, description="同一病人按检查日期排的第几次。单次图像为 1")
+    visit_count: int = Field(1, description="同一病人编号下可见的检查次数。1 表示没有其他时期")
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -80,6 +88,14 @@ class CaseBrowsePage(_CamelModel):
     page: int = 1
     page_size: int = 20
     list: List[CaseBrowseItem] = Field(default_factory=list)
+
+
+class CaseVisitBrief(_CamelModel):
+    """同一病人的另一次检查。不带诊断，避免把别的时期的结论带出来。"""
+    id: int
+    case_no: str = ""
+    exam_on: str = ""
+    visit_index: int = 1
 
 
 class CaseBrowseDetail(CaseBrowseItem):
@@ -92,6 +108,13 @@ class CaseBrowseDetail(CaseBrowseItem):
     teaching_points: str = ""
     gold_lesions: list = Field(default_factory=list)
     pass_score: int = 60
+    visits: List[CaseVisitBrief] = Field(default_factory=list)
+
+
+class SubjectLinkUpdate(_CamelModel):
+    """把几次检查标成同一个病人。日期没有就留空。"""
+    subject_no: str = Field("", max_length=32)
+    exam_on: str = ""
 
 
 class CaseArchiveParams(_CamelModel):
@@ -105,7 +128,10 @@ class GoldStandardUpdate(_CamelModel):
         None, description="金标准 DR 分级：0~4，空字符串表示不适用；不传则不改",
     )
     gold_diagnosis: Optional[str] = Field(None, description="金标准诊断结论")
-    teaching_points: Optional[str] = Field(None, description="教学要点")
+    teaching_points: Optional[str] = Field(
+        None,
+        description="教学要点。建议按固定提纲：主要诊断、分级依据、容易漏掉的征象、鉴别诊断、处置思路、相关指南要点",
+    )
     pass_score: Optional[int] = Field(None, ge=0, le=100, description="及格分（百分制）")
     gold_lesions: Optional[list] = Field(None, description="金标准病变列表")
     publish: bool = Field(

@@ -25,6 +25,7 @@ class TeachingShareCreate(_CamelModel):
     source_case_id: int
     share_scope: str = "ALL"
     expire_hours: int = Field(default=24, ge=1, le=720)
+    hide_answers: bool = True
 
 
 class TeachingSubmitCreate(_CamelModel):
@@ -57,6 +58,7 @@ class TeachingShareOut(_CamelModel):
     reviewer_name: str = ""
     teacher_id: int
     teacher_name: str = ""
+    answers_revealed: bool = True
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -90,6 +92,7 @@ class StudentCaseOut(_CamelModel):
     lesions: List[Dict[str, Any]] = Field(default_factory=list)
     annotations: List[Dict[str, Any]] = Field(default_factory=list)
     lesion_mask_url: str = ""
+    answers_revealed: bool = True
     expired_at: Optional[datetime] = None
     teaching_case_id: Optional[int] = None
 

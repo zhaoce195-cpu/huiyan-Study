@@ -448,7 +448,8 @@ def _run_ai_inference(case: ScreeningCase, db: Session) -> ScreeningResult:
         model_name=model_name,
         model_version=model_version,
         dr_grade=grade,
-        has_dme=1 if grade in ("3", "4") and random.random() < 0.4 else 0,
+        # 黄斑水肿不随 DR 级别出现。眼底分级不能代替黄斑水肿判断。
+        has_dme=0,
         risk_level=risk_level,
         risk_score=score,
         referral_required=1 if risk_level in (

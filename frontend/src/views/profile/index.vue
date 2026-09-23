@@ -30,6 +30,9 @@ const userLoading = ref(false)
 const isStudent = computed(() => userStore.isTrainee)
 const isStaff = computed(() => userStore.isAdmin || userStore.isDoctor)
 const rotationText = ref('')
+const studyYearText = ref('')
+const rotationBatchText = ref('')
+const mentorGroupText = ref('')
 const displayName = computed(() => userStore.displayName)
 const avatarLetter = computed(() => displayName.value.charAt(0).toUpperCase())
 const roleName = computed(() => userStore.roleName)
@@ -301,9 +304,17 @@ onMounted(() => {
   if (isStudent.value) {
     RotationApi.getHome()
       .then((home) => {
-        if (home.role !== 'student' || !home.rotation) return
+        if (home.role !== 'student' || !home.rotation) {
+          studyYearText.value = home.role === 'student' ? home.studyYear : ''
+          rotationBatchText.value = home.role === 'student' ? home.rotationBatch : ''
+          mentorGroupText.value = home.role === 'student' ? home.mentorGroup : ''
+          return
+        }
         const due = home.rotation.dueOn ? `，截止 ${home.rotation.dueOn}` : ''
         rotationText.value = `${home.rotation.title}${due}`
+        studyYearText.value = home.studyYear
+        rotationBatchText.value = home.rotationBatch
+        mentorGroupText.value = home.mentorGroup
       })
       .catch(() => {
         rotationText.value = ''
@@ -400,8 +411,20 @@ onMounted(() => {
               <el-form-item v-if="isStudent" label="身份">
                 <el-input model-value="学员" disabled />
               </el-form-item>
+              <el-form-item v-if="isStudent" label="年级">
+                <el-input :model-value="studyYearText || '未分组'" disabled />
+              </el-form-item>
+              <el-form-item v-if="isStudent" label="轮转批次">
+                <el-input :model-value="rotationBatchText || '未分组'" disabled />
+              </el-form-item>
+              <el-form-item v-if="isStudent" label="带教组">
+                <el-input :model-value="mentorGroupText || '未分组'" disabled />
+              </el-form-item>
               <el-form-item v-if="isStudent" label="当前轮转">
                 <el-input :model-value="rotationText || '老师尚未布置轮转'" disabled />
+                <el-button link type="primary" @click="router.push('/training/home')">
+                  查看今日任务
+                </el-button>
               </el-form-item>
               <el-form-item>
                 <el-button

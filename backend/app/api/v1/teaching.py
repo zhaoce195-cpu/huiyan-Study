@@ -45,6 +45,12 @@ def create_share(params: TeachingShareCreate, db: DbSession, user: CurrentUser, 
     return success(data=r.model_dump(by_alias=True))
 
 
+@router.post("/share/{share_id}/reveal", dependencies=[_teacher_dep])
+def reveal_share(share_id: int = Path(...), db: DbSession = None, user: CurrentUser = None, request: Request = None):
+    r = TeachingService.reveal_answers(db, user=user, share_id=share_id, ip=_ip(request))
+    return success(data=r.model_dump(by_alias=True), msg="已向学员公布金标准")
+
+
 @router.post("/share/{share_id}/revoke", dependencies=[_teacher_dep])
 def revoke_share(share_id: int = Path(...), db: DbSession = None, user: CurrentUser = None, request: Request = None):
     r = TeachingService.revoke_share(db, user=user, share_id=share_id, ip=_ip(request))

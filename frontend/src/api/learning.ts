@@ -147,8 +147,10 @@ export const RESOURCE_STATUS_OPTIONS: { label: string; value: ResourceStatus }[]
 ]
 
 export const FILE_TYPE_OPTIONS: { label: string; value: string }[] = [
-  { label: 'PDF 文档', value: 'pdf' },
   { label: '视频', value: 'video' },
+  { label: 'PPT', value: 'ppt' },
+  { label: 'Word', value: 'word' },
+  { label: 'PDF 文档', value: 'pdf' },
   { label: '图片', value: 'image' },
   { label: 'Markdown 富文本', value: 'markdown' },
   { label: '其他外链', value: 'link' }

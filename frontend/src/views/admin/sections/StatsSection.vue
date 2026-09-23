@@ -78,6 +78,11 @@ const onStudyFilter = () => {
   fetchStudy()
 }
 
+const clearStudyFilter = () => {
+  studyFilter.keyword = ''
+  onStudyFilter()
+}
+
 const refresh = () => {
   fetchOverview()
   fetchStudy()
@@ -214,6 +219,7 @@ onMounted(refresh)
               @change="onStudyFilter"
               @clear="onStudyFilter"
             />
+            <el-button size="small" @click="clearStudyFilter">清除</el-button>
             <el-button :icon="Refresh" size="small" @click="fetchStudy">刷新</el-button>
           </div>
         </div>
@@ -233,7 +239,11 @@ onMounted(refresh)
               <span class="muted ml8">{{ row.totalSeconds }} 秒</span>
             </template>
           </el-table-column>
+          <el-table-column label="练习次数" width="110" sortable :sort-by="(r: StudyHoursItem) => r.practiceCount" prop="practiceCount" />
           <el-table-column prop="caseCount" label="完成病例" width="120" sortable />
+          <el-table-column label="平均成绩" width="110" sortable :sort-by="(r: StudyHoursItem) => r.avgScore">
+            <template #default="{ row }">{{ row.avgScore.toFixed(1) }}</template>
+          </el-table-column>
           <el-table-column label="平均 IoU" width="180" sortable :sort-by="(r: StudyHoursItem) => r.avgIou">
             <template #default="{ row }">
               <el-progress

@@ -66,7 +66,23 @@ async def check_image_quality(
     from app.services.image_quality_service import ImageQualityService
 
     data = await ImageQualityService.evaluate_case(db=db, case_id=caseId)
-    return success(data=data, msg="质量评估完成")
+    data["reviewStatus"] = ""
+    data["readingId"] = None
+    role = current_user.role.code if current_user.role else ""
+    if role == RoleEnum.STUDENT.value and int(data.get("evaluated") or 0) > 0:
+        lines = [
+            f"影像 {item.get('imageId')}：{item.get('quality')}"
+            for item in (data.get("items") or [])
+            if item.get("quality") and item.get("quality") != "unknown"
+        ]
+        note = "学员提交的影像质量评估，待教师审核。算法建议：" + ("；".join(lines) or "无")
+        reviewed = ReadingService.submit_quality_review(
+            db, current_user, caseId, note, {"qualityItems": data.get("items") or []},
+        )
+        data["reviewStatus"] = reviewed.status
+        data["readingId"] = reviewed.id
+    msg = "已提交教师质量评估" if data.get("reviewStatus") == "SUBMITTED" else "质量评估完成"
+    return success(data=data, msg=msg)
 
 
 @router.get(
@@ -91,7 +107,8 @@ def diagnosis_form_def(
     case = db.query(TrainingCase).filter(TrainingCase.id == caseId).first()
     if not case:
         raise HTTPException(status_code=404, detail="病例不存在")
-    return success(data=diagnosis_form.get_form(case.category))
+    materials = diagnosis_form.materials_for_case(db, case)
+    return success(data=diagnosis_form.get_form(case.category, materials))
 
 
 @router.get(

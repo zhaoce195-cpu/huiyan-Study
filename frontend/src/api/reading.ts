@@ -119,6 +119,9 @@ export interface SafetySummary {
   hasUngradable?: boolean
   /** 原图是否已全部完成质量评估；为 false 时不得声称已质控 */
   qualityChecked?: boolean
+  /** 学员质量评估的审核状态：SUBMITTED 待教师审核，REVIEWED 才是通过 */
+  qualityReviewStatus?: string
+  qualityReviewText?: string
   /** 全库已成功评出等级的原图张数（跨病例累计，按影像去重） */
   gradedTotal?: number
   eyes?: string[]
@@ -167,10 +170,17 @@ export interface ImageSource {
   /** ============ 安全标识（报告 P0/P1：安全条常驻） ============ */
   modality?: string
   modalityText?: string
-  /** 检查日期；为空表示未采集 */
+  /** 检查日期，来自病例 exam_on。为空表示没有提供 */
   examDate?: string | null
-  /** 为 false 时不得用入库时间冒充检查日期 */
+  /** exam_on 能解析时才为真，不能用入库时间代替 */
   examDateKnown?: boolean
+  subjectNo?: string
+  examOn?: string
+  visitIndex?: number
+  visitCount?: number
+  visits?: Array<{ id: number; caseNo: string; examOn: string; visitIndex: number }>
+  /** 只有眼底照相，没有 OCT、视力或其他病历 */
+  fundusOnly?: boolean
   safety?: SafetySummary
   /** ============ 模拟患者信息（按角色脱敏） ============ */
   patientName?: string
@@ -193,6 +203,8 @@ export interface ReadingRecord {
   measurements: AnnotationItem[]
   layers: LayerState | null
   status: ReadingStatus
+  /** READING 阅片作业；QUALITY 送教师审核的影像质量评估 */
+  recordKind?: 'READING' | 'QUALITY' | string
   /** 结构化诊断结论 */
   diagnosis?: Record<string, any>
   note: string
@@ -292,6 +304,9 @@ export interface QualityCheckResult {
   /** 含本次在内，已成功评出等级的原图累计张数 */
   gradedTotal?: number
   hasUngradable: boolean
+  /** 学员提交后为 SUBMITTED，教师通过后才是 REVIEWED */
+  reviewStatus?: string
+  readingId?: number | null
   items: Array<{
     imageId: number
     quality: string

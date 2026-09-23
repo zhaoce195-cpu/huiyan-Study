@@ -56,12 +56,36 @@ const recordId = computed(() => Number(route.query.recordId || 0))
 
 const missingCaseId = computed(() => !caseId.value && !recordId.value)
 
-/** 教师打开工作台默认进「质量评估」列表，避免被自动推进第一例后只看见自己的空画布 */
+/** 质量评估只在地址明确带 tab=quality 时出现。侧栏「阅片工作台」不带这个参数，应打开阅片画面。 */
 type WorkbenchTab = 'reading' | 'quality'
 const workbenchTab = ref<WorkbenchTab>('reading')
+const LAST_CASE_KEY = 'huiyan.reading.lastCaseId'
 const showQualityPanel = computed(
-  () => canReview.value && workbenchTab.value === 'quality' && !(recordId.value > 0)
+  () => canReview.value && !(recordId.value > 0) && workbenchTab.value === 'quality'
 )
+const wantsQualityList = () => {
+  if (!canReview.value) return false
+  const tab = String(route.query.tab || '')
+  return tab === 'quality' || tab === 'review'
+}
+const rememberReadingCase = (id: number) => {
+  if (!(id > 0)) return
+  try {
+    sessionStorage.setItem(LAST_CASE_KEY, String(id))
+  } catch {
+    /* 写不进去时，下次从列表第一例进入 */
+  }
+}
+const preferredReadingCaseId = () => {
+  let saved = 0
+  try {
+    saved = Number(sessionStorage.getItem(LAST_CASE_KEY) || 0)
+  } catch {
+    saved = 0
+  }
+  if (saved > 0 && caseList.value.some((c) => c.id === saved)) return saved
+  return caseList.value[0]?.id || 0
+}
 const applyWorkbenchTabFromRoute = () => {
   if (!canReview.value) {
     workbenchTab.value = 'reading'
@@ -72,7 +96,7 @@ const applyWorkbenchTabFromRoute = () => {
     workbenchTab.value = 'reading'
     return
   }
-  if (tab === 'quality' || tab === 'review' || !caseId.value) {
+  if (tab === 'quality' || tab === 'review') {
     workbenchTab.value = 'quality'
     return
   }
@@ -89,8 +113,9 @@ const openReadingTab = () => {
   const q: Record<string, any> = { ...route.query }
   delete q.tab
   router.replace({ query: q })
-  if (!caseId.value && !recordId.value && caseList.value.length) {
-    onSelectCase(caseList.value[0].id)
+  if (!caseId.value && !recordId.value) {
+    const id = preferredReadingCaseId()
+    if (id) onSelectCase(id)
   }
 }
 const goQualityReview = (row: ReadingApi.ReadingRecord) => {
@@ -618,11 +643,7 @@ const onReview = async (accept: boolean, comment: string) => {
 
 const goBack = () => {
   const from = String(route.query.from || '')
-  if (from === 'review') {
-    router.push('/training/review')
-    return
-  }
-  if (from === 'quality') {
+  if (from === 'review' || from === 'quality') {
     router.push({ path: '/training/reading', query: { tab: 'quality' } })
     return
   }
@@ -650,14 +671,13 @@ onMounted(async () => {
   // 页面不再需要预热
   await loadCaseList()
   applyWorkbenchTabFromRoute()
+  if (caseId.value) rememberReadingCase(caseId.value)
 
-  // 教师进工作台先看质量评估列表；学员无病例时才自动进第一例
-  if (!caseId.value && !recordId.value && caseList.value.length) {
-    if (canReview.value) {
-      workbenchTab.value = 'quality'
-      return
-    }
-    onSelectCase(caseList.value[0].id)
+  // 侧栏点「阅片工作台」不带病例时，回到上次正在看的那例；质量评估要另点页签。
+  if (!caseId.value && !recordId.value) {
+    if (wantsQualityList()) return
+    const id = preferredReadingCaseId()
+    if (id) onSelectCase(id)
     return
   }
 
@@ -678,7 +698,17 @@ onBeforeUnmount(() => {
 
 watch(
   () => [route.query.tab, route.query.recordId, route.query.caseId],
-  () => applyWorkbenchTabFromRoute()
+  () => {
+    applyWorkbenchTabFromRoute()
+    if (caseId.value) {
+      rememberReadingCase(caseId.value)
+      return
+    }
+    if (!recordId.value && !wantsQualityList()) {
+      const id = preferredReadingCaseId()
+      if (id) onSelectCase(id)
+    }
+  }
 )
 
 watch(currentImageIndex, () => {
@@ -701,13 +731,27 @@ watch(currentImageIndex, () => {
 })
 
 /* ========== 切换病例：路由 caseId 变化时彻底重置画布并拉取新影像 ========== */
+/** 侧栏再次点「阅片工作台」会清掉 caseId。同一例不要卸掉影像，直接把地址写回去。 */
+let stickyCaseId = 0
 watch(caseId, async (newId, oldId) => {
   if (newId === oldId) return
+  if (newId > 0) rememberReadingCase(newId)
   if (!newId) {
+    if (oldId > 0 && !recordId.value && !wantsQualityList()) {
+      stickyCaseId = oldId
+      onSelectCase(oldId)
+      return
+    }
+    stickyCaseId = 0
     source.value = null
     sourceError.value = ''
     return
   }
+  if (stickyCaseId && newId === stickyCaseId) {
+    stickyCaseId = 0
+    return
+  }
+  stickyCaseId = 0
   // 重置画布所有状态（标注 / 测量 / 历史 / 视口）
   canvasState.annotations = []
   canvasState.measurements = []
@@ -780,6 +824,10 @@ const runQualityCheck = async () => {
           ? `影像质控未完成：${failed} 张调用失败。原因：${firstErr}`
           : `影像质控未完成：算法服务调用失败（${failed} 张）`
       )
+    } else if (r?.reviewStatus === 'REVIEWED') {
+      ElMessage.success('教师已通过这份质量评估')
+    } else if (r?.reviewStatus === 'SUBMITTED') {
+      ElMessage.success(`已提交教师质量评估，${tally}。审核通过前不算通过`)
     } else if (r?.hasUngradable) {
       ElMessage.warning(
         `质量评估完成，${tally}，其中有不可判读影像，请勿据此给出阴性结论`
@@ -842,6 +890,11 @@ const selectEye = (code: 'OD' | 'OS') => {
   const urls = originals?.length ? originals : source.value?.images || []
   const idx = urls.findIndex((u) => u === hit.url)
   currentImageIndex.value = idx >= 0 ? idx : 0
+}
+
+const selectStripImage = (index: number) => {
+  if (index < 0 || index >= currentRoleImages.value.length) return
+  currentImageIndex.value = index
 }
 
 const layerNotes = computed(() => {
@@ -912,11 +965,10 @@ const openNote = () => {
       <div class="header-left">
         <el-button :icon="Back" text @click="goBack">
           {{
-            String(route.query.from || '') === 'review'
-              ? '返回待审核'
-              : String(route.query.from || '') === 'quality'
-                ? '返回质量评估'
-                : String(route.query.from || '') === 'my-reviews'
+            String(route.query.from || '') === 'review' ||
+            String(route.query.from || '') === 'quality'
+              ? '返回质量评估'
+              : String(route.query.from || '') === 'my-reviews'
                   ? '返回教师评定'
                   : '返回病例库'
           }}
@@ -1116,17 +1168,48 @@ const openNote = () => {
 
     <!-- 患者信息栏 -->
     <div v-if="!showQualityPanel && source" class="patient-bar">
-      <div class="pb-cell">
+      <div v-if="isTeacher || isAdmin" class="pb-cell">
         <span class="pb-label">姓名</span>
         <span class="pb-value">{{ source.patientName || '—' }}</span>
       </div>
-      <div class="pb-cell">
+      <div v-if="isTeacher || isAdmin" class="pb-cell">
         <span class="pb-label">性别</span>
         <span class="pb-value">{{ genderText(source.patientGender) }}</span>
       </div>
-      <div class="pb-cell">
+      <div v-if="isTeacher || isAdmin" class="pb-cell">
         <span class="pb-label">年龄</span>
         <span class="pb-value">{{ source.patientAge ? source.patientAge + ' 岁' : '—' }}</span>
+      </div>
+      <div v-if="!(isTeacher || isAdmin)" class="pb-cell">
+        <span class="pb-label">资料</span>
+        <span class="pb-value">
+          {{ source.fundusOnly === false ? '眼底照相，另有其他记录' : '眼底照相，无其他资料' }}
+        </span>
+      </div>
+      <div class="pb-cell">
+        <span class="pb-label">检查</span>
+        <span class="pb-value">
+          <template v-if="(source.visitCount || 1) > 1">
+            同一病人 第 {{ source.visitIndex || 1 }} / {{ source.visitCount }} 次
+          </template>
+          <template v-else>单次图像</template>
+          · {{ source.examOn || '检查日期未提供' }}
+        </span>
+      </div>
+      <div v-if="source.visits?.length" class="pb-cell pb-visits">
+        <span class="pb-label">其他时期</span>
+        <span class="pb-value">
+          <el-button
+            v-for="visit in source.visits"
+            :key="visit.id"
+            text
+            size="small"
+            type="primary"
+            @click="onSelectCase(visit.id)"
+          >
+            {{ visit.caseNo }} · 第 {{ visit.visitIndex }} 次 · {{ visit.examOn || '检查日期未提供' }}
+          </el-button>
+        </span>
       </div>
       <div class="pb-cell">
         <span class="pb-label">眼别</span>
@@ -1219,10 +1302,30 @@ const openNote = () => {
           <span v-else class="eye-now">当前 {{ currentEyeLabel }}</span>
         </div>
 
-        <div v-if="missingCaseId" class="empty error">
-          <el-icon><Document /></el-icon>
-          <span>缺少 caseId 参数，无法加载影像</span>
-          <el-button size="small" @click="goBack">返回病例库</el-button>
+        <div v-if="missingCaseId" class="empty">
+          <span>请先选择一份病例，再开始阅片</span>
+          <el-select
+            v-if="caseList.length"
+            :model-value="undefined"
+            filterable
+            placeholder="选择病例"
+            class="case-select"
+            @change="onSelectCase"
+          >
+            <el-option
+              v-for="c in caseList"
+              :key="c.id"
+              :label="c.title ? `${c.caseNo} · ${c.title}` : c.caseNo"
+              :value="c.id"
+            />
+          </el-select>
+          <span v-else class="empty-sub">病例库里还没有可阅的病例</span>
+          <div class="empty-actions">
+            <el-button v-if="canReview" size="small" type="primary" @click="openQualityTab">
+              去质量评估
+            </el-button>
+            <el-button size="small" @click="router.push('/training/cases')">去病例库</el-button>
+          </div>
         </div>
         <div v-else-if="sourceLoading" v-loading="true" class="loading-mask">
           影像加载中…
@@ -1276,7 +1379,7 @@ const openNote = () => {
             :key="i"
             class="strip-cell"
             :class="{ active: i === currentImageIndex }"
-            @click="currentImageIndex = i"
+            @click.stop="selectStripImage(i)"
           >
             <img :src="img" />
             <span class="strip-label">{{ i + 1 }}</span>
@@ -1574,8 +1677,9 @@ const openNote = () => {
 .empty {
   pointer-events: auto;
 }
-.empty.error {
-  color: #ff7875;
+.empty-sub {
+  color: #86909c;
+  font-size: 13px;
 }
 .empty-actions {
   display: flex;
@@ -1598,6 +1702,7 @@ const openNote = () => {
 
 .image-strip {
   position: absolute;
+  z-index: 6;
   bottom: 14px;
   left: 50%;
   transform: translateX(-50%);
@@ -1610,6 +1715,7 @@ const openNote = () => {
   backdrop-filter: blur(8px);
   max-width: 80%;
   overflow-x: auto;
+  pointer-events: auto;
 }
 .strip-cell {
   width: 56px;

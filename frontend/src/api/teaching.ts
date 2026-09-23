@@ -23,6 +23,7 @@ export interface TeachingShare {
   reviewerName: string
   teacherId: number
   teacherName: string
+  answersRevealed?: boolean
   createdAt?: string
   updatedAt?: string
 }
@@ -55,6 +56,7 @@ export interface StudentCase {
   lesions?: { name: string; detail: string }[]
   annotations?: Record<string, any>[]
   lesionMaskUrl?: string
+  answersRevealed?: boolean
   expiredAt?: string | null
   teachingCaseId?: number | null
 }
@@ -71,6 +73,7 @@ export interface ShareCreateParams {
   sourceCaseId: number
   shareScope?: string
   expireHours?: number
+  hideAnswers?: boolean
 }
 
 export interface SubmitCreateParams {
@@ -90,6 +93,9 @@ export const createShare = (params: ShareCreateParams) =>
 
 export const revokeShare = (id: number) =>
   http.post<TeachingShare>(`/teaching/share/${id}/revoke`)
+
+export const revealShare = (id: number) =>
+  http.post<TeachingShare>(`/teaching/share/${id}/reveal`)
 
 export const submitForReview = (params: SubmitCreateParams) =>
   http.post<TeachingShare>('/teaching/submit', params)

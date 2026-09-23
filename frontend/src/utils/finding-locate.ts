@@ -1,7 +1,7 @@
 /**
  * 平时练习：勾选关键征象后，在图上指出至少一处。
- * 微动脉瘤用点选，出血、渗出、新生血管用圈选，静脉串珠和 IRMA 用象限。
- * 这些标记只证明学员指出了位置，不并进金标准框的重合评分。
+ * 微动脉瘤用点选，出血和渗出用圈选，静脉串珠、IRMA 和新生血管标象限。
+ * 这些标记计入练习评分：小病灶看找对与否，出血和渗出看范围，其余看象限。
  */
 
 export type LocateMethod = 'point' | 'circle' | 'quadrant'
@@ -102,10 +102,10 @@ const TASKS: Record<string, LocateTask> = {
   NV: {
     code: 'NV',
     label: '新生血管',
-    method: 'circle',
-    methodText: '圈选',
-    action: '去圈选',
-    prompt: '按住并拖动，圈出至少一处新生血管。',
+    method: 'quadrant',
+    methodText: '标出象限',
+    action: '标象限',
+    prompt: '点选新生血管所在的象限，至少标一个。再点一次可取消。',
     color: '#1677ff',
     markLabel: '新生血管'
   }

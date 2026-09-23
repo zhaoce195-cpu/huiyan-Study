@@ -219,13 +219,13 @@ const GRADE_TAG: Record<number, 'success' | 'warning' | 'danger'> = {
   gap: 8px;
   margin: 0 0 6px;
   font-size: 20px;
-  color: var(--ap-text, #e5e6eb);
+  color: #1d2129;
 }
 .page-head .subtitle {
   margin: 0 0 18px;
   font-size: 13px;
   line-height: 1.7;
-  color: var(--ap-text-3, #86909c);
+  color: #4e5969;
 }
 
 .form-card,

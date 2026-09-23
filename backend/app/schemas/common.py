@@ -194,7 +194,9 @@ class StudyHoursItem(_CamelModel):
     department: str = ""
     total_seconds: int = 0
     total_hours: float = 0.0
+    practice_count: int = 0
     case_count: int = 0
+    avg_score: float = 0.0
     avg_iou: float = 0.0
 
 

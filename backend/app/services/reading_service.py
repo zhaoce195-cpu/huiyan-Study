@@ -23,6 +23,7 @@ from app.db.models import (
     User,
 )
 from app.common import workflow
+from app.common.diagnosis_form import fundus_only as case_is_fundus_only
 from app.common.image_safety import (
     DEFAULT_MODALITY,
     DEFAULT_MODALITY_TEXT,
@@ -79,6 +80,7 @@ def _to_out(record: ReadingAnnotation) -> ReadingOut:
         measurements=record.measurements or [],
         layers=record.layers,
         status=record.status,  # type: ignore[arg-type]
+        record_kind=getattr(record, "record_kind", None) or "READING",
         diagnosis=record.diagnosis or {},
         note=record.note or "",
         review_comment=record.review_comment or "",
@@ -150,13 +152,19 @@ def _patient_block(case: TrainingCase, viewer: User) -> dict:
     - 教师：手机号脱敏
     - 学员 / 其他：手机号置空
     """
-    from app.common.case_utils import mask_phone_by_role
+    from app.common.case_utils import learner_patient_fields, mask_phone_by_role
     role = viewer.role.code if viewer.role else None
     phone, visible = mask_phone_by_role(getattr(case, "patient_phone", "") or "", role)
+    name, gender, age = learner_patient_fields(
+        role,
+        getattr(case, "patient_name", "") or "",
+        case.patient_gender or "U",
+        case.patient_age,
+    )
     return {
-        "patient_name": getattr(case, "patient_name", "") or "",
-        "patient_gender": case.patient_gender or "U",
-        "patient_age": case.patient_age or 0,
+        "patient_name": name,
+        "patient_gender": gender,
+        "patient_age": age,
         "patient_phone": phone,
         "phone_visible": visible,
     }
@@ -215,6 +223,7 @@ class ReadingService:
                         ReadingStatusEnum.SUBMITTED.value,
                         ReadingStatusEnum.REVIEWED.value,
                     ]),
+                    ReadingAnnotation.record_kind != "QUALITY",
                 )
                 .first()
             )
@@ -280,6 +289,24 @@ class ReadingService:
         _fill_unknown_original_eyes(safety_meta)
         safety = summarize_safety(safety_meta)
         safety["gradedTotal"] = ImageQualityService.graded_original_count(db)
+        if not _is_teacher_or_admin(user):
+            quality_review = (
+                db.query(ReadingAnnotation)
+                .filter(
+                    ReadingAnnotation.case_id == case.id,
+                    ReadingAnnotation.user_id == user.id,
+                    ReadingAnnotation.record_kind == "QUALITY",
+                )
+                .order_by(desc(ReadingAnnotation.id))
+                .first()
+            )
+            review_status = quality_review.status if quality_review is not None else ""
+            safety["qualityReviewStatus"] = review_status
+            safety["qualityReviewText"] = {
+                "SUBMITTED": "待教师审核",
+                "REVIEWED": "教师已通过",
+                "REJECTED": "教师已驳回",
+            }.get(review_status, "算法已评估，尚未送审" if safety.get("qualityChecked") else "")
 
         # PACS 对照。PACS 不可用不能影响阅片 —— 取不到就当没有 DICOM，
         # 前端照常用 JPG，而不是让整页打不开。
@@ -308,6 +335,9 @@ class ReadingService:
             dicom_instances = {}
             segmentation = None
 
+        from app.services.case_browse_service import visit_context
+        linked = visit_context(db, user, case)
+
         return ImageSource(
             case_id=case.id,
             case_no=case.case_no,
@@ -319,11 +349,15 @@ class ReadingService:
             image_groups=dict(groups),
             modality=DEFAULT_MODALITY,
             modality_text=DEFAULT_MODALITY_TEXT,
-            # 现有数据模型没有采集检查日期字段；此处如实返回未知，
-            # 不用 created_at（入库时间）冒充检查日期。
-            # DICOM 化迁移时由 AcquisitionDateTime 回填。
-            exam_date=None,
-            exam_date_known=False,
+            # 检查日期只用病例上的 exam_on。没填就保持未知，不用入库时间冒充。
+            exam_date=linked["exam_date"],
+            exam_date_known=linked["exam_date"] is not None,
+            subject_no=linked["subject_no"],
+            exam_on=linked["exam_on"],
+            visit_index=linked["visit_index"],
+            visit_count=linked["visit_count"],
+            visits=[row.model_dump(by_alias=True) for row in linked["visits"]],
+            fundus_only=case_is_fundus_only(case),
             safety=safety,
             image_complete=bool(comp["complete"]),
             missing_roles=list(comp["missing_roles"]),
@@ -360,7 +394,8 @@ class ReadingService:
         if params.submit:
             from app.common import diagnosis_form
 
-            problems = diagnosis_form.validate(case.category, params.diagnosis)
+            materials = diagnosis_form.materials_for_case(db, case)
+            problems = diagnosis_form.validate(case.category, params.diagnosis, materials)
             if problems:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -382,6 +417,7 @@ class ReadingService:
                     ReadingAnnotation.case_id == case.id,
                     ReadingAnnotation.image_index == params.image_index,
                     ReadingAnnotation.submit_request_id == params.request_id,
+                    ReadingAnnotation.record_kind != "QUALITY",
                 )
                 .order_by(desc(ReadingAnnotation.id))
                 .first()
@@ -402,6 +438,7 @@ class ReadingService:
                     ReadingStatusEnum.DRAFT.value,
                     ReadingStatusEnum.REJECTED.value,
                 ]),
+                ReadingAnnotation.record_kind != "QUALITY",
             )
             .order_by(desc(ReadingAnnotation.id))
             .first()
@@ -520,12 +557,68 @@ class ReadingService:
                 ReadingAnnotation.user_id == user.id,
                 ReadingAnnotation.case_id == case_id,
                 ReadingAnnotation.image_index == image_index,
+                ReadingAnnotation.record_kind != "QUALITY",
             )
             .order_by(desc(ReadingAnnotation.id))
             .first()
         )
         if not record:
             return None
+        return _to_out(record)
+
+    @staticmethod
+    def submit_quality_review(
+        db: Session,
+        user: User,
+        case_id: int,
+        note: str,
+        diagnosis: dict,
+    ) -> ReadingOut:
+        """
+        学员的影像质量评估送教师审核。
+
+        算法给出的等级只是建议，写进同一条阅片记录的 QUALITY 类型，
+        状态停在待审核。教师沿用阅片审核接口通过或驳回后，学员端才显示已通过。
+        """
+        if _is_teacher_or_admin(user):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="教师的影像质控不进入学员审核队列",
+            )
+        case = _get_case(db, case_id)
+        record = (
+            db.query(ReadingAnnotation)
+            .filter(
+                ReadingAnnotation.user_id == user.id,
+                ReadingAnnotation.case_id == case.id,
+                ReadingAnnotation.record_kind == "QUALITY",
+            )
+            .order_by(desc(ReadingAnnotation.id))
+            .first()
+        )
+        if record is None:
+            record = ReadingAnnotation(
+                case_id=case.id,
+                user_id=user.id,
+                image_index=0,
+                image_url="",
+                annotations=[],
+                measurements=[],
+                status=ReadingStatusEnum.DRAFT.value,
+                record_kind="QUALITY",
+            )
+            db.add(record)
+            db.flush()
+        if record.status != ReadingStatusEnum.REVIEWED.value and record.status != ReadingStatusEnum.SUBMITTED.value:
+            workflow.READING.ensure(record.status, ReadingStatusEnum.SUBMITTED.value)
+            record.status = ReadingStatusEnum.SUBMITTED.value
+            record.review_comment = ""
+            record.reviewer_id = None
+        record.note = (note or "")[:2000]
+        record.diagnosis = diagnosis or {}
+        record.updated_at = datetime.now()
+        db.commit()
+        db.refresh(record)
         return _to_out(record)
 
     # ---------- 教师审核 ----------

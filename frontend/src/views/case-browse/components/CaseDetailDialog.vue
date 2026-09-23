@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Picture, Promotion, Check } from '@element-plus/icons-vue'
-import type { CaseBrowseApi } from '@/api'
+import { CaseBrowseApi } from '@/api'
+import TeachingOutlineView from '@/components/TeachingOutlineView.vue'
 import { useTrainingJoinStore } from '@/stores/training-join'
 
 type Detail = CaseBrowseApi.CaseBrowseDetail
@@ -18,8 +19,11 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update:visible', v: boolean): void
   (e: 'join-training', row: Detail): void
+  (e: 'leave-training', row: Detail): void
   (e: 'edit-gold', row: Detail): void
   (e: 'preview-images', images: string[]): void
+  (e: 'open-visit', id: number): void
+  (e: 'subject-saved', detail: Detail): void
 }>()
 
 const joinStore = useTrainingJoinStore()
@@ -43,21 +47,17 @@ const onPreview = () => {
 }
 
 /* ========== 加入实训按钮态 ========== */
-const joinedHere = computed(() => {
-  if (!props.data) return false
-  // 后端 isTrainCase 为权威源；本地 store 用于乐观更新及未刷新场景
-  if (props.data.isTrainCase) return true
-  return joinStore.isJoined(props.data.id)
-})
+const joinedHere = computed(() => !!props.data?.isTrainCase)
 const joiningHere = computed(() =>
   props.data ? joinStore.isJoining(props.data.id) : false
 )
 const joinDisabled = computed(() => {
   if (!props.data) return true
-  if (props.data.archiveStatus === 'ARCHIVED') return true
-  return joinedHere.value || joiningHere.value
+  if (joiningHere.value) return true
+  if (props.data.archiveStatus === 'ARCHIVED' && !joinedHere.value) return true
+  return false
 })
-const joinButtonText = computed(() => (joinedHere.value ? '已加入实训' : '加入实训'))
+const joinButtonText = computed(() => (joinedHere.value ? '取消加入实训' : '加入实训'))
 
 /* 转交父级真正发请求；父级在 store 上更新 loading / joined 状态，
    弹窗只读取 store —— 反馈即时同步，不重复发请求。 */
@@ -67,11 +67,11 @@ const onJoin = () => {
     ElMessage.warning('该病例已归档，无法加入实训')
     return
   }
+  if (joiningHere.value) return
   if (joinedHere.value) {
-    ElMessage.info('该病例已在实训库中，无需重复添加')
+    emit('leave-training', props.data)
     return
   }
-  if (joiningHere.value) return
   emit('join-training', props.data)
 }
 
@@ -79,6 +79,32 @@ const genderText = (g: string) => {
   if (g === 'M') return '男'
   if (g === 'F') return '女'
   return '未填写'
+}
+
+const subjectNo = ref('')
+const examOn = ref('')
+const savingSubject = ref(false)
+watch(
+  () => props.data,
+  (row) => {
+    subjectNo.value = row?.subjectNo || ''
+    examOn.value = row?.examOn || ''
+  },
+  { immediate: true }
+)
+const saveSubject = async () => {
+  if (!props.data) return
+  savingSubject.value = true
+  try {
+    const saved = await CaseBrowseApi.setCaseSubject(props.data.id, {
+      subjectNo: subjectNo.value.trim(),
+      examOn: (examOn.value || '').trim()
+    })
+    emit('subject-saved', saved)
+    ElMessage.success('已保存。同一病人编号的检查会按日期排在一起')
+  } finally {
+    savingSubject.value = false
+  }
 }
 </script>
 
@@ -134,7 +160,14 @@ const genderText = (g: string) => {
         </div>
 
         <!-- 描述区 -->
-        <el-descriptions :column="2" border size="small" class="desc-block" title="患者信息">
+        <el-descriptions
+          v-if="canArchive"
+          :column="2"
+          border
+          size="small"
+          class="desc-block"
+          title="患者信息"
+        >
           <el-descriptions-item label="姓名">
             <b v-if="data.patientName">{{ data.patientName }}</b>
             <span v-else class="muted">—</span>
@@ -165,7 +198,50 @@ const genderText = (g: string) => {
           </el-descriptions-item>
         </el-descriptions>
 
-        <el-descriptions :column="2" border size="small" class="desc-block" title="病例与教学">
+        <p v-if="!canArchive" class="materials-note">
+          <template v-if="data.fundusOnly !== false">
+            本例只有眼底照相，没有病历、OCT 或视力等其他资料。
+          </template>
+          <template v-else>
+            影像是眼底照相。{{ data.clinicalInfo }}
+          </template>
+        </p>
+
+        <section class="visit-block">
+          <h4>不同时期</h4>
+          <p v-if="(data.visitCount || 1) <= 1" class="materials-note">
+            这是一次检查的图像，库里没有同一病人的其他时期。公共数据集通常一行一张图。
+          </p>
+          <ul v-else class="visit-list">
+            <li>
+              这次是第 {{ data.visitIndex || 1 }} / {{ data.visitCount }} 次
+              <span v-if="data.examOn"> · {{ data.examOn }}</span>
+              <span v-else> · 检查日期未提供</span>
+            </li>
+            <li v-for="visit in data.visits || []" :key="visit.id">
+              <el-button link type="primary" @click="emit('open-visit', visit.id)">
+                {{ visit.caseNo }}
+              </el-button>
+              <span>第 {{ visit.visitIndex }} 次 · {{ visit.examOn || '检查日期未提供' }}</span>
+            </li>
+          </ul>
+          <div v-if="canArchive" class="visit-form">
+            <p class="materials-note">
+              同一个病人的其他时期，填相同的病人编号，并写上各自的检查日期。没有日期就留空，不要编造。编号不要用姓名、手机号或身份证号。
+            </p>
+            <el-input v-model="subjectNo" maxlength="32" placeholder="病人编号，如 P-01" style="width: 180px" />
+            <el-date-picker
+              v-model="examOn"
+              type="date"
+              value-format="YYYY-MM-DD"
+              placeholder="检查日期，可空"
+              style="width: 180px"
+            />
+            <el-button type="primary" :loading="savingSubject" @click="saveSubject">保存</el-button>
+          </div>
+        </section>
+
+        <el-descriptions v-if="canArchive" :column="2" border size="small" class="desc-block" title="病例与教学">
           <el-descriptions-item label="创建人">
             {{ data.creatorName || '—' }}
           </el-descriptions-item>
@@ -191,7 +267,7 @@ const genderText = (g: string) => {
             <span v-else class="muted">—</span>
           </el-descriptions-item>
           <el-descriptions-item label="教学要点" :span="2">
-            <span v-if="data.teachingPoints">{{ data.teachingPoints }}</span>
+            <TeachingOutlineView v-if="data.teachingPoints" :text="data.teachingPoints" />
             <span v-else class="muted">—</span>
           </el-descriptions-item>
         </el-descriptions>
@@ -254,7 +330,7 @@ const genderText = (g: string) => {
       </el-button>
       <el-button
         v-if="canArchive"
-        :type="joinedHere ? 'success' : 'primary'"
+        :type="joinedHere ? 'warning' : 'primary'"
         :icon="joinedHere ? Check : Promotion"
         :loading="joiningHere"
         :disabled="joinDisabled"
@@ -300,6 +376,34 @@ const genderText = (g: string) => {
 
 .desc-block {
   margin-bottom: 16px;
+}
+.materials-note {
+  margin: 0 0 16px;
+  color: #4e5969;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.visit-block {
+  margin: 0 0 16px;
+}
+.visit-block h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.visit-list {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  color: #1d2129;
+  line-height: 1.8;
+}
+.visit-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.visit-form .materials-note {
+  flex-basis: 100%;
 }
 
 .thumb-wall {

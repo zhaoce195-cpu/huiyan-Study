@@ -9,12 +9,14 @@ const props = defineProps<{
   visible: boolean
   resource: Resource | null
   canFavorite?: boolean
+  rotationTaskId?: number | null
 }>()
 
 const emit = defineEmits<{
   (e: 'update:visible', v: boolean): void
   (e: 'fav-changed', r: Resource): void
   (e: 'note', r: Resource): void
+  (e: 'learned'): void
 }>()
 
 const dialogVisible = computed({
@@ -76,6 +78,12 @@ const fileNameOf = (url: string) => {
 
 const isArchiveFile = (url: string) =>
   /\.(zip|rar|7z|tar|gz|tgz)(\?|#|$)/i.test(url)
+
+const isOfficeFile = (url: string) =>
+  /\.(pptx?|docx?|xlsx?)(\?|#|$)/i.test(url)
+
+const isDownloadFile = (url: string) =>
+  isArchiveFile(url) || isOfficeFile(url) || /\.(mov|m4v|avi|mkv|wmv)(\?|#|$)/i.test(url)
 
 const previewVideoOk = (url: string) =>
   /\.(mp4|webm|ogg)(\?|$)/i.test(url)
@@ -150,13 +158,13 @@ const goExternal = () => {
           class="pdf-frame"
         />
         <div
-          v-else-if="resource.fileUrl && isArchiveFile(resource.fileUrl)"
+          v-else-if="resource.fileUrl && isDownloadFile(resource.fileUrl)"
           class="file-card"
         >
           <a class="file-name" :href="resource.fileUrl" :download="fileName">
             {{ fileName }}
           </a>
-          <span class="file-hint">压缩包无法在线预览，点击文件名下载</span>
+          <span class="file-hint">该格式请下载后用本机软件打开</span>
         </div>
         <el-image
           v-else-if="resource.fileUrl && previewImageOk(resource.fileUrl, resource.fileType)"
@@ -170,7 +178,7 @@ const goExternal = () => {
 
       <div v-if="resource.fileUrl" class="external">
         <a
-          v-if="isArchiveFile(resource.fileUrl)"
+          v-if="isDownloadFile(resource.fileUrl)"
           class="download-link"
           :href="resource.fileUrl"
           :download="fileName"
@@ -184,6 +192,9 @@ const goExternal = () => {
     <template #footer>
       <div class="footer-actions">
         <el-button @click="dialogVisible = false">关闭</el-button>
+        <el-button v-if="rotationTaskId" type="primary" @click="emit('learned')">
+          记入本轮转已学
+        </el-button>
         <el-button
           v-if="canFavorite !== false && resource"
           :type="resource.isFavorited ? 'warning' : 'primary'"

@@ -2,7 +2,8 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { PracticeApi } from '@/api'
+import { ExamApi, PracticeApi } from '@/api'
+import type { ExamPaper } from '@/api/exam'
 import { useUserStore } from '@/stores/user'
 import { isDrGradeNotApplicable } from '@/utils/filter-presets'
 
@@ -49,6 +50,14 @@ const cardImages = computed(() => {
   return out
 })
 const randomLoading = ref(false)
+const clearPickFilters = () => {
+  filterForm.value.category = ''
+  filterForm.value.difficulty = ''
+  filterForm.value.drLevel = undefined
+  filterForm.value.excludeDone = true
+  fetchRandom()
+}
+
 const fetchRandom = async () => {
   randomLoading.value = true
   try {
@@ -78,20 +87,37 @@ const startPractice = async (mode: PracticeApi.PracticeMode, caseId: number) => 
   }
 }
 
-const examStarting = ref(false)
-const startExam = async () => {
-  examStarting.value = true
+const exams = ref<ExamPaper[]>([])
+const examStartingId = ref(0)
+const fetchExams = async () => {
+  if (!isStudent.value) return
   try {
-    const rec = await PracticeApi.startExam()
+    exams.value = (await ExamApi.listExams()) || []
+  } catch {
+    exams.value = []
+  }
+}
+const enterExam = async (paper: ExamPaper) => {
+  examStartingId.value = paper.id
+  try {
+    const rec = await ExamApi.startExam(paper.id)
     router.push({
       path: '/practice/workstation',
-      query: { sessionId: String(rec.id), caseId: String(rec.caseId) }
+      query: {
+        sessionId: String(rec.id),
+        caseId: String(rec.caseId),
+        ...(rec.answersOpen ? { view: 'report' } : {})
+      }
     })
-  } catch {
-    /* ignore */
   } finally {
-    examStarting.value = false
+    examStartingId.value = 0
   }
+}
+const examActionText = (paper: ExamPaper) => {
+  if (paper.status === 'CLOSED') return '查看成绩'
+  if (paper.mineStatus === 'DOING') return '继续考试'
+  if (paper.mineStatus === 'HANDED') return '等待收卷'
+  return '进入考试'
 }
 
 /* ========== 自选病例 — 通过病例浏览页跳转 ========== */
@@ -108,6 +134,13 @@ const listQuery = ref<PracticeApi.PracticeListQuery>({
   status: '',
   isPassed: undefined
 })
+const clearHistoryFilters = () => {
+  listQuery.value.status = ''
+  listQuery.value.isPassed = undefined
+  listQuery.value.page = 1
+  fetchList()
+}
+
 const listData = ref<PracticeApi.PracticeRecord[]>([])
 const listTotal = ref(0)
 
@@ -198,6 +231,7 @@ onMounted(async () => {
     activeTab.value = 'history'
   }
   await fetchRandom()
+  fetchExams()
   fetchList()
   fetchStats(isTeacher.value ? 'all' : 'me')
 })
@@ -209,8 +243,38 @@ onMounted(async () => {
     <main class="page-body">
       <el-tabs v-model="activeTab" class="practice-tabs">
         <!-- 选病例 -->
-        <el-tab-pane label="开始练习" name="pick">
+        <el-tab-pane label="选病例" name="pick">
           <div class="pick-section">
+            <el-card v-if="isStudent" class="filter-card exam-entry" shadow="never">
+              <template #header>
+                <span class="card-title">正式考试</span>
+              </template>
+              <div v-if="exams.length" class="exam-list">
+                <div v-for="paper in exams" :key="paper.id" class="exam-row">
+                  <div>
+                    <strong>{{ paper.title }}</strong>
+                    <div class="exam-meta">
+                      {{ paper.questionCount }} 题 · {{ paper.durationMinutes }} 分钟 · 合格线
+                      {{ paper.passScore }} 分 ·
+                      {{ paper.allowBack ? '可以返回上一题' : '不能返回上一题' }}
+                      <span v-if="paper.status === 'CLOSED'"> · 已收卷</span>
+                    </div>
+                  </div>
+                  <el-button
+                    type="warning"
+                    :loading="examStartingId === paper.id"
+                    :disabled="paper.status === 'OPEN' && paper.mineStatus === 'HANDED'"
+                    @click="enterExam(paper)"
+                  >
+                    {{ examActionText(paper) }}
+                  </el-button>
+                </div>
+              </div>
+              <el-empty v-else description="老师还没有发布考试" :image-size="64" />
+            </el-card>
+            <el-card v-else class="filter-card" shadow="never">
+              <span class="card-title">正式考试在侧栏「正式考试」里发布。这里仍是平时练习。</span>
+            </el-card>
             <el-card class="filter-card" shadow="never">
               <template #header>
                 <span class="card-title">随机抽取一份病例</span>
@@ -269,6 +333,7 @@ onMounted(async () => {
                   </el-checkbox>
                 </el-form-item>
                 <el-form-item>
+                  <el-button @click="clearPickFilters">清除</el-button>
                   <el-button type="primary" :loading="randomLoading" @click="fetchRandom">
                     换一份
                   </el-button>
@@ -311,7 +376,7 @@ onMounted(async () => {
                   </div>
                   <div class="pass-line">
                     通过分数线：<strong>{{ randomCase.passScore }}</strong> 分。
-                    平时练习可以逐则看提示。正式考试共 3 题，全部交卷后才显示答案。
+                    平时练习可以逐则看提示。正式考试由老师组卷，收卷后才显示答案。
                   </div>
                   <div class="case-actions">
                     <el-button
@@ -319,15 +384,7 @@ onMounted(async () => {
                       size="large"
                       @click="startPractice('RANDOM', randomCase.caseId)"
                     >
-                      开始练习
-                    </el-button>
-                    <el-button
-                      size="large"
-                      type="warning"
-                      :loading="examStarting"
-                      @click="startExam"
-                    >
-                      进入考试
+                      学习这例
                     </el-button>
                     <el-button size="large" @click="fetchRandom">换一份</el-button>
                   </div>
@@ -368,6 +425,7 @@ onMounted(async () => {
                   </el-select>
                 </el-form-item>
                 <el-form-item>
+                  <el-button @click="clearHistoryFilters">清除</el-button>
                   <el-button type="primary" @click="fetchList">查询</el-button>
                 </el-form-item>
               </el-form>
@@ -489,9 +547,14 @@ onMounted(async () => {
 
             <div v-if="stats" class="stats-grid">
               <div class="stat-card">
-                <div class="stat-label">练习总数</div>
-                <div class="stat-value">{{ stats.totalSessions }}</div>
-                <div class="stat-sub">已提交 {{ stats.submittedSessions }}</div>
+                <div class="stat-label">练习次数</div>
+                <div class="stat-value">{{ stats.submittedSessions }}</div>
+                <div class="stat-sub">未交卷 {{ Math.max(0, stats.totalSessions - stats.submittedSessions) }}</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">完成病例</div>
+                <div class="stat-value">{{ stats.completedCases }}</div>
+                <div class="stat-sub">已交卷练习和阅片，同一病例只计一例</div>
               </div>
               <div class="stat-card">
                 <div class="stat-label">通过率</div>
@@ -500,7 +563,7 @@ onMounted(async () => {
                 </div>
               </div>
               <div class="stat-card">
-                <div class="stat-label">平均得分</div>
+                <div class="stat-label">平均成绩</div>
                 <div class="stat-value">{{ stats.avgScore.toFixed(1) }}</div>
               </div>
               <div class="stat-card">
@@ -508,10 +571,11 @@ onMounted(async () => {
                 <div class="stat-value">{{ stats.avgIou.toFixed(2) }}</div>
               </div>
               <div class="stat-card">
-                <div class="stat-label">总练习时长</div>
+                <div class="stat-label">学时</div>
                 <div class="stat-value">
                   {{ Math.round(stats.totalDuration / 60) }}<small>分钟</small>
                 </div>
+                <div class="stat-sub">只计已交卷练习</div>
               </div>
             </div>
 
@@ -645,6 +709,24 @@ onMounted(async () => {
 .case-actions {
   display: flex;
   gap: 12px;
+}
+.exam-entry {
+  margin-bottom: 12px;
+}
+.exam-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 0;
+}
+.exam-row + .exam-row {
+  border-top: 1px solid #f2f3f5;
+}
+.exam-meta {
+  margin-top: 4px;
+  color: #86909c;
+  font-size: 13px;
 }
 
 .history-section,

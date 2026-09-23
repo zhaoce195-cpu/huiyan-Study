@@ -20,6 +20,8 @@ from sqlalchemy.orm import Session
 from app.db.models import (
     CaseCategoryEnum,
     CaseDifficultyEnum,
+    PracticeSession,
+    PracticeStatusEnum,
     RecordStatusEnum,
     RoleEnum,
     TrainingCase,
@@ -41,6 +43,7 @@ from app.schemas.training import (
     TrainingCaseOut,
     TrainingStats,
 )
+from app.services.common_service import learner_progress
 
 
 # ====================== 常量映射 ======================
@@ -603,61 +606,30 @@ class TrainingService:
 
     @staticmethod
     def stats(db: Session, user: User) -> TrainingStats:
-        """
-        ⚠️ 已废弃：聚合 TrainingRecord，该表为空，本方法恒返回 0。
-        学员真实完成量请用 CommonService.study_hours（聚合 PracticeSession + ReadingAnnotation）。
-        """
+        """与学员练习页、教师学情、管理端学时用同一套已交卷口径。"""
         total_cases: int = (
             db.query(func.count(TrainingCase.id))
             .filter(TrainingCase.is_published == True)  # noqa: E712
             .scalar()
         ) or 0
-
-        done_cases: int = (
-            db.query(func.count(func.distinct(TrainingRecord.case_id)))
+        row = learner_progress(db, [user.id])[user.id]
+        best_iou = (
+            db.query(func.max(PracticeSession.iou_avg))
             .filter(
-                TrainingRecord.user_id == user.id,
-                TrainingRecord.status.in_([
-                    RecordStatusEnum.SUBMITTED.value,
-                    RecordStatusEnum.GRADED.value,
-                    RecordStatusEnum.REVIEWED.value,
+                PracticeSession.user_id == user.id,
+                PracticeSession.status.in_([
+                    PracticeStatusEnum.SUBMITTED.value,
+                    PracticeStatusEnum.REVIEWED.value,
                 ]),
+                PracticeSession.iou_avg >= 0,
             )
             .scalar()
-        ) or 0
-
-        avg_iou = db.query(func.avg(TrainingRecord.iou_avg)).filter(
-            TrainingRecord.user_id == user.id,
-            TrainingRecord.status != RecordStatusEnum.DRAFT.value,
-        ).scalar()
-
-        best_iou = db.query(func.max(TrainingRecord.iou_avg)).filter(
-            TrainingRecord.user_id == user.id,
-            TrainingRecord.status != RecordStatusEnum.DRAFT.value,
-        ).scalar()
-
-        total_anns: int = 0
-        total_duration: int = (
-            db.query(func.coalesce(func.sum(TrainingRecord.duration_seconds), 0))
-            .filter(TrainingRecord.user_id == user.id)
-            .scalar()
-        ) or 0
-
-        records: List[TrainingRecord] = (
-            db.query(TrainingRecord)
-            .filter(TrainingRecord.user_id == user.id)
-            .all()
         )
-        for r in records:
-            anns = r.student_annotations or []
-            if isinstance(anns, list):
-                total_anns += len(anns)
-
         return TrainingStats(
             total_cases=total_cases,
-            done_cases=done_cases,
-            avg_iou=round(float(avg_iou or 0.0), 4),
+            done_cases=row["completed_cases"],
+            avg_iou=row["avg_iou"],
             best_iou=round(float(best_iou or 0.0), 4),
-            total_annotations=total_anns,
-            total_duration=int(total_duration),
+            total_annotations=0,
+            total_duration=row["total_seconds"],
         )

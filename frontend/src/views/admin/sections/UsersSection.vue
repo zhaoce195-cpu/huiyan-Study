@@ -233,7 +233,7 @@ onMounted(() => {
           <el-option label="停用" :value="false" />
         </el-select>
         <el-button type="primary" :icon="Search" @click="onSearch">查询</el-button>
-        <el-button :icon="Refresh" @click="onReset">重置</el-button>
+        <el-button :icon="Refresh" @click="onReset">清除</el-button>
         <el-button type="primary" :icon="Plus" @click="openCreate">新建账号</el-button>
       </div>
 

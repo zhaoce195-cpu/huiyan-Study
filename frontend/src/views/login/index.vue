@@ -195,15 +195,15 @@ const handleLogin = async () => {
         <div class="features">
           <div class="feature-item">
             <span class="dot dot-blue"></span>
-            小而稀疏病灶 · 漏检训练与能力评估
+            按病例看眼底，写出分级和诊断
           </div>
           <div class="feature-item">
             <span class="dot dot-green"></span>
-            尺寸分层金标准 · 病灶级判读评分
+            对照这例的标准结论，看判重了还是判轻了
           </div>
           <div class="feature-item">
             <span class="dot dot-orange"></span>
-            阅片标注训练 · 成长曲线与能力认证
+            病例学习 · 平时练习与正式考试
           </div>
         </div>
         <div class="footer-tip">© 慧眼 · 医学教育与能力评估平台</div>
@@ -234,7 +234,7 @@ const handleLogin = async () => {
             <p>
               {{
                 loginRole === 'student'
-                  ? '住培医师 / 学员 · 进入阅片训练'
+                  ? '住培医师 / 学员 · 进入病例学习'
                   : '带教医师 / 管理员 · 进入教学与管理'
               }}
             </p>

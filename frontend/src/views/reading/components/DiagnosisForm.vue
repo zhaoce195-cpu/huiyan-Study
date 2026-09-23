@@ -203,6 +203,22 @@ const visibleFields = computed(() => {
 .ctrl {
   width: 100%;
 }
+.diag-form :deep(.el-radio-group) {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.diag-form :deep(.el-radio) {
+  height: auto;
+  margin-right: 0;
+  white-space: normal;
+  align-items: flex-start;
+}
+.diag-form :deep(.el-radio__label) {
+  line-height: 1.5;
+  white-space: normal;
+}
 .hint {
   margin-top: 5px;
   font-size: 13px;

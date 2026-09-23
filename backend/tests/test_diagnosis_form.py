@@ -310,3 +310,64 @@ def test_findings_scored_only_when_gold_has_data():
     gold = df.gold_from_case(FakeCase(lesions=[{"type": "MA", "pixel_count": 5}]))
     r = df.score_structured("DR", {"findings": ["MA", "NV"]}, gold)
     assert any("多报：NV" in e or "多报征象：NV" in e for e in r["errors"])
+
+
+def _dme_field(form):
+    return next(field for field in form["fields"] if field["key"] == "dme")
+
+
+def test_fundus_photo_cannot_diagnose_center_involved_dme():
+    form = df.get_form("DR")
+    field = _dme_field(form)
+    labels = " ".join(item["label"] for item in field["options"])
+    assert "中心受累黄斑水肿" not in labels
+    assert "临床显著性" not in labels
+    assert "OCT" in field["hint"]
+    assert "分开" in field["hint"]
+    grade = next(item for item in form["fields"] if item["key"] == "dr_grade")
+    assert grade["hint"]
+    assert df.dme_answer_problem({"dme": "csme"})
+    assert df.dme_answer_problem({"dme": "center"})
+    assert df.dme_answer_problem({"dme": "not_from_photo"}) == ""
+
+
+def test_center_dme_opens_only_when_oct_and_visual_acuity_both_exist():
+    photo = df.get_form("DR", {"has_oct": True, "has_visual_acuity": False})
+    assert "center" not in {item["value"] for item in _dme_field(photo)["options"]}
+    ready = df.get_form("DR", {"has_oct": True, "has_visual_acuity": True})
+    assert {item["value"] for item in _dme_field(ready)["options"]} == {
+        "none", "non_center", "center",
+    }
+    assert df.dme_answer_problem(
+        {"dme": "center"},
+        {"has_oct": True, "has_visual_acuity": True},
+    ) == ""
+    assert df.dme_answer_problem(
+        {"dme": "center"},
+        {"has_oct": True, "has_visual_acuity": False},
+    )
+
+
+def test_visual_acuity_needs_a_number_and_octa_is_not_oct():
+    assert df._text_has_visual_acuity("视力下降 6 月") is False
+    assert df._text_has_visual_acuity("视力 0.3") is True
+    assert df._text_has_oct("已做 OCTA") is False
+    assert df._text_has_oct("OCT 中心子域增厚") is True
+
+
+def test_gold_does_not_infer_dme_from_grade_or_exudate():
+    gold = df.gold_from_case(FakeCase(
+        grade="4",
+        lesions=[{"type": "EX", "pixel_count": 8000}, {"label": "硬性渗出"}],
+    ))
+    assert "dme" not in gold
+    scored = df.score_structured("DR", {"dme": "center", "findings": ["EX"]}, gold)
+    assert "dme" not in scored["detail"]
+    separate = df.score_structured(
+        "DR",
+        {"dme": "none", "findings": ["EX"]},
+        {"dme": "center", "findings": ["EX"]},
+    )
+    assert separate["detail"]["dme"] == 0.0
+    assert any("黄斑水肿" in item for item in separate["errors"])
+    assert separate["detail"]["findings"] == 100.0

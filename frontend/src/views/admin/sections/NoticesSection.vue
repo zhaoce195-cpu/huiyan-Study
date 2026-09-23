@@ -64,6 +64,13 @@ const onFilter = () => {
   fetchList()
 }
 
+const clearFilters = () => {
+  filter.keyword = ''
+  filter.noticeType = ''
+  filter.status = ''
+  onFilter()
+}
+
 /* ========== 详情查看 ========== */
 
 const detailVisible = ref(false)
@@ -383,6 +390,7 @@ onMounted(() => {
             <el-option label="已发布" value="PUBLISHED" />
             <el-option label="已归档" value="ARCHIVED" />
           </el-select>
+          <el-button size="small" @click="clearFilters">清除</el-button>
           <el-button :icon="Refresh" size="small" @click="fetchList">刷新</el-button>
           <el-button :icon="Plus" size="small" type="primary" @click="openCreate">发布公告</el-button>
         </div>

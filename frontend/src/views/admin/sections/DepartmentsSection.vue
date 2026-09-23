@@ -48,6 +48,16 @@ const fetchDepts = async () => {
   }
 }
 
+const clearHospitalSearch = () => {
+  hospitalKeyword.value = ''
+  fetchHospitals()
+}
+
+const clearDeptFilter = () => {
+  selectedHospitalId.value = ''
+  onHospitalChange()
+}
+
 const onHospitalChange = () => {
   fetchDepts()
 }
@@ -180,6 +190,7 @@ onMounted(() => {
             @change="fetchHospitals"
             @clear="fetchHospitals"
           />
+          <el-button size="small" @click="clearHospitalSearch">清除</el-button>
           <el-button :icon="Refresh" size="small" @click="fetchHospitals">刷新</el-button>
         </div>
       </div>
@@ -226,6 +237,7 @@ onMounted(() => {
               :value="h.id"
             />
           </el-select>
+          <el-button size="small" @click="clearDeptFilter">清除</el-button>
           <el-button :icon="Refresh" size="small" @click="fetchDepts">刷新</el-button>
           <el-button
             v-if="canManage"

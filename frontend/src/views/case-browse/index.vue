@@ -6,12 +6,11 @@ import {
   View,
   Promotion,
   Share,
-  Check,
   UploadFilled,
   Delete,
   EditPen
 } from '@element-plus/icons-vue'
-import { CaseBrowseApi, CaseImageApi } from '@/api'
+import { CaseBrowseApi, CaseImageApi, PracticeApi, RotationApi } from '@/api'
 import type { PageResult } from '@/utils/request'
 import { useTrainingJoinStore } from '@/stores/training-join'
 import { useUserStore } from '@/stores/user'
@@ -19,6 +18,7 @@ import CaseDetailDialog from './components/CaseDetailDialog.vue'
 import CaseImagePreview from './components/CaseImagePreview.vue'
 import CaseImageUploadDialog from './components/CaseImageUploadDialog.vue'
 import GoldStandardDialog from './components/GoldStandardDialog.vue'
+import CaseBatchImportDialog from './components/CaseBatchImportDialog.vue'
 import ShareDialog from '@/views/training/components/ShareDialog.vue'
 import DynamicFilter from '@/components/DynamicFilter.vue'
 import { CASE_BROWSE_FILTER } from '@/utils/filter-presets'
@@ -34,6 +34,18 @@ const userStore = useUserStore()
 /* ========== 角色 ========== */
 
 const canArchive = computed(() => userStore.canManage)
+const browseFilter = computed(() => {
+  if (canArchive.value) return CASE_BROWSE_FILTER
+  return {
+    ...CASE_BROWSE_FILTER,
+    fields: CASE_BROWSE_FILTER.fields.map((field) =>
+      field.key === 'keyword'
+        ? { ...field, label: '编号 / case_sn / 标题' }
+        : field
+    )
+  }
+})
+const importDialogRef = ref<InstanceType<typeof CaseBatchImportDialog> | null>(null)
 
 /* ========== 列表与筛选 ========== */
 
@@ -117,6 +129,15 @@ const openDetail = async (row: Item) => {
   }
 }
 
+const openVisit = (id: number) => {
+  openDetail({ id } as Item)
+}
+
+const onSubjectSaved = (detail: Detail) => {
+  detailData.value = detail
+  fetchList()
+}
+
 /* ========== 影像预览 ========== */
 
 const previewVisible = ref(false)
@@ -167,8 +188,8 @@ const joinTraining = async (row: Item) => {
     ElMessage.warning('该病例已归档，无法加入实训')
     return
   }
-  // 2) 已加入：仅提示，不再请求
-  if (row.isTrainCase || joinStore.isJoined(row.id)) {
+  // 2) 已加入：以数据库字段为准，不再看本地缓存
+  if (row.isTrainCase) {
     ElMessage.info('该病例已在实训库中，无需重复添加')
     return
   }
@@ -178,11 +199,16 @@ const joinTraining = async (row: Item) => {
   joinStore.setJoining(row.id, true)
   try {
     const res = await CaseBrowseApi.joinTrainingCase(row.id)
-    joinStore.markJoined(row.id)
-    // 乐观更新当前行 isTrainCase，避免等下一次 fetch
+    const detail = res.detail
+    if (!detail || detail.isTrainCase !== true) {
+      ElMessage.error('加入实训没有写入数据库，请稍后重试')
+      return
+    }
     row.isTrainCase = true
-    if (res.detail?.isTrainCase !== undefined) {
-      row.isTrainCase = res.detail.isTrainCase
+    row.isPublished = detail.isPublished
+    joinStore.markJoined(row.id)
+    if (detailData.value?.id === row.id) {
+      detailData.value = { ...detailData.value, isTrainCase: true, isPublished: detail.isPublished }
     }
     ElMessage.success('病例已成功加入实训，学员可在自主练习中使用')
   } catch (err: any) {
@@ -207,6 +233,45 @@ const joinTraining = async (row: Item) => {
   }
 }
 
+const inTraining = (row: { isTrainCase?: boolean }) => !!row.isTrainCase
+
+const leaveTraining = async (row: Item) => {
+  if (!canArchive.value) {
+    ElMessage.warning('当前角色无权操作病例实训状态')
+    return
+  }
+  if (joinStore.isJoining(row.id)) return
+  try {
+    await ElMessageBox.confirm(
+      '取消后会写入数据库：学员不能再练习这例，今日学习里的这项必做也会去掉。',
+      '取消加入实训',
+      { type: 'warning', confirmButtonText: '取消加入', cancelButtonText: '保留' }
+    )
+  } catch {
+    return
+  }
+  joinStore.setJoining(row.id, true)
+  try {
+    const detail = await CaseBrowseApi.leaveTrainingCase(row.id)
+    if (!detail || detail.isTrainCase !== false) {
+      ElMessage.error('取消没有写入数据库，请稍后重试')
+      return
+    }
+    row.isTrainCase = false
+    joinStore.unmarkJoined(row.id)
+    if (detailData.value?.id === row.id) {
+      detailData.value = { ...detailData.value, isTrainCase: false }
+    }
+    ElMessage.success('已取消加入实训，学员练习和今日任务里都不再出现这例')
+  } catch (err: any) {
+    const status = err?.response?.status
+    if (status === 403) ElMessage.error('当前角色无权取消加入实训')
+    else ElMessage.error('取消加入实训失败，请稍后重试')
+  } finally {
+    joinStore.setJoining(row.id, false)
+  }
+}
+
 /* ========== 影像阅片 ========== */
 
 const goReading = (row: Item) => {
@@ -223,6 +288,33 @@ const goReading = (row: Item) => {
     return
   }
   router.push({ path: '/training/reading', query: { caseId: String(row.id) } })
+}
+
+const studyingId = ref(0)
+const openCase = async (row: Item) => {
+  if (canArchive.value) {
+    goReading(row)
+    return
+  }
+  if (!row?.id) return
+  if (row.archiveStatus === 'ARCHIVED') {
+    ElMessage.warning('该病例已归档')
+    return
+  }
+  if (row.imageCount === 0) {
+    ElMessage.info('这例没有眼底照')
+    return
+  }
+  studyingId.value = row.id
+  try {
+    const rec = await PracticeApi.startPractice({ caseId: row.id, mode: 'SELECTED' })
+    router.push({
+      path: '/training/practice/workstation',
+      query: { sessionId: String(rec.id), caseId: String(row.id) }
+    })
+  } finally {
+    studyingId.value = 0
+  }
 }
 
 /* ========== 补传影像 ========== */
@@ -383,17 +475,31 @@ const openGold = async (row: { id: number }) => {
   }
 }
 
-const onGoldSaved = (detail: Detail) => {
+const onGoldSaved = async (detail: Detail) => {
   const row = list.value.find((r) => r.id === detail.id)
+  const wasTrain = !!(row?.isPublished && row?.isTrainCase)
   if (row) {
     row.isPublished = detail.isPublished
     row.isTrainCase = detail.isTrainCase
     row.drLevel = detail.drLevel
     row.drGradeText = detail.drGradeText
     if (detail.isTrainCase) joinStore.markJoined(row.id)
+    else joinStore.unmarkJoined(row.id)
   }
   if (detailData.value?.id === detail.id) {
     detailData.value = detail
+  }
+  if (!canArchive.value || wasTrain || !detail.isPublished || !detail.isTrainCase) return
+  try {
+    await ElMessageBox.confirm(
+      '这份病例已经可以给学员练习。要放进当前轮转的必做里吗？学员首页会看到这项任务。',
+      '加入本轮转',
+      { confirmButtonText: '加入', cancelButtonText: '暂不' }
+    )
+    await RotationApi.addTask({ kind: 'CASE', caseId: detail.id })
+    ElMessage.success('已加入本轮转，学员今日学习里能看到')
+  } catch {
+    /* 取消，或该病例已经在轮转里 */
   }
 }
 
@@ -440,13 +546,14 @@ const onShareSubmit = (row: Item) => {
       <section class="card filter-card">
         <DynamicFilter
           v-model="filter"
-          :schema="CASE_BROWSE_FILTER"
+          :schema="browseFilter"
           :loading="loading"
           @submit="onSearch"
           @reset="onReset"
           @refresh="fetchList"
         />
         <div v-if="canArchive" class="filter-extra">
+          <el-button @click="importDialogRef?.open()">批量导入</el-button>
           <el-button
             type="danger"
             :icon="Delete"
@@ -484,7 +591,7 @@ const onShareSubmit = (row: Item) => {
               <div v-if="row.description" class="case-desc">{{ row.description }}</div>
             </template>
           </el-table-column>
-          <el-table-column label="患者信息" width="190">
+          <el-table-column v-if="canArchive" label="患者信息" width="190">
             <template #default="{ row }">
               <div class="patient-line">
                 <b class="p-name">{{ row.patientName || '—' }}</b>
@@ -537,34 +644,36 @@ const onShareSubmit = (row: Item) => {
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="影像" width="160" align="center">
+          <el-table-column label="资料" width="180" align="center">
             <template #default="{ row }">
               <div>
-                <!-- 原图与派生对象分开显示：此前合计成「8 张影像」，
-                     医生无法判断原始检查是否阅完（报告 P1） -->
-                <span class="muted">原图 {{ row.imageCount }} 张</span>
-                <span v-if="row.derivedCount" class="muted derived">
-                  · 派生 {{ row.derivedCount }} 项
+                <span class="muted">眼底照相 {{ row.imageCount }} 张</span>
+                <span v-if="canArchive && row.derivedCount" class="muted derived">
+                  · 标注层 {{ row.derivedCount }} 项
                 </span>
               </div>
               <el-tag
-                v-if="row.imageComplete === false"
+                v-if="!row.imageCount"
                 size="small"
                 type="warning"
                 effect="dark"
                 style="margin-top: 2px"
               >
-                待补传
+                没有眼底照
               </el-tag>
-              <el-tag
-                v-else
-                size="small"
-                type="success"
-                effect="plain"
-                style="margin-top: 2px"
-              >
-                完整
-              </el-tag>
+              <span v-else-if="row.fundusOnly !== false" class="muted small">无其他资料</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="检查" width="160">
+            <template #default="{ row }">
+              <template v-if="(row.visitCount || 1) > 1">
+                <div>同一病人 第 {{ row.visitIndex || 1 }} / {{ row.visitCount }} 次</div>
+                <span class="muted small">{{ row.examOn || '检查日期未提供' }}</span>
+              </template>
+              <template v-else>
+                <div>单次图像</div>
+                <span class="muted small">没有其他时期</span>
+              </template>
             </template>
           </el-table-column>
           <el-table-column label="状态" width="140">
@@ -635,9 +744,10 @@ const onShareSubmit = (row: Item) => {
                 text
                 type="warning"
                 size="small"
-                @click="goReading(row)"
+                :loading="studyingId === row.id"
+                @click="openCase(row)"
               >
-                阅片（{{ row.imageCount }} 张）
+                {{ canArchive ? `阅片（${row.imageCount} 张）` : '学习这例' }}
               </el-button>
               <el-button
                 text
@@ -673,18 +783,16 @@ const onShareSubmit = (row: Item) => {
                 v-if="canArchive"
                 text
                 size="small"
-                :type="(joinStore.isJoined(row.id) || row.isTrainCase) ? 'success' : 'success'"
-                :icon="(joinStore.isJoined(row.id) || row.isTrainCase) ? Check : Promotion"
+                :type="inTraining(row) ? 'warning' : 'success'"
+                :icon="inTraining(row) ? Delete : Promotion"
                 :loading="joinStore.isJoining(row.id)"
                 :disabled="
                   joinStore.isJoining(row.id) ||
-                  joinStore.isJoined(row.id) ||
-                  row.isTrainCase ||
-                  row.archiveStatus === 'ARCHIVED'
+                  (!inTraining(row) && row.archiveStatus === 'ARCHIVED')
                 "
-                @click="joinTraining(row)"
+                @click="inTraining(row) ? leaveTraining(row) : joinTraining(row)"
               >
-                {{ (joinStore.isJoined(row.id) || row.isTrainCase) ? '已加入实训' : '加入实训' }}
+                {{ inTraining(row) ? '取消加入实训' : '加入实训' }}
               </el-button>
               <el-button
                 v-if="canShare && row.archiveStatus !== 'ARCHIVED'"
@@ -731,8 +839,11 @@ const onShareSubmit = (row: Item) => {
       :loading="detailLoading"
       :data="detailData"
       :can-archive="canArchive"
+      @open-visit="openVisit"
+      @subject-saved="onSubjectSaved"
       :can-edit-gold="!!detailData && canEditGold(detailData)"
       @join-training="(row: Detail) => joinTraining(row as Item)"
+      @leave-training="(row: Detail) => leaveTraining(row as Item)"
       @edit-gold="(row: Detail) => openGold(row)"
       @preview-images="(imgs: string[]) => {
         previewImages = imgs
@@ -740,6 +851,8 @@ const onShareSubmit = (row: Item) => {
         previewVisible = true
       }"
     />
+
+    <CaseBatchImportDialog ref="importDialogRef" @imported="fetchList" />
 
     <GoldStandardDialog
       v-model:visible="goldVisible"

@@ -82,6 +82,14 @@ class TrainingCase(Base, TimestampMixin):
         String(20), nullable=False, default="", index=True,
         comment="患者联系电话（脱敏/模拟）",
     )
+    subject_no: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="", index=True,
+        comment="教学用病人编号。同一编号的多行是同一病人不同时期；空表示没有和其他检查连在一起",
+    )
+    exam_on: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="",
+        comment="检查日期 YYYY-MM-DD。数据集没提供就留空，不要编造",
+    )
     clinical_info: Mapped[str] = mapped_column(
         Text, nullable=False, default="", comment="临床信息（主诉、病史等）"
     )
@@ -116,7 +124,7 @@ class TrainingCase(Base, TimestampMixin):
     )
     teaching_points: Mapped[str] = mapped_column(
         Text, nullable=False, default="",
-        comment="教学要点/讲解（学员提交后展示）",
+        comment="教学要点。固定提纲：主要诊断、分级依据、容易漏掉的征象、鉴别诊断、处置思路、相关指南要点",
     )
 
     # 评分配置

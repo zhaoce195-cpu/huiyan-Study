@@ -38,6 +38,9 @@ from app.db.models import (
     GenderEnum,
     Role,
     RoleEnum,
+    LearningNote,
+    LearningResource,
+    RotationTask,
     ScreeningCase,
     ScreeningStatusEnum,
     TrainingCase,
@@ -186,11 +189,22 @@ def _count_lesion_pixels(p: Path, threshold: int = 10) -> int:
         return 0
 
 
-# 约 4288×2848 的原图上，出血像素达到这一量级就按重度 NPDR（4-2-1 的大范围出血），
-# 不再把几乎每例出血都写成重度，也不把棉绒斑写成增殖期。
-SEVERE_HEMORRHAGE_PX = 80_000
+# 国际临床分级（ICDR）的 4-2-1。棉绒斑、硬性渗出和出血像素都不是这条标准。
+RULE_421 = (
+    "四个象限中每个象限视网膜内出血都多于 20 处，"
+    "或至少两个象限有明确的静脉串珠，"
+    "或至少一个象限有明显的视网膜内微血管异常（IRMA）"
+)
+RULE_421_TEXT = (
+    "重度非增殖性糖尿病视网膜病变（重度 NPDR）采用 4-2-1 标准："
+    + RULE_421
+    + "。三条里满足任何一条，并且没有新生血管，才是重度 NPDR。"
+    "棉绒斑、硬性渗出或出血范围都不能单独写成重度 NPDR。"
+    "没有新生血管不能诊断增殖性糖尿病视网膜病变（PDR）。"
+)
 
-# 掩膜只有 MA/HE/EX/SE/OD，看不到新生血管。只有对过原图的病例才允许写成 PDR。
+# 掩膜只有 MA/HE/EX/SE/OD，看不到象限、静脉串珠、IRMA 和新生血管。
+# 只有对过原图、确认有新生血管的病例才允许写成 PDR。
 _REVIEWED_GRADE = {
     "IDRiD_17": {
         "grade": "4",
@@ -199,12 +213,15 @@ _REVIEWED_GRADE = {
             "增殖性糖尿病视网膜病变（PDR）。上方血管弓旁可见扇形新生血管（NVE，位于视盘外）。"
             "下方可见舟状视网膜前积血，眼底结构仍可辨认，因此不把本例写成弥漫性玻璃体积血。"
             "视盘是否另有新生血管不能单凭此图定论，教学结论以明确的 NVE 为准。"
+            "没有新生血管不能诊断 PDR。"
         ),
         "teaching": (
             "NVE 是长在视盘以外的新生血管，常沿血管弓呈扇形。"
             "视网膜前积血呈舟状、有液平面，后方的视网膜还能看见。"
             "玻璃体积血会把后极部蒙暗，血管看不清。"
-            "棉绒斑和出血再多，只要没有新生血管，仍是重度 NPDR，不是 PDR。"
+            "视网膜前积血和玻璃体积血都不能代替新生血管。"
+            "棉绒斑和出血再多，只要没有新生血管，就不能诊断 PDR。"
+            "重度 NPDR 还要另满足 4-2-1，不能只凭出血或棉绒斑。"
         ),
     },
 }
@@ -220,23 +237,25 @@ _GRADE_LABEL = {
 _GRADE_CONCLUSION = {
     "0": "未见明显糖尿病视网膜病变征象。",
     "1": "轻度 NPDR：仅见微动脉瘤，无出血、硬性渗出或棉绒斑。",
-    "2": "中度 NPDR：可见视网膜出血和/或硬性渗出，未见棉绒斑，也未见新生血管。",
-    "3": (
-        "重度 NPDR：棉绒斑或较多视网膜出血。"
-        "棉绒斑属于重度非增殖期，不能据此诊断增殖期。"
+    "2": "中度 NPDR：还没有核实到 4-2-1，也没有新生血管。",
+    "3": "重度 NPDR：已满足 4-2-1 标准，并且没有新生血管。",
+    "4": (
+        "增殖性糖尿病视网膜病变（PDR）：必须见到新生血管。"
+        "没有新生血管不能诊断 PDR。"
+        "玻璃体积血或视网膜前出血不能代替新生血管。"
     ),
-    "4": "增殖性糖尿病视网膜病变（PDR）：须见到新生血管或玻璃体积血。",
 }
 
 _GRADE_TEACHING = {
     "0": "正常眼底：视盘边界清楚，血管走形自然，没有微动脉瘤、出血、渗出或新生血管。",
-    "1": "轻度 NPDR 只有微动脉瘤。一旦出现出血或硬性渗出，就至少是中度。",
-    "2": "中度 NPDR 可以有微动脉瘤、点片状出血和硬性渗出，但还没有达到 4-2-1 的重度标准，也没有新生血管。",
-    "3": (
-        "重度 NPDR 看 4-2-1：四个象限较多出血、至少两个象限静脉串珠，或一个象限 IRMA。"
-        "棉绒斑常同时出现，但它不是新生血管，不能写成 PDR。"
+    "1": "轻度 NPDR 只有微动脉瘤。一旦出现出血、硬性渗出或棉绒斑，就至少是中度 NPDR。",
+    "2": RULE_421_TEXT,
+    "3": RULE_421_TEXT,
+    "4": (
+        "增殖性糖尿病视网膜病变（PDR）必须见到视盘新生血管（NVD）或视盘外新生血管（NVE）。"
+        "没有新生血管不能诊断 PDR。"
+        "玻璃体积血或视网膜前出血不能代替新生血管。"
     ),
-    "4": "PDR 要看到视盘新生血管（NVD）、视盘外新生血管（NVE）或玻璃体积血。",
 }
 
 # 学员随机练习用的代表病例。中度和重度只用掩膜分级对得上、并且看过原图的编号。
@@ -248,27 +267,102 @@ _SPECTRUM_MODERATE_TARGET = 4
 IDRID_CLINICAL_NEUTRAL = "眼底彩色照片。请根据图像判断有没有糖尿病视网膜病变，以及轻到重的程度。"
 
 
+def _count_of(lesions: Dict[str, int], *keys: str) -> int:
+    total = 0
+    for key in keys:
+        try:
+            total += int(lesions.get(key) or 0)
+        except (TypeError, ValueError):
+            continue
+    return total
+
+
+def _explicit_421(lesions: Dict[str, int]) -> List[str]:
+    """只认已经按象限记下的 4-2-1。出血像素、棉绒斑不能代替。"""
+    reasons: List[str] = []
+    if _count_of(lesions, "HE4") >= 4:
+        reasons.append("四个象限每个象限视网膜内出血都多于 20 处")
+    if _count_of(lesions, "VB") >= 2:
+        reasons.append("至少两个象限有明确的静脉串珠")
+    if _count_of(lesions, "IRMA") >= 1:
+        reasons.append("至少一个象限有明显的视网膜内微血管异常（IRMA）")
+    return reasons
+
+
+def _seen_neovascularization(lesions: Dict[str, int]) -> List[str]:
+    seen: List[str] = []
+    if _count_of(lesions, "NVD") > 0:
+        seen.append("视盘新生血管（NVD）")
+    if _count_of(lesions, "NVE") > 0:
+        seen.append("视盘外新生血管（NVE）")
+    if _count_of(lesions, "NV") > 0 and not seen:
+        seen.append("新生血管")
+    return seen
+
+
+def _moderate_conclusion(lesions: Dict[str, int]) -> str:
+    names = []
+    if _count_of(lesions, "MA") > 0:
+        names.append("微动脉瘤")
+    if _count_of(lesions, "HE", "HM") > 0:
+        names.append("视网膜出血")
+    if _count_of(lesions, "EX") > 0:
+        names.append("硬性渗出")
+    if _count_of(lesions, "SE") > 0:
+        names.append("棉绒斑")
+    found = "、".join(names) if names else "视网膜病变"
+    return (
+        f"中度 NPDR：可见{found}。"
+        "分割结果没有四个象限的出血计数，也没有静脉串珠或 IRMA，"
+        "不能按 4-2-1 写成重度 NPDR。"
+        "出血或棉绒斑再多也一样。"
+        "没有新生血管，不能诊断 PDR。"
+    )
+
+
+def _severe_conclusion(reasons: List[str]) -> str:
+    return (
+        "重度 NPDR：已满足 4-2-1 标准（"
+        + "；".join(reasons)
+        + "），并且没有新生血管。"
+        "棉绒斑和出血范围都不能单独作为这条诊断。"
+    )
+
+
+def _pdr_conclusion(seen: List[str]) -> str:
+    what = "、".join(seen) if seen else "新生血管"
+    return (
+        f"增殖性糖尿病视网膜病变（PDR）：已见到{what}。"
+        "没有新生血管不能诊断 PDR。"
+        "玻璃体积血或视网膜前出血不能代替新生血管。"
+    )
+
+
 def grade_from_lesion_counts(
     lesions: Dict[str, int],
     stem: str = "",
 ) -> Tuple[str, str]:
     """
-    由分割掩膜像素数给出 DR 0–4。
+    由已记录的病灶给出 DR 0–4。
 
-    软性渗出（SE / 棉绒斑）是重度 NPDR 的征象，不是新生血管，不能返回 4。
-    这套图没有「只有微动脉瘤」和「完全没有病灶」的样本，0 级和 1 级不会从掩膜里产生。
+    掩膜像素不能证明 4-2-1，也不能证明新生血管。
+    棉绒斑、大片出血都不单独写成重度 NPDR，更不能写成 PDR。
     """
     reviewed = _REVIEWED_GRADE.get(stem)
     if reviewed:
         return reviewed["grade"], reviewed["conclusion"]
-    he = int(lesions.get("HE") or 0)
-    ex = int(lesions.get("EX") or 0)
-    se = int(lesions.get("SE") or 0)
-    ma = int(lesions.get("MA") or 0)
-    if se > 0 or he >= SEVERE_HEMORRHAGE_PX:
-        return "3", _GRADE_CONCLUSION["3"]
-    if he > 0 or ex > 0:
-        return "2", _GRADE_CONCLUSION["2"]
+    seen = _seen_neovascularization(lesions)
+    if seen:
+        return "4", _pdr_conclusion(seen)
+    reasons = _explicit_421(lesions)
+    if reasons:
+        return "3", _severe_conclusion(reasons)
+    he = _count_of(lesions, "HE", "HM")
+    ex = _count_of(lesions, "EX")
+    se = _count_of(lesions, "SE")
+    ma = _count_of(lesions, "MA")
+    if he > 0 or ex > 0 or se > 0:
+        return "2", _moderate_conclusion(lesions)
     if ma > 0:
         return "1", _GRADE_CONCLUSION["1"]
     return "0", _GRADE_CONCLUSION["0"]
@@ -718,9 +812,23 @@ def _correct_demo_labels(db: Session) -> List[str]:
     severe = db.query(TrainingCase).filter(TrainingCase.case_no == "T2026004").first()
     if severe is not None:
         _strip_neovascular_marks(severe)
+        diagnosis = severe.gold_diagnosis or ""
+        if (
+            diagnosis in ("", "重度 NPDR，4 象限均见出血，疑似静脉串珠")
+            or "疑似静脉串珠" in diagnosis
+            or "4 象限均见出血" in diagnosis
+        ):
+            severe.gold_diagnosis = (
+                "重度 NPDR：记录为两个象限静脉串珠、一个象限 IRMA，没有新生血管。"
+                "出血没有按四个象限分别计数，不能写成每个象限多于 20 处。"
+            )
+        teaching = severe.teaching_points or ""
+        if "每个象限视网膜内出血都多于 20" not in teaching:
+            teaching = RULE_421_TEXT
         note = "本示例图不作为新生血管（NVD/NVE）教学。"
-        if note not in (severe.teaching_points or ""):
-            severe.teaching_points = ((severe.teaching_points or "").rstrip() + "\n" + note).strip()
+        if note not in teaching:
+            teaching = (teaching.rstrip() + "\n" + note).strip()
+        severe.teaching_points = teaching
         notes.append("T2026004")
     pdr = db.query(TrainingCase).filter(TrainingCase.case_no == "T2026005").first()
     if pdr is not None:
@@ -743,6 +851,89 @@ def _correct_demo_labels(db: Session) -> List[str]:
         pdr.is_published = False
         notes.append("T2026005")
     return notes
+
+
+def _apply_grade_language(text: str, *, explain: bool = False) -> str:
+    """把含糊的 4-2-1 和「前增殖期」换成国际临床分级的说法。"""
+    if not text:
+        return text
+    replacements = (
+        (
+            "棉绒斑属于重度非增殖期，不能据此诊断增殖期。",
+            "棉绒斑不是 4-2-1 标准，不能单独写成重度 NPDR。没有新生血管不能诊断 PDR。",
+        ),
+        (
+            "须见到新生血管或玻璃体积血。",
+            "必须见到新生血管。没有新生血管不能诊断 PDR。玻璃体积血不能代替新生血管。",
+        ),
+        (
+            "符合 4-2-1 法则任一即诊断重度 NPDR：4 象限出血/2 象限静脉串珠/1 象限 IRMA。",
+            RULE_421_TEXT,
+        ),
+        (
+            "4 个象限出血，或 2 个象限静脉串珠，或 1 个象限 IRMA",
+            RULE_421,
+        ),
+        (
+            "四个象限较多出血、至少两个象限静脉串珠，或一个象限 IRMA",
+            RULE_421,
+        ),
+        (
+            "- 4 象限均有出血\n- 2 象限静脉串珠\n- 1 象限 IRMA\n符合任一即为重度。",
+            RULE_421_TEXT,
+        ),
+        (
+            "| 3 | 重度 NPDR | 4-2-1 法则任一 |",
+            "| 3 | 重度 NPDR | 4-2-1 标准，且没有新生血管 |",
+        ),
+        ("前增殖期", "重度 NPDR"),
+        ("重度非增殖期", "重度 NPDR"),
+        (
+            "分清正常眼底、轻度到重度 NPDR，以及增殖期的新生血管和视网膜前积血。",
+            "分清正常眼底、轻度到重度 NPDR。增殖性糖尿病视网膜病变（PDR）必须见到新生血管，视网膜前积血不能代替新生血管。",
+        ),
+        (
+            "必学知识点：糖网从正常到增殖期",
+            "必学知识点：糖网从正常眼底到 PDR",
+        ),
+    )
+    for old, new in replacements:
+        text = text.replace(old, new)
+    if explain and "4-2-1" in text and "每个象限视网膜内出血都多于 20" not in text:
+        text = text.rstrip() + "\n\n" + RULE_421_TEXT
+    return text
+
+
+def _correct_grade_language(db: Session) -> int:
+    """改学习资料、笔记和仍写着旧说法的病例。不改已经记下的练习成绩。"""
+    changed = 0
+    for row in db.query(LearningResource).all():
+        summary = _apply_grade_language(row.summary or "")
+        content = _apply_grade_language(row.content or "", explain=True)
+        if summary != (row.summary or "") or content != (row.content or ""):
+            row.summary = summary
+            row.content = content
+            changed += 1
+    for row in db.query(LearningNote).all():
+        content = _apply_grade_language(row.content or "", explain=True)
+        if content != (row.content or ""):
+            row.content = content
+            changed += 1
+    for row in db.query(RotationTask).all():
+        title = _apply_grade_language(row.title or "")
+        summary = _apply_grade_language(row.summary or "")
+        if title != (row.title or "") or summary != (row.summary or ""):
+            row.title = title
+            row.summary = summary
+            changed += 1
+    for row in db.query(TrainingCase).filter(~TrainingCase.case_no.like("IDRID-T-%")).all():
+        diagnosis = _apply_grade_language(row.gold_diagnosis or "")
+        teaching = _apply_grade_language(row.teaching_points or "", explain=True)
+        if diagnosis != (row.gold_diagnosis or "") or teaching != (row.teaching_points or ""):
+            row.gold_diagnosis = diagnosis
+            row.teaching_points = teaching
+            changed += 1
+    return changed
 
 
 def refresh_idrid_spectrum(db: Session) -> Dict[str, object]:
@@ -797,6 +988,7 @@ def refresh_idrid_spectrum(db: Session) -> Dict[str, object]:
         case.is_train_case = in_pool
     _keep_seed_endpoints_in_pool(db)
     demo_notes = _correct_demo_labels(db)
+    wording = _correct_grade_language(db)
     db.commit()
     return {
         "updated": len(cases),
@@ -806,6 +998,7 @@ def refresh_idrid_spectrum(db: Session) -> Dict[str, object]:
         ),
         "train_stems": sorted(chosen),
         "demo_adjusted": demo_notes,
+        "wording_updated": wording,
     }
 
 

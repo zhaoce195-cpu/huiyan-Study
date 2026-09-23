@@ -239,7 +239,10 @@ TRAINING_CASES = [
         "clinical_info": "糖尿病 18 年，血糖控制不佳，视力下降 6 月",
         "image_paths": {"UK": [LOCAL_FUNDUS[3]]},
         "gold_dr_grade": "3",
-        "gold_diagnosis": "重度 NPDR，4 象限均见出血，疑似静脉串珠",
+        "gold_diagnosis": (
+            "重度 NPDR：记录为两个象限静脉串珠、一个象限 IRMA，没有新生血管。"
+            "出血没有按四个象限分别计数，不能写成每个象限多于 20 处。"
+        ),
         "gold_lesions": [
             {"type": "HM", "count": 24},
             {"type": "VB", "count": 2},
@@ -252,11 +255,16 @@ TRAINING_CASES = [
             {"id": "g2", "tool": "rect", "label": "出血",
              "points": [{"x": 480, "y": 320}, {"x": 540, "y": 380}],
              "color": "#f53f3f", "layer": "gold"},
-            {"id": "g3", "tool": "rect", "label": "新生血管",
-             "points": [{"x": 360, "y": 200}, {"x": 410, "y": 250}],
-             "color": "#722ed1", "layer": "gold"},
         ],
-        "teaching_points": "符合 4-2-1 法则任一即诊断重度 NPDR：4 象限出血/2 象限静脉串珠/1 象限 IRMA。",
+        "teaching_points": (
+            "重度非增殖性糖尿病视网膜病变（重度 NPDR）采用 4-2-1 标准："
+            "四个象限中每个象限视网膜内出血都多于 20 处，"
+            "或至少两个象限有明确的静脉串珠，"
+            "或至少一个象限有明显的视网膜内微血管异常（IRMA）。"
+            "三条里满足任何一条，并且没有新生血管，才是重度 NPDR。"
+            "本例记录为两个象限静脉串珠和一个象限 IRMA，没有新生血管。"
+            "本示例图不作为新生血管（NVD/NVE）教学。"
+        ),
         "pass_score": 65,
     },
     {
@@ -506,7 +514,7 @@ NOTICES = [
         "summary": "新增自主练习、自动评分、金标准对比、学习笔记等模块",
         "content": "亲爱的医师们，我们很高兴地宣布慧眼云 V2.0 已正式发布。"
                    "新版本带来：1) 自主练习与 IoU 自动评分；2) 公共学习资料中心；"
-                   "3) 个人学习笔记，可一键关联当前阅片影像；4) 全班级统计与薄弱标签分析。"
+                   "3) 个人学习笔记，可一键关联当前阅片影像；4) 教师在教学首页点开学员，可看完成病例、得分变化、漏诊误诊和评语。"
                    "祝学习愉快！",
         "notice_type": NoticeTypeEnum.SYSTEM.value,
         "is_top": True,
@@ -574,8 +582,13 @@ LEARNING_RESOURCES = [
                    "| 0 | 无 DR | 无视网膜病变 |\n"
                    "| 1 | 轻度 NPDR | 仅微动脉瘤 |\n"
                    "| 2 | 中度 NPDR | MA + 出血/硬渗 |\n"
-                   "| 3 | 重度 NPDR | 4-2-1 法则任一 |\n"
-                   "| 4 | PDR | 视盘/视网膜新生血管 |\n",
+                   "| 3 | 重度 NPDR | 4-2-1 标准，且没有新生血管 |\n"
+                   "| 4 | PDR | 必须见到新生血管 |\n\n"
+                   "重度 NPDR 的 4-2-1 标准：四个象限中每个象限视网膜内出血都多于 20 处，"
+                   "或至少两个象限有明确的静脉串珠，"
+                   "或至少一个象限有明显的视网膜内微血管异常（IRMA）。"
+                   "满足任何一条，并且没有新生血管，才是重度 NPDR。"
+                   "没有新生血管不能诊断 PDR。\n",
         "resource_type": ResourceTypeEnum.KNOWLEDGE.value,
         "tags": "DR,分级,4-2-1,ICDR",
     },
@@ -689,11 +702,14 @@ def seed_learning(
         },
         {
             "title": "4-2-1 法则记忆口诀",
-            "content": "重度 NPDR 4-2-1 法则：\n"
-                       "- 4 象限均有出血\n"
-                       "- 2 象限静脉串珠\n"
-                       "- 1 象限 IRMA\n"
-                       "符合任一即为重度。",
+            "content": (
+                "重度非增殖性糖尿病视网膜病变（重度 NPDR）的 4-2-1 标准：\n"
+                "- 四个象限中每个象限视网膜内出血都多于 20 处\n"
+                "- 至少两个象限有明确的静脉串珠\n"
+                "- 至少一个象限有明显 IRMA\n"
+                "满足任何一条，并且没有新生血管，才是重度 NPDR。"
+                "没有新生血管不能诊断 PDR。"
+            ),
             "tags": "DR3,4-2-1,口诀",
             "case_id": case_ids[3] if len(case_ids) > 3 else None,
             "image_index": 0,
@@ -839,7 +855,7 @@ def seed_reading_and_practice(
                  "point": {"x": 480, "y": 320},
                  "note": "漏掉了下方象限的点片状出血"},
             ],
-            "suggestion": "建议复习重度 NPDR 的 4-2-1 法则，加强对 NV 与多象限出血的识别。",
+            "suggestion": "建议按 4-2-1 标准复习重度 NPDR：每个象限出血多于 20 处，或两个象限明确静脉串珠，或一个象限明显 IRMA，并且没有新生血管。",
             "duration_seconds": 540,
         },
         {

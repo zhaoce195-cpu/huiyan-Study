@@ -17,6 +17,7 @@ from app.api.v1 import login as login_router
 from app.api.v1 import patient as patient_router_module
 from app.api.v1 import physical as physical_router
 from app.api.v1 import practice as practice_router
+from app.api.v1 import exam as exam_router
 from app.api.v1 import reading as reading_router
 from app.api.v1 import rotation as rotation_router
 from app.api.v1 import screening as screening_router
@@ -46,6 +47,7 @@ api_v1_router.include_router(case_browse_router.router)
 api_v1_router.include_router(case_image_router.router)
 api_v1_router.include_router(reading_router.router)
 api_v1_router.include_router(practice_router.router)
+api_v1_router.include_router(exam_router.router)
 api_v1_router.include_router(rotation_router.router)
 api_v1_router.include_router(learning_router.router)
 api_v1_router.include_router(common_router.router)

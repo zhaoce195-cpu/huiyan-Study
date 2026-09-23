@@ -9,7 +9,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin
@@ -69,6 +69,10 @@ class TeachingShare(Base, TimestampMixin):
     )
     expired_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, nullable=True, index=True, comment="过期时间"
+    )
+    answers_revealed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True,
+        comment="课堂分享是否已向学员公布金标准；入库教学始终为真",
     )
 
     status: Mapped[str] = mapped_column(

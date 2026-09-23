@@ -64,6 +64,10 @@ class PracticeSession(Base, TimestampMixin):
     exam_total: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, comment="本场题数",
     )
+    exam_paper_id: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, index=True,
+        comment="老师发布的正式考试 id，0 表示学员自行开考的旧卷",
+    )
     hint_step: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, comment="平时练习已打开的提示则数",
     )

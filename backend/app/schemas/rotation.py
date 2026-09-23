@@ -40,14 +40,58 @@ class TaskOut(_Camel):
     resource_id: Optional[int] = None
     done_count: int = 0
     student_count: int = 0
+    tier: str = "REQUIRED"
+    scope: str = "ALL"
+    scope_value: str = ""
+    scope_text: str = "全部"
+
+
+class StudentTaskSnap(_Camel):
+    """教师看到的单项进度，与学员首页用同一套状态。"""
+    task_id: int
+    status: str
+    status_text: str
+    score: Optional[float] = None
 
 
 class StudentProgressOut(_Camel):
     user_id: int
     name: str
+    username: str = ""
+    study_year: str = ""
+    rotation_batch: str = ""
+    mentor_group: str = ""
     done: int
     total: int
     progress: int
+    practice_count: int = 0
+    completed_cases: int = 0
+    avg_score: float = 0.0
+    study_seconds: int = 0
+    tasks: List[StudentTaskSnap] = Field(default_factory=list)
+
+
+class WeakLabelBrief(_Camel):
+    label: str
+    missed: int = 0
+    false_positive: int = 0
+
+
+class GroupSummary(_Camel):
+    study_year: str = ""
+    rotation_batch: str = ""
+    mentor_group: str = ""
+    student_count: int = 0
+    done: int = 0
+    total: int = 0
+    progress: int = 0
+    weak_labels: List[WeakLabelBrief] = Field(default_factory=list)
+
+
+class StudentGroupUpdate(_Camel):
+    study_year: str = ""
+    rotation_batch: str = ""
+    mentor_group: str = ""
 
 
 class StudentHomeOut(_Camel):
@@ -55,6 +99,9 @@ class StudentHomeOut(_Camel):
     rotation: Optional[RotationBrief] = None
     today: List[TaskOut] = Field(default_factory=list)
     tasks: List[TaskOut] = Field(default_factory=list)
+    study_year: str = ""
+    rotation_batch: str = ""
+    mentor_group: str = ""
 
 
 class TeacherHomeOut(_Camel):
@@ -62,6 +109,7 @@ class TeacherHomeOut(_Camel):
     rotation: Optional[RotationBrief] = None
     tasks: List[TaskOut] = Field(default_factory=list)
     students: List[StudentProgressOut] = Field(default_factory=list)
+    groups: List[GroupSummary] = Field(default_factory=list)
 
 
 class OptionItem(_Camel):
@@ -88,3 +136,10 @@ class TaskCreate(_Camel):
     summary: str = ""
     pass_score: Optional[int] = Field(default=None, ge=0, le=100)
     due_on: str = ""
+    tier: Literal["REQUIRED", "EXTENSION"] = "REQUIRED"
+    scope: Literal["ALL", "YEAR", "GROUP"] = "ALL"
+    scope_value: str = ""
+
+
+class TaskOrder(_Camel):
+    task_ids: List[int] = Field(default_factory=list)

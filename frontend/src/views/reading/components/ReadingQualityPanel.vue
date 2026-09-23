@@ -48,6 +48,11 @@ const onFilter = () => {
   fetchList()
 }
 
+const clearFilters = () => {
+  status.value = ''
+  onFilter()
+}
+
 const openReview = (row: ReadingApi.ReadingRecord) => {
   current.value = row
   dialogVisible.value = true
@@ -75,7 +80,7 @@ watch(() => props.caseId, () => {
     <header class="qp-head">
       <div>
         <h3>质量评估</h3>
-        <p>对学员已提交的阅片作业评定：通过或驳回后，记录从「待审核」变为「已通过 / 已驳回」。</p>
+        <p>学员的影像质量评估和阅片作业都在这里审核。质量评估在通过之前，学员端只显示待审核。</p>
       </div>
       <el-button :icon="Refresh" size="small" @click="fetchList">刷新</el-button>
     </header>
@@ -93,6 +98,7 @@ watch(() => props.caseId, () => {
         <el-option label="已通过" value="REVIEWED" />
         <el-option label="已驳回" value="REJECTED" />
       </el-select>
+      <el-button size="small" @click="clearFilters">清除</el-button>
       <span v-if="caseId" class="qp-hint">仅看当前病例</span>
     </div>
 
@@ -100,6 +106,11 @@ watch(() => props.caseId, () => {
       <el-table-column prop="id" label="记录" width="80" />
       <el-table-column prop="userName" label="学员" min-width="120" />
       <el-table-column prop="caseNo" label="病例" min-width="140" />
+      <el-table-column label="类型" width="110">
+        <template #default="{ row }">
+          {{ row.recordKind === 'QUALITY' ? '质量评估' : '阅片作业' }}
+        </template>
+      </el-table-column>
       <el-table-column label="状态" width="110">
         <template #default="{ row }">
           <el-tag size="small" :type="meta(row.status).tag">

@@ -158,7 +158,7 @@ const mockTasks: Task[] = [
     status: 'done', risk: 'red', dr: '3 级 重度 NPDR', confidence: 0.961,
     createdAt: '2026-05-21 08:55:32', fileName: 'P2026002_OS.jpg',
     hospital: '北京同仁医院体检中心', doctor: '张敏',
-    remark: '伴黄斑水肿，建议 2 周内眼科专科就诊'
+    remark: '重度 NPDR。黄斑水肿要单独看，这张眼底照不能判断是否中心受累'
   },
   {
     id: 'T2026003', patientId: 'P2026003', patientName: '陈志强', eye: 'OD', age: 47, gender: '男',
@@ -851,6 +851,7 @@ onBeforeUnmount(stopPoll)
             :schema="SCREENING_QUEUE_FILTER"
             :show-actions="false"
             @submit="onFilterChange"
+            @reset="onFilterChange"
             @refresh="refreshList"
           />
           <el-button :icon="Refresh" @click="refreshList">刷新</el-button>

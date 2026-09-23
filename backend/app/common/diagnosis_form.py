@@ -15,6 +15,7 @@
        且不得输出阴性结论（报告 P0「先质量后诊断」）。
 """
 
+import re
 from typing import Any, Dict, List, Optional
 
 # 影像可判读性——所有病种共用，永远排在最前
@@ -84,6 +85,7 @@ _DR_FIELDS: List[Dict[str, Any]] = [
         "type": "select",
         "required": True,
         "order": 20,
+        "hint": "这里只判断视网膜病变的级别。黄斑水肿另填，不要用级别高低代替。",
         "options": [
             {"value": "0", "label": "0 级 无 DR"},
             {"value": "1", "label": "1 级 轻度 NPDR"},
@@ -109,19 +111,44 @@ _DR_FIELDS: List[Dict[str, Any]] = [
             {"value": "NV", "label": "新生血管"},
         ],
     },
+]
+
+# 一张普通眼底照上允许的黄斑水肿记录。不能写成中心受累。
+_FUNDUS_DME_OPTIONS = [
+    {"value": "not_from_photo", "label": "这张眼底照不能判断黄斑水肿"},
+    {"value": "no_exudate_clue", "label": "黄斑区未见硬性渗出，仍不能排除黄斑水肿"},
     {
-        "key": "dme",
-        "label": "黄斑水肿",
-        "type": "radio",
-        "required": False,
-        "order": 40,
-        "options": [
-            {"value": "none", "label": "无"},
-            {"value": "non_csme", "label": "有，非临床显著"},
-            {"value": "csme", "label": "临床显著性黄斑水肿"},
-        ],
+        "value": "suspect_needs_oct",
+        "label": "黄斑附近有硬性渗出，可疑黄斑水肿；是否中心受累要看 OCT 和视力",
     },
 ]
+
+# 同时有 OCT 和视力时，才单独判断中心受累，并且仍不并入 DR 分级。
+_CENTER_DME_OPTIONS = [
+    {"value": "none", "label": "无黄斑水肿"},
+    {"value": "non_center", "label": "非中心受累黄斑水肿"},
+    {"value": "center", "label": "中心受累黄斑水肿"},
+]
+
+_FUNDUS_DME_HINT = (
+    "黄斑水肿和 DR 分级分开判断。轻度也可以有黄斑水肿，重度也可以没有。"
+    "这例只有普通眼底照，不能诊断中心受累黄斑水肿。"
+    "若要训练中心受累黄斑水肿，病例需要同时提供 OCT 和视力。"
+)
+
+_CENTER_DME_HINT = (
+    "本例同时有 OCT 和视力，可以单独判断是否为中心受累黄斑水肿。"
+    "这个结论不由 DR 分级决定。"
+)
+
+# 这些值是在下黄斑水肿的诊断，眼底彩照单独不够。
+_DME_DIAGNOSIS_VALUES = {"none", "non_center", "center", "non_csme", "csme"}
+
+_VA_RE = re.compile(
+    r"(?:最佳矫正视力|矫正视力|裸眼视力|BCVA|VA)\s*[:：]?\s*\d"
+    r"|视力\s*[:：]\s*\d"
+    r"|视力\s+\d"
+)
 
 _GLAUCOMA_FIELDS: List[Dict[str, Any]] = [
     {
@@ -208,7 +235,84 @@ _GENERIC_FIELDS: List[Dict[str, Any]] = [
 ]
 
 
-def get_form(category: Optional[str]) -> Dict[str, Any]:
+def _text_has_visual_acuity(text: str) -> bool:
+    """「视力下降」只是症状。要有具体数值才算提供了视力。"""
+    return bool(_VA_RE.search(text or ""))
+
+
+def _text_has_oct(text: str) -> bool:
+    """结构 OCT 才算。OCTA 是血流成像，不能代替。"""
+    stripped = re.sub(r"(?i)OCTA", " ", text or "")
+    return bool(re.search(r"(?i)(?<![A-Za-z])OCT(?![A-Za-z])", stripped))
+
+
+def _case_has_oct(case: Any, images: Optional[List[Any]] = None) -> bool:
+    parts: List[str] = [getattr(case, "clinical_info", "") or ""]
+    paths = getattr(case, "image_paths", None)
+    if isinstance(paths, dict):
+        for key, values in paths.items():
+            parts.append(str(key))
+            if isinstance(values, list):
+                parts.extend(str(item) for item in values)
+            elif values:
+                parts.append(str(values))
+    for image in images or []:
+        parts.append(str(getattr(image, "file_name", "") or ""))
+        parts.append(str(getattr(image, "file_url", "") or ""))
+        parts.append(str(getattr(image, "role", "") or ""))
+    return _text_has_oct("\n".join(parts))
+
+
+def fundus_only(case: Any) -> bool:
+    """教学病例默认只有眼底照相。有结构 OCT 或具体视力数值时才算另有资料。"""
+    return not _case_has_oct(case) and not _text_has_visual_acuity(
+        getattr(case, "clinical_info", "") or ""
+    )
+
+
+def materials_for_case(db: Any, case: Any) -> Dict[str, bool]:
+    """中心受累黄斑水肿要同时有 OCT 和视力。教学要点里提到 OCT 不算提供了 OCT。"""
+    images: List[Any] = []
+    case_id = getattr(case, "id", None)
+    if db is not None and case_id:
+        from app.db.models import CaseImage, CaseImageTableEnum
+
+        images = (
+            db.query(CaseImage)
+            .filter(
+                CaseImage.case_table == CaseImageTableEnum.TRAINING.value,
+                CaseImage.case_id == case_id,
+            )
+            .all()
+        )
+    return {
+        "has_oct": _case_has_oct(case, images),
+        "has_visual_acuity": _text_has_visual_acuity(getattr(case, "clinical_info", "") or ""),
+    }
+
+
+def center_dme_ready(materials: Optional[Dict[str, Any]]) -> bool:
+    materials = materials or {}
+    return bool(materials.get("has_oct") and materials.get("has_visual_acuity"))
+
+
+def _dme_field(materials: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    ready = center_dme_ready(materials)
+    return {
+        "key": "dme",
+        "label": "黄斑水肿（与 DR 分级分开）",
+        "type": "radio",
+        "required": False,
+        "order": 45,
+        "hint": _CENTER_DME_HINT if ready else _FUNDUS_DME_HINT,
+        "options": list(_CENTER_DME_OPTIONS if ready else _FUNDUS_DME_OPTIONS),
+    }
+
+
+def get_form(
+    category: Optional[str],
+    materials: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """
     取某病种的表单定义。
 
@@ -216,7 +320,9 @@ def get_form(category: Optional[str]) -> Dict[str, Any]:
     报告 5.1 明确要求表单必须病种特异。
     """
     cat = (category or "").strip().upper()
-    specific = _CATEGORY_FIELDS.get(cat, _GENERIC_FIELDS)
+    specific = list(_CATEGORY_FIELDS.get(cat, _GENERIC_FIELDS))
+    if cat == "DR":
+        specific.append(_dme_field(materials))
 
     fields = [QUALITY_FIELD, *specific, CONFIDENCE_FIELD,
               DISPOSITION_FIELD, NOTE_FIELD]
@@ -287,8 +393,8 @@ def gold_from_case(case: Any) -> Dict[str, Any]:
     由病例已有字段推导结构化金标准。
 
     不要求教师重新录入一遍：分级、病灶标签都已存在，
-    处置按 DR 分级的通行随访间隔映射。这样存量病例无需人工补录
-    就能参与结构化评分。
+    处置只按 DR 分级的通行随访间隔映射，不从级别推断黄斑水肿。
+    这样存量病例无需人工补录就能参与结构化评分。
 
     金标准分级为空（不适用）时不给出 dr_grade，
     避免又把「不适用」变回某个具体分级。
@@ -330,6 +436,7 @@ def gold_from_case(case: Any) -> Dict[str, Any]:
         # 会把学员的正确作答判成「多报」。
         if has_lesion_data:
             gold["findings"] = findings
+        # 硬性渗出和 DR 级别都不能推出黄斑水肿。没有单独记录就不参与评分。
 
     return gold
 
@@ -368,6 +475,14 @@ def score_structured(
             for extra in sorted(s - g):
                 errors.append(f"多报征象：{extra}")
 
+    # 黄斑水肿单独计分，不并进 DR 分级或征象。
+    if gold.get("dme"):
+        ok = student.get("dme") == gold.get("dme")
+        parts.append(100.0 if ok else 0.0)
+        detail["dme"] = 100.0 if ok else 0.0
+        if not ok:
+            errors.append("黄斑水肿要单独判断，不能用 DR 分级代替。")
+
     # 处置：对错二值——处置直接关系患者去向，没有部分正确
     if gold.get("disposition"):
         ok = student.get("disposition") == gold.get("disposition")
@@ -383,7 +498,35 @@ def score_structured(
     return {"score": score, "detail": detail, "errors": errors}
 
 
-def validate(category: Optional[str], answers: Dict[str, Any]) -> List[str]:
+def dme_answer_problem(
+    answers: Optional[Dict[str, Any]],
+    materials: Optional[Dict[str, Any]] = None,
+) -> str:
+    """眼底照上的黄斑水肿记录不能写成中心受累。空着则不拦。"""
+    value = str((answers or {}).get("dme") or "").strip()
+    if not value:
+        return ""
+    if center_dme_ready(materials):
+        allowed = {item["value"] for item in _CENTER_DME_OPTIONS}
+        if value not in allowed:
+            return "黄斑水肿要单独选择：无、非中心受累，或中心受累。不要用 DR 分级代替。"
+        return ""
+    if value in _DME_DIAGNOSIS_VALUES:
+        return (
+            "这例没有同时提供 OCT 和视力，不能诊断中心受累黄斑水肿。"
+            "黄斑水肿与 DR 分级分开判断。"
+        )
+    allowed = {item["value"] for item in _FUNDUS_DME_OPTIONS}
+    if value not in allowed:
+        return "黄斑水肿不能按 DR 分级来填。这张眼底照只能记录能否判断，或是否需要 OCT 和视力。"
+    return ""
+
+
+def validate(
+    category: Optional[str],
+    answers: Dict[str, Any],
+    materials: Optional[Dict[str, Any]] = None,
+) -> List[str]:
     """
     校验结构化结论，返回缺失项的中文提示；无问题返回空列表。
     """
@@ -404,5 +547,9 @@ def validate(category: Optional[str], answers: Dict[str, Any]) -> List[str]:
             problems.append("影像不可判读时不能给出「0 级 无 DR」的阴性结论")
         if str(answers.get("disposition") or "") in ("routine",):
             problems.append("影像不可判读时不应只做常规随访，请选择重新拍摄或转诊")
+
+    dme_problem = dme_answer_problem(answers, materials)
+    if dme_problem:
+        problems.append(dme_problem)
 
     return problems

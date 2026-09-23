@@ -186,6 +186,7 @@ class PracticeOut(_CamelModel):
     # 2：没有框时把「没标」记成 100。
     # 3：没有框且没标则标注未考，权重摊给其余项。
     # 4：文字题占 20%，分级 25%、标注 40%、诊断 15%。
+    # 5：病例学习。分级 40%、诊断 40%、文字题 20%。标注不计入总分。
     score_rule_version: int = 1
     student_annotations: List[Dict[str, Any]] = Field(default_factory=list)
     student_measurements: List[Dict[str, Any]] = Field(default_factory=list)
@@ -211,6 +212,17 @@ class PracticeOut(_CamelModel):
     hints_left: int = 0
     next_session_id: int = 0
     next_case_id: int = 0
+    # 老师发布的正式考试。旧的自行开考没有这些字段。
+    exam_paper_id: int = 0
+    exam_title: str = ""
+    allow_back: bool = False
+    # -1 表示不限时。0 表示时间已到。
+    exam_seconds_left: int = -1
+    paper_closed: bool = False
+    exam_pass_score: int = 0
+    prev_session_id: int = 0
+    prev_case_id: int = 0
+    exam_items: List["ExamNavItem"] = Field(default_factory=list)
     iou_avg: float = 0.0
     accuracy: float = 0.0
     grade_match: bool = False
@@ -232,6 +244,13 @@ class PracticeOut(_CamelModel):
     updated_at: Optional[datetime] = None
 
 
+class ExamNavItem(_CamelModel):
+    index: int = 0
+    session_id: int = 0
+    case_id: int = 0
+    status: str = ""
+
+
 class PracticePage(_CamelModel):
     total: int = 0
     page: int = 1
@@ -251,6 +270,7 @@ class WeakLabelItem(_CamelModel):
 class PracticeStats(_CamelModel):
     total_sessions: int = 0
     submitted_sessions: int = 0
+    completed_cases: int = 0
     pass_rate: float = 0.0
     avg_score: float = 0.0
     avg_iou: float = 0.0
@@ -294,3 +314,6 @@ class TextQuizResultOut(_CamelModel):
     question_count: int = 0
     passed: bool = False
     items: List[TextQuizItemResult] = Field(default_factory=list)
+
+
+PracticeOut.model_rebuild()

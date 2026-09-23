@@ -67,3 +67,15 @@ def mask_phone_by_role(phone: str, role_code: Optional[str]) -> Tuple[str, bool]
     if role_code == RoleEnum.TEACHER.value:
         return mask_phone(raw), False
     return "", False
+
+
+def teaching_staff(role_code: Optional[str]) -> bool:
+    """教师和管理员备课、核对入库信息时仍看库里的患者字段。"""
+    return role_code in (RoleEnum.TEACHER.value, RoleEnum.ADMIN.value)
+
+
+def learner_patient_fields(role_code: Optional[str], name: str, gender: str, age: Optional[int]) -> Tuple[str, str, int]:
+    """教学病例对学员只保留编号。姓名、性别、年龄不下发。"""
+    if teaching_staff(role_code):
+        return name or "", gender or "U", int(age or 0)
+    return "", "U", 0

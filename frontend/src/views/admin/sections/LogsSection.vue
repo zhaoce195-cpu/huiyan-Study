@@ -52,6 +52,12 @@ const onFilter = () => {
   fetchList()
 }
 
+const clearFilters = () => {
+  filter.module = ''
+  filter.range = []
+  onFilter()
+}
+
 const moduleLabel = (code: string) =>
   MODULES.find((m) => m.code === code)?.label || code
 
@@ -110,6 +116,7 @@ onMounted(fetchList)
             style="width: 360px"
             @change="onFilter"
           />
+          <el-button size="small" @click="clearFilters">清除</el-button>
           <el-button :icon="Search" size="small" type="primary" @click="onFilter">查询</el-button>
           <el-button :icon="Refresh" size="small" @click="fetchList">刷新</el-button>
         </div>

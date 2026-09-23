@@ -169,7 +169,9 @@ export interface StudyHoursItem {
   department: string
   totalSeconds: number
   totalHours: number
+  practiceCount: number
   caseCount: number
+  avgScore: number
   avgIou: number
 }
 

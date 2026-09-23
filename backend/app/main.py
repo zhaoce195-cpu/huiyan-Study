@@ -61,6 +61,10 @@ def _patch_schema() -> None:
         practice_cols = {c["name"] for c in insp.get_columns("biz_practice_session")}
     except Exception:
         practice_cols = set()
+    try:
+        task_cols = {c["name"] for c in insp.get_columns("biz_rotation_task")}
+    except Exception:
+        task_cols = set()
 
     is_sqlite = engine.url.drivername.startswith("sqlite")
 
@@ -78,6 +82,31 @@ def _patch_schema() -> None:
             "sys_user.must_change_password",
             "ALTER TABLE sys_user ADD COLUMN must_change_password "
             "BOOLEAN NOT NULL DEFAULT 0",
+        ))
+    for column, _comment in (
+        ("study_year", "年级"),
+        ("rotation_batch", "轮转批次"),
+        ("mentor_group", "带教组"),
+    ):
+        if user_cols and column not in user_cols:
+            patches.append((
+                f"sys_user.{column}",
+                f"ALTER TABLE sys_user ADD COLUMN {column} VARCHAR(32) NOT NULL DEFAULT ''",
+            ))
+    if task_cols and "tier" not in task_cols:
+        patches.append((
+            "biz_rotation_task.tier",
+            "ALTER TABLE biz_rotation_task ADD COLUMN tier VARCHAR(16) NOT NULL DEFAULT 'REQUIRED'",
+        ))
+    if task_cols and "scope" not in task_cols:
+        patches.append((
+            "biz_rotation_task.scope",
+            "ALTER TABLE biz_rotation_task ADD COLUMN scope VARCHAR(16) NOT NULL DEFAULT 'ALL'",
+        ))
+    if task_cols and "scope_value" not in task_cols:
+        patches.append((
+            "biz_rotation_task.scope_value",
+            "ALTER TABLE biz_rotation_task ADD COLUMN scope_value VARCHAR(32) NOT NULL DEFAULT ''",
         ))
 
     if cols and "archive_status" not in cols:
@@ -140,6 +169,18 @@ def _patch_schema() -> None:
             "ALTER TABLE biz_training_case ADD COLUMN patient_phone "
             "VARCHAR(20) NOT NULL DEFAULT ''",
         ))
+    if cols and "subject_no" not in cols:
+        patches.append((
+            "biz_training_case.subject_no",
+            "ALTER TABLE biz_training_case ADD COLUMN subject_no "
+            "VARCHAR(32) NOT NULL DEFAULT ''",
+        ))
+    if cols and "exam_on" not in cols:
+        patches.append((
+            "biz_training_case.exam_on",
+            "ALTER TABLE biz_training_case ADD COLUMN exam_on "
+            "VARCHAR(10) NOT NULL DEFAULT ''",
+        ))
 
     if practice_cols and "text_question_ids" not in practice_cols:
         patches.append((
@@ -178,10 +219,38 @@ def _patch_schema() -> None:
             "biz_practice_session.exam_total",
             "ALTER TABLE biz_practice_session ADD COLUMN exam_total INTEGER NOT NULL DEFAULT 0",
         ))
+    try:
+        reading_cols = {c["name"] for c in insp.get_columns("biz_reading_annotation")}
+    except Exception:
+        reading_cols = set()
+    try:
+        share_cols = {c["name"] for c in insp.get_columns("biz_teaching_share")}
+    except Exception:
+        share_cols = set()
+    if share_cols and "answers_revealed" not in share_cols:
+        patches.append((
+            "biz_teaching_share.answers_revealed",
+            "ALTER TABLE biz_teaching_share ADD COLUMN answers_revealed "
+            "BOOLEAN NOT NULL DEFAULT 1",
+        ))
+
+    if reading_cols and "record_kind" not in reading_cols:
+        patches.append((
+            "biz_reading_annotation.record_kind",
+            "ALTER TABLE biz_reading_annotation ADD COLUMN record_kind "
+            "VARCHAR(16) NOT NULL DEFAULT 'READING'",
+        ))
+
     if practice_cols and "hint_step" not in practice_cols:
         patches.append((
             "biz_practice_session.hint_step",
             "ALTER TABLE biz_practice_session ADD COLUMN hint_step INTEGER NOT NULL DEFAULT 0",
+        ))
+    if practice_cols and "exam_paper_id" not in practice_cols:
+        patches.append((
+            "biz_practice_session.exam_paper_id",
+            "ALTER TABLE biz_practice_session ADD COLUMN exam_paper_id "
+            "INTEGER NOT NULL DEFAULT 0",
         ))
 
     if patches:
@@ -207,6 +276,15 @@ def _patch_schema() -> None:
             print("[schema_patch] + 已建表 biz_student_application")
         except Exception as e:  # noqa: BLE001
             print(f"[schema_patch] x 建表 biz_student_application 失败：{e}")
+            if is_sqlite:
+                raise
+    if "biz_exam_paper" not in tables:
+        try:
+            from app.db.models.exam_paper import ExamPaper
+            ExamPaper.__table__.create(bind=engine, checkfirst=True)
+            print("[schema_patch] + 已建表 biz_exam_paper")
+        except Exception as e:  # noqa: BLE001
+            print(f"[schema_patch] x 建表 biz_exam_paper 失败：{e}")
             if is_sqlite:
                 raise
     if "biz_text_quiz_attempt" not in tables:

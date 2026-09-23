@@ -17,7 +17,6 @@ from app.db.models import (
     CaseImage,
     CaseImageRoleEnum,
     CaseImageTableEnum,
-    REQUIRED_ROLES_IDRID,
     RoleEnum,
     ScreeningCase,
     TrainingCase,
@@ -198,7 +197,7 @@ class CaseImageService:
         db: Session, *, case_table: str, case_id: int,
         required: Optional[List[str]] = None,
     ) -> Dict[str, object]:
-        required = list(required or REQUIRED_ROLES_IDRID)
+        required = list(required or [CaseImageRoleEnum.ORIGINAL.value])
         _validate_table(case_table)
         roles_present = {
             r for (r,) in db.query(CaseImage.role)

@@ -89,10 +89,11 @@ const onUploadSuccess = (r: CommonApi.UploadFileResult) => {
   form.fileUrl = r?.url || ''
   // 简单按扩展名推断 fileType
   const ext = (form.fileUrl.split('.').pop() || '').toLowerCase()
-  if (['pdf'].includes(ext)) form.fileType = 'PDF'
-  else if (['mp4', 'mov', 'webm'].includes(ext)) form.fileType = 'VIDEO'
-  else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(ext)) form.fileType = 'IMAGE'
-  else if (['doc', 'docx'].includes(ext)) form.fileType = 'DOC'
+  if (ext === 'pdf') form.fileType = 'pdf'
+  else if (['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', 'wmv'].includes(ext)) form.fileType = 'video'
+  else if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp'].includes(ext)) form.fileType = 'image'
+  else if (['doc', 'docx'].includes(ext)) form.fileType = 'word'
+  else if (['ppt', 'pptx'].includes(ext)) form.fileType = 'ppt'
   ElMessage.success('附件已上传')
 }
 </script>
@@ -173,7 +174,7 @@ const onUploadSuccess = (r: CommonApi.UploadFileResult) => {
           点击上传附件
         </UniversalUploader>
         <span style="margin-left:10px;color:var(--el-text-color-secondary);font-size:12px">
-          上传成功后自动回填上方 URL；支持 PDF / 视频 / 图片 / 文档；≤ 50MB
+          上传成功后自动回填上方 URL；支持视频、PPT、Word、PDF、图片；≤ 50MB
         </span>
       </el-form-item>
 

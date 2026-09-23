@@ -59,7 +59,8 @@ const DEFAULT_ALLOWED = [
   '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp',
   '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt', '.csv',
   '.zip', '.rar', '.7z',
-  '.mp4', '.mp3', '.wav',
+  '.mp4', '.webm', '.mov', '.m4v', '.avi', '.mkv', '.wmv',
+  '.mp3', '.wav',
 ]
 const DANGEROUS_EXT = [
   '.exe', '.dll', '.bat', '.cmd', '.sh', '.ps1', '.js',

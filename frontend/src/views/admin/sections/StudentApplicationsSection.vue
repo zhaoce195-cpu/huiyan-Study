@@ -53,6 +53,12 @@ const onFilter = () => {
   fetchList()
 }
 
+const clearFilters = () => {
+  filter.keyword = ''
+  filter.status = ''
+  onFilter()
+}
+
 const guardManage = (): boolean => {
   if (!props.canManage) {
     ElMessage.warning('仅管理员可审核')
@@ -170,6 +176,7 @@ onMounted(fetchList)
             <el-option label="已通过" value="APPROVED" />
             <el-option label="已驳回" value="REJECTED" />
           </el-select>
+          <el-button size="small" @click="clearFilters">清除</el-button>
           <el-button :icon="Refresh" size="small" @click="fetchList">刷新</el-button>
         </div>
       </div>

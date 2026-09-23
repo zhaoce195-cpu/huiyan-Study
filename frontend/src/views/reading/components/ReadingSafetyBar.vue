@@ -73,7 +73,7 @@ const eyeUnknown = computed(() => !['OD', 'OS', 'OU'].includes(props.current?.ey
 
 const examDateText = computed(() => {
   if (props.examDateKnown && props.examDate) return props.examDate.slice(0, 10)
-  return '检查日期未采集'
+  return '检查日期未提供'
 })
 
 const qualityText = computed(() => props.current?.qualityText || '未评估')
@@ -165,9 +165,10 @@ const conflict = computed(
       <div v-if="safety" class="cell" :class="{ 'is-warn': !safety.qualityChecked }">
         <span class="label">质控</span>
         <span class="value">
-          {{ safety.qualityChecked
-            ? '本病例已完成'
-            : `本病例未完成（${safety.unevaluatedCount ?? 0} 张未评估）` }}
+          {{ safety.qualityReviewText
+            || (safety.qualityChecked
+              ? '本病例已完成'
+              : `本病例未完成（${safety.unevaluatedCount ?? 0} 张未评估）`) }}
           <template v-if="safety.gradedTotal != null">
             · 累计 {{ safety.gradedTotal }} 张
           </template>

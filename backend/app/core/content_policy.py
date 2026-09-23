@@ -98,7 +98,7 @@ SAFE_FIELDS: Set[str] = {
     "category", "category_text", "difficulty", "difficulty_text",
     "pass_score", "estimated_minutes", "is_scored",
     # 影像与质量
-    "image_count", "derived_count", "image_complete",
+    "image_count", "derived_count", "image_complete", "fundus_only",
     "missing_roles", "thumb_url", "modality", "laterality", "image_quality",
     # 病例状态
     "archive_status", "is_published", "is_train_case",
@@ -109,6 +109,7 @@ SAFE_FIELDS: Set[str] = {
     # 患者信息（另有脱敏策略，见 case_utils.mask_phone_by_role）
     "patient_name", "patient_gender", "patient_age",
     "patient_phone", "phone_visible",
+    "subject_no", "exam_on", "visit_count", "visit_index", "visits",
 }
 
 

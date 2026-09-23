@@ -387,7 +387,8 @@ COMMON_ALLOWED_EXT = {
     ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp",     # 图片
     ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".csv",  # 文档
     ".zip", ".rar", ".7z",                                # 压缩
-    ".mp4", ".mp3", ".wav",                               # 音视频
+    ".mp4", ".webm", ".mov", ".m4v", ".avi", ".mkv", ".wmv",  # 视频
+    ".mp3", ".wav",                                       # 音频
 }
 COMMON_MAX_SIZE_MB = 50
 
@@ -413,6 +414,12 @@ _MIME_BY_EXT = {
     ".rar": "application/vnd.rar",
     ".7z": "application/x-7z-compressed",
     ".mp4": "video/mp4",
+    ".webm": "video/webm",
+    ".mov": "video/quicktime",
+    ".m4v": "video/mp4",
+    ".avi": "video/x-msvideo",
+    ".mkv": "video/x-matroska",
+    ".wmv": "video/x-ms-wmv",
     ".mp3": "audio/mpeg",
     ".wav": "audio/wav",
 }

@@ -36,6 +36,7 @@ const dialogTitle = computed(() =>
 const form = ref({
   shareScope: 'ALL',
   expireHours: 24,
+  hideAnswers: true,
   title: '',
   description: '',
 })
@@ -49,6 +50,7 @@ watch(
       form.value = {
         shareScope: 'ALL',
         expireHours: 24,
+        hideAnswers: true,
         title: props.caseTitle || '',
         description: '',
       }
@@ -65,8 +67,9 @@ const onSubmit = async () => {
         sourceCaseId: props.sourceCaseId,
         shareScope: form.value.shareScope,
         expireHours: form.value.expireHours,
+        hideAnswers: form.value.hideAnswers,
       })
-      ElMessage.success('已分享，学员端实时可见')
+      ElMessage.success(form.value.hideAnswers ? '已分享。学员先看不到金标准，讨论结束后再公布' : '已分享，学员现在就能看到金标准')
     } else {
       await TeachingApi.submitForReview({
         sourceType: props.sourceType,
@@ -117,6 +120,10 @@ const onSubmit = async () => {
             style="width: 160px"
           />
           <span class="muted" style="margin-left: 8px">小时</span>
+        </el-form-item>
+        <el-form-item label="金标准">
+          <el-checkbox v-model="form.hideAnswers">先隐藏，让学员独立判断</el-checkbox>
+          <div class="muted small">讨论结束后，在「我的教学分享」里点「公布金标准」。</div>
         </el-form-item>
         <el-form-item label="">
           <div class="muted small">

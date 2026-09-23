@@ -4,10 +4,11 @@
  * - 临时分享 + 入库申请 一并展示
  * - 状态筛选 + 收回 + 详情查看
  */
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, View, RemoveFilled } from '@element-plus/icons-vue'
-import { TeachingApi } from '@/api'
+import { Plus, Refresh, View, RemoveFilled } from '@element-plus/icons-vue'
+import { CommonApi, LearningApi, TeachingApi } from '@/api'
+import UniversalUploader from '@/components/UniversalUploader.vue'
 import TeachingDemoBody from './components/TeachingDemoBody.vue'
 
 type Share = TeachingApi.TeachingShare
@@ -55,6 +56,31 @@ const onFilter = () => {
   fetchList()
 }
 
+const clearFilters = () => {
+  filter.shareType = ''
+  filter.status = ''
+  onFilter()
+}
+
+const onReveal = async (row: Share) => {
+  try {
+    await ElMessageBox.confirm(
+      '公布后，学员立刻能看到这例的标准结论、病灶和标注。',
+      '公布金标准',
+      { type: 'warning', confirmButtonText: '公布', cancelButtonText: '再等等' }
+    )
+  } catch {
+    return
+  }
+  try {
+    await TeachingApi.revealShare(row.id)
+    ElMessage.success('已向学员公布金标准')
+    fetchList()
+  } catch {
+    /* 已弹错误 */
+  }
+}
+
 const onRevoke = async (row: Share) => {
   try {
     await ElMessageBox.confirm(
@@ -92,7 +118,128 @@ const effectiveStatus = (row: Share): TeachingApi.ShareStatus => {
   return row.status
 }
 
-onMounted(fetchList)
+const TEACHING_ACCEPT = [
+  '.mp4', '.webm', '.mov', '.m4v', '.avi', '.mkv', '.wmv',
+  '.ppt', '.pptx', '.doc', '.docx', '.pdf',
+]
+
+const fileKind = (name: string): { fileType: string; resourceType: LearningApi.ResourceType; label: string } => {
+  const ext = (name.split('.').pop() || '').toLowerCase()
+  if (['mp4', 'webm', 'mov', 'm4v', 'avi', 'mkv', 'wmv'].includes(ext)) {
+    return { fileType: 'video', resourceType: 'IMAGE_DEMO', label: '视频' }
+  }
+  if (['ppt', 'pptx'].includes(ext)) {
+    return { fileType: 'ppt', resourceType: 'COURSEWARE', label: 'PPT' }
+  }
+  if (['doc', 'docx'].includes(ext)) {
+    return { fileType: 'word', resourceType: 'COURSEWARE', label: 'Word' }
+  }
+  if (ext === 'pdf') {
+    return { fileType: 'pdf', resourceType: 'COURSEWARE', label: 'PDF' }
+  }
+  return { fileType: 'link', resourceType: 'COURSEWARE', label: '附件' }
+}
+
+const kindLabel = (row: LearningApi.LearningResource) => {
+  const known: Record<string, string> = { video: '视频', ppt: 'PPT', word: 'Word', pdf: 'PDF', image: '图片' }
+  if (known[row.fileType]) return known[row.fileType]
+  return fileKind(row.fileUrl || '').label
+}
+
+const materials = ref<LearningApi.LearningResource[]>([])
+const materialLoading = ref(false)
+const fetchMaterials = async () => {
+  materialLoading.value = true
+  try {
+    const r = await LearningApi.listResources({ onlyMine: true, page: 1, pageSize: 50 })
+    materials.value = (r?.list || []).filter((item) => !!item.fileUrl)
+  } catch {
+    materials.value = []
+  } finally {
+    materialLoading.value = false
+  }
+}
+
+const uploadVisible = ref(false)
+const uploading = ref(false)
+const pickedFile = ref<File | null>(null)
+const uploadForm = reactive({ title: '', summary: '' })
+const pickedLabel = computed(() => {
+  if (!pickedFile.value) return ''
+  return `${pickedFile.value.name} · ${fileKind(pickedFile.value.name).label}`
+})
+
+const openUpload = () => {
+  pickedFile.value = null
+  uploadForm.title = ''
+  uploadForm.summary = ''
+  uploadVisible.value = true
+}
+
+const onPickFile = (file: File) => {
+  pickedFile.value = file
+  if (!uploadForm.title.trim()) {
+    uploadForm.title = file.name.replace(/\.[^.]+$/, '')
+  }
+}
+
+const submitUpload = async () => {
+  const title = uploadForm.title.trim()
+  if (!title) {
+    ElMessage.warning('请填写资料标题')
+    return
+  }
+  if (!pickedFile.value) {
+    ElMessage.warning('请选择要上传的文件')
+    return
+  }
+  const kind = fileKind(pickedFile.value.name)
+  uploading.value = true
+  try {
+    const uploaded = await CommonApi.uploadFile(pickedFile.value, 'learning')
+    if (!uploaded?.url) {
+      ElMessage.error('文件没有上传成功')
+      return
+    }
+    await LearningApi.createResource({
+      title,
+      summary: uploadForm.summary.trim(),
+      resourceType: kind.resourceType,
+      fileUrl: uploaded.url,
+      fileType: kind.fileType,
+      status: 'PUBLISHED',
+    })
+    ElMessage.success('已上传，学员可在学习资料中查看')
+    uploadVisible.value = false
+    fetchMaterials()
+  } catch {
+    /* 请求层已提示 */
+  } finally {
+    uploading.value = false
+  }
+}
+
+const removeMaterial = async (row: LearningApi.LearningResource) => {
+  try {
+    await ElMessageBox.confirm(`确认删除「${row.title}」？学员将不再看到这份资料。`, '删除资料', {
+      type: 'warning',
+    })
+  } catch {
+    return
+  }
+  try {
+    await LearningApi.deleteResource(row.id)
+    ElMessage.success('已删除')
+    fetchMaterials()
+  } catch {
+    /* 已弹错误 */
+  }
+}
+
+onMounted(() => {
+  fetchList()
+  fetchMaterials()
+})
 </script>
 
 <template>
@@ -100,9 +247,10 @@ onMounted(fetchList)
     <header class="page-head">
       <div class="head-left">
         <h2>我的教学分享</h2>
-        <div class="muted">查看您发起的临时分享 / 入库申请记录</div>
+        <div class="muted">分享病例，或上传视频、PPT、Word 给学员学习</div>
       </div>
       <div class="head-right">
+        <el-button type="primary" size="small" :icon="Plus" @click="openUpload">上传资料</el-button>
         <el-select
           v-model="filter.shareType"
           placeholder="类型"
@@ -130,11 +278,46 @@ onMounted(fetchList)
           <el-option label="已驳回" value="REJECTED" />
           <el-option label="已下架" value="SHELVED" />
         </el-select>
+        <el-button size="small" @click="clearFilters">清除</el-button>
         <el-button :icon="Refresh" size="small" @click="fetchList">刷新</el-button>
       </div>
     </header>
 
+    <div class="card material-card">
+      <div class="card-title">已上传的教学资料</div>
+      <div class="muted small card-hint">支持视频、PPT、Word、PDF。发布后学员在「学习资料与笔记」中打开。</div>
+      <el-table v-loading="materialLoading" :data="materials" size="small" stripe>
+        <el-table-column type="index" label="#" width="56" />
+        <el-table-column label="格式" width="90">
+          <template #default="{ row }">
+            <el-tag size="small" effect="plain">{{ kindLabel(row) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="标题" min-width="220">
+          <template #default="{ row }">
+            <div class="case-title">{{ row.title }}</div>
+            <div v-if="row.summary" class="muted small">{{ row.summary }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="100">
+          <template #default="{ row }">
+            {{ row.status === 'PUBLISHED' ? '已发布' : row.status === 'DRAFT' ? '草稿' : '已下线' }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="createdAt" label="上传时间" width="170" />
+        <el-table-column label="操作" width="100" fixed="right">
+          <template #default="{ row }">
+            <el-button text type="danger" size="small" @click="removeMaterial(row)">删除</el-button>
+          </template>
+        </el-table-column>
+        <template #empty>
+          <div class="empty">还没有上传资料，点击右上角「上传资料」</div>
+        </template>
+      </el-table>
+    </div>
+
     <div class="card">
+      <div class="card-title">病例分享记录</div>
       <el-table v-loading="loading" :data="list" size="small" stripe>
         <el-table-column type="index" label="#" width="56" />
         <el-table-column label="类型" width="100">
@@ -181,9 +364,25 @@ onMounted(fetchList)
           </template>
         </el-table-column>
         <el-table-column prop="createdAt" label="创建时间" width="170" />
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="金标准" width="110">
+          <template #default="{ row }">
+            <el-tag v-if="row.shareType !== 'TEMPORARY'" size="small" type="success" effect="plain">随讲解展示</el-tag>
+            <el-tag v-else-if="row.answersRevealed === false" size="small" type="warning">未公布</el-tag>
+            <el-tag v-else size="small" type="success" effect="plain">已公布</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="240" fixed="right">
           <template #default="{ row }">
             <el-button text type="primary" size="small" :icon="View" @click="showDetail(row)">查看</el-button>
+            <el-button
+              v-if="row.shareType === 'TEMPORARY' && row.status === 'SHARING' && !isExpired(row) && row.answersRevealed === false"
+              text
+              type="warning"
+              size="small"
+              @click="onReveal(row)"
+            >
+              公布金标准
+            </el-button>
             <el-button
               v-if="row.shareType === 'TEMPORARY' && row.status === 'SHARING' && !isExpired(row)"
               text
@@ -214,6 +413,39 @@ onMounted(fetchList)
         />
       </div>
     </div>
+
+    <el-dialog v-model="uploadVisible" title="上传教学资料" width="520" destroy-on-close>
+      <el-form label-width="72px">
+        <el-form-item label="标题" required>
+          <el-input v-model="uploadForm.title" maxlength="160" placeholder="例如：眼底阅片课件" />
+        </el-form-item>
+        <el-form-item label="简介">
+          <el-input
+            v-model="uploadForm.summary"
+            type="textarea"
+            :rows="2"
+            maxlength="200"
+            show-word-limit
+            placeholder="可选，学员在资料列表里会看到"
+          />
+        </el-form-item>
+        <el-form-item label="文件" required>
+          <UniversalUploader
+            biz="learning"
+            variant="dragger"
+            :auto-upload="false"
+            :accept="TEACHING_ACCEPT"
+            hint="点击或拖拽视频、PPT、Word、PDF"
+            @select="onPickFile"
+          />
+          <div v-if="pickedLabel" class="picked">已选择：{{ pickedLabel }}</div>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="uploadVisible = false">取消</el-button>
+        <el-button type="primary" :loading="uploading" @click="submitUpload">发布给学员</el-button>
+      </template>
+    </el-dialog>
 
     <!-- 详情 -->
     <el-dialog v-model="detailVisible" title="分享详情" width="880">
@@ -283,7 +515,11 @@ onMounted(fetchList)
   border: 1px solid #e5e6eb;
   border-radius: 12px;
   padding: 16px 18px;
+  margin-bottom: 16px;
 }
+.card-title { font-size: 15px; font-weight: 600; color: #1d2129; margin-bottom: 4px; }
+.card-hint { margin-bottom: 10px; }
+.picked { margin-top: 8px; font-size: 12px; color: #1d2129; }
 .case-title { color: #1d2129; font-weight: 500; }
 .teach-line {
   display: -webkit-box;

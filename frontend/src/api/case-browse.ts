@@ -41,8 +41,10 @@ export interface CaseBrowseItem {
   imageCount: number
   /** 派生对象数（mask/overlay/金标准） */
   derivedCount?: number
-  /** 影像是否完整（缺失关键 role 时为 false） */
+  /** 影像是否完整：有眼底照相原图即为完整 */
   imageComplete?: boolean
+  /** 只有眼底照相，没有 OCT、视力或其他病历 */
+  fundusOnly?: boolean
   /** 缺失的 role 列表 */
   missingRoles?: string[]
   /** ============ 模拟患者信息 ============ */
@@ -53,8 +55,21 @@ export interface CaseBrowseItem {
   patientPhone?: string
   /** 当前用户是否可见完整手机号 */
   phoneVisible?: boolean
+  /** 教学用病人编号。空表示这行没有和其他时期连在一起 */
+  subjectNo?: string
+  /** 检查日期。空表示没有提供 */
+  examOn?: string
+  visitIndex?: number
+  visitCount?: number
   createdAt: string | null
   updatedAt: string | null
+}
+
+export interface CaseVisitBrief {
+  id: number
+  caseNo: string
+  examOn: string
+  visitIndex: number
 }
 
 export interface CaseBrowseDetail extends CaseBrowseItem {
@@ -67,6 +82,7 @@ export interface CaseBrowseDetail extends CaseBrowseItem {
   teachingPoints: string
   goldLesions?: Array<Record<string, any>>
   passScore: number
+  visits?: CaseVisitBrief[]
 }
 
 export interface GoldStandardUpdate {
@@ -159,6 +175,11 @@ export const getCaseBrowseDetail = (caseId: number) => {
   return http.get<CaseBrowseDetail>(`/case-browse/${caseId}`)
 }
 
+export const setCaseSubject = (
+  caseId: number,
+  body: { subjectNo: string; examOn: string }
+) => http.put<CaseBrowseDetail>(`/case-browse/${caseId}/subject`, body)
+
 /** 归档 / 取消归档 */
 export const archiveCase = (caseId: number, params: CaseArchiveParams) => {
   return http.put<CaseBrowseDetail>(
@@ -223,4 +244,38 @@ export const updateGoldStandard = (caseId: number, params: GoldStandardUpdate) =
     `/case-browse/${caseId}/gold-standard`,
     params,
     { showSuccess: true }
+  )
+
+export interface CaseImportRow {
+  registerNo: string
+  title: string
+  eyes: string[]
+  ok: boolean
+  issues: string[]
+}
+
+export interface CaseImportReport {
+  token: string
+  naming: string
+  total: number
+  passed: number
+  failed: number
+  rows: CaseImportRow[]
+}
+
+export const downloadImportTemplate = () =>
+  http.download('/case-browse/import/template', undefined, '病例登记表.csv')
+
+export const checkCaseImport = (sheet: File, images: File[]) => {
+  const form = new FormData()
+  form.append('sheet', sheet)
+  images.forEach((file) => form.append('images', file))
+  return http.upload<CaseImportReport>('/case-browse/import/check', form)
+}
+
+export const commitCaseImport = (token: string) =>
+  http.post<{ count: number; created: { id: number; caseNo: string; title: string }[] }>(
+    '/case-browse/import/commit',
+    { token },
+    { showSuccess: true, successText: '已写入病例库，状态为未发布草稿' }
   )

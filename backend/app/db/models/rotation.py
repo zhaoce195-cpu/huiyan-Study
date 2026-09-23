@@ -60,6 +60,18 @@ class RotationTask(Base, TimestampMixin):
     pass_score: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
     due_on: Mapped[str] = mapped_column(String(10), nullable=False, default="")
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tier: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="REQUIRED",
+        comment="REQUIRED 必做 / EXTENSION 拓展",
+    )
+    scope: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="ALL",
+        comment="ALL 全部 / YEAR 年级 / GROUP 轮转组（带教组）",
+    )
+    scope_value: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="",
+        comment="年级或轮转组名称；全部时为空",
+    )
 
 
 class RotationTaskAck(Base, TimestampMixin):

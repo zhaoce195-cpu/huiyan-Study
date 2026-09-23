@@ -116,14 +116,14 @@ const routes: RouteRecordRaw[] = [
         path: 'reading',
         name: 'TrainingReading',
         component: () => import('@/views/reading/index.vue'),
+        // 无 caseId、且没有点开质量评估时，页面回到上次阅片的那一例
         meta: { title: '影像阅片工作站' }
-        // 无 caseId 进入时，页面会自动加载第一例并提供病例快速切换
       },
       {
         path: 'practice',
         name: 'TrainingPractice',
         component: () => import('@/views/practice/index.vue'),
-        meta: { title: '自主练习与自评' }
+        meta: { title: '病例学习' }
       },
       {
         path: 'my-reviews',
@@ -135,13 +135,25 @@ const routes: RouteRecordRaw[] = [
         path: 'practice/workstation',
         name: 'TrainingPracticeWorkstation',
         component: () => import('@/views/practice/workstation.vue'),
-        meta: { title: '练习工作站' },
+        meta: { title: '病例学习' },
         beforeEnter: (to) => {
           if (!to.query.caseId || !to.query.sessionId) {
-            ElMessage.warning('请从练习列表选择病例进入练习工作站')
+            ElMessage.warning('请从病例学习进入')
             return { path: '/training/practice' }
           }
         }
+      },
+      {
+        path: 'class',
+        name: 'TrainingClass',
+        component: () => import('@/views/training/class-students.vue'),
+        meta: { title: '班级学生', allowedRoles: ['admin', 'doctor'] }
+      },
+      {
+        path: 'exams',
+        name: 'FormalExams',
+        component: () => import('@/views/training/exams.vue'),
+        meta: { title: '正式考试', allowedRoles: ['admin', 'doctor'] }
       },
       {
         path: 'teaching-share',
@@ -157,9 +169,8 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'review',
-        name: 'TrainingReview',
-        component: () => import('@/views/training/pending-review.vue'),
-        meta: { title: '待审核', allowedRoles: ['admin', 'doctor'] }
+        redirect: { path: '/training/reading', query: { tab: 'quality' } },
+        meta: { title: '质量评估', allowedRoles: ['admin', 'doctor'] }
       },
       {
         path: 'student-teaching',

@@ -157,3 +157,54 @@ def test_overview_reflects_real_submissions(db, seeded):
     assert ov.avg_iou == pytest.approx(0.5, abs=1e-3)
     # 通过率的分母只能是练习提交数：阅片没有「是否通过」这回事
     assert ov.pass_rate == pytest.approx(0.5, abs=1e-4)
+
+
+def test_student_teacher_and_admin_share_one_count(db, seeded, monkeypatch):
+    """练习次数、完成病例、平均成绩、学时在三个角色上是同一套数。草稿不计入。"""
+    from app.services.practice_service import PracticeService, _to_out
+    from app.services.training_service import TrainingService
+
+    stu, cases = seeded["student"], seeded["cases"]
+    db.add(_practice(
+        stu, cases[0], PracticeStatusEnum.SUBMITTED.value,
+        duration_seconds=600, score_total=80, iou_avg=0.5, is_passed=True,
+    ))
+    db.add(_practice(
+        stu, cases[0], PracticeStatusEnum.DRAFT.value, duration_seconds=999, score_total=10,
+    ))
+    db.add(ReadingAnnotation(
+        user_id=stu.id, case_id=cases[1].id, image_index=0, image_url="/x.jpg",
+        status=ReadingStatusEnum.SUBMITTED.value,
+    ))
+    teacher_role = Role(code=RoleEnum.TEACHER.value, name="教师")
+    db.add(teacher_role)
+    db.flush()
+    teacher = User(username="tea", password_hash="x", role_id=teacher_role.id, is_active=True)
+    db.add(teacher)
+    db.commit()
+
+    item = CommonService.study_hours(db).list[0]
+    stats = PracticeService.stats(db, stu)
+    train = TrainingService.stats(db, stu)
+    assert item.practice_count == stats.submitted_sessions == 1
+    assert item.case_count == stats.completed_cases == train.done_cases == 2
+    assert item.avg_score == stats.avg_score == 80
+    assert item.total_seconds == stats.total_duration == train.total_duration == 600
+
+    locked = _practice(
+        stu, cases[2], PracticeStatusEnum.SUBMITTED.value,
+        duration_seconds=30, score_total=66, attempt_kind="EXAM",
+    )
+    db.add(locked)
+    db.commit()
+    db.refresh(locked)
+    monkeypatch.setattr(
+        "app.services.practice_service._answers_open",
+        lambda _db, _record: False,
+    )
+    teacher_view = _to_out(locked, db, teacher)
+    student_view = _to_out(locked, db, stu)
+    assert teacher_view.score_total == 66
+    assert student_view.score_total == 0
+    assert student_view.answers_open is False
+    assert teacher_view.text_items == []

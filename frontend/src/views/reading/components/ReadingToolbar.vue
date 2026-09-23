@@ -23,6 +23,8 @@ const props = defineProps<{
   canAnnotate: boolean
   canUndo: boolean
   canRedo: boolean
+  /** 病例学习只看图。画框留给阅片工作台。 */
+  showMarks?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -57,6 +59,7 @@ const tools: ToolDef[] = [
 const groups = computed(() => {
   const map: Record<string, ToolDef[]> = {}
   tools.forEach((t) => {
+    if (props.showMarks === false && t.group !== 'view') return
     if (!map[t.group]) map[t.group] = []
     map[t.group].push(t)
   })
@@ -90,6 +93,7 @@ const handleClick = (t: ToolDef) => {
 
     <!-- 操作按钮 -->
     <button
+      v-if="showMarks !== false"
       class="tool-btn"
       :class="{ disabled: !canUndo }"
       title="撤销"
@@ -99,6 +103,7 @@ const handleClick = (t: ToolDef) => {
       <span class="tool-label">撤销</span>
     </button>
     <button
+      v-if="showMarks !== false"
       class="tool-btn"
       :class="{ disabled: !canRedo }"
       title="重做"
@@ -111,7 +116,7 @@ const handleClick = (t: ToolDef) => {
       <el-icon><Aim /></el-icon>
       <span class="tool-label">归位</span>
     </button>
-    <button class="tool-btn danger" title="清空标注" @click="emit('clear')">
+    <button v-if="showMarks !== false" class="tool-btn danger" title="清空标注" @click="emit('clear')">
       <el-icon><ResetIcon /></el-icon>
       <span class="tool-label">清空</span>
     </button>

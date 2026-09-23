@@ -4,8 +4,10 @@
 - 汇总 PDF（按筛选条件多任务合并）
 - 列表 Excel（openpyxl）
 
-注：reportlab 默认不带中文字体，使用 Windows / Linux 常见 SimHei 字体注册。
-若运行环境无该字体，会自动回退到 Helvetica（英文 + 数字仍可读）。
+注：reportlab 自带的 Helvetica 没有中文。缺字时浏览器用黑块占位，
+所以英文、数字、日期还在，中文标题和姓名变成一条黑杠。
+优先嵌入单个 ttf（黑体）。ttc 字体集合被裁成子集后，Edge / Chrome
+的 PDF 查看器会把中文画成黑块，即便别的阅读器能正常显示。
 """
 
 import io
@@ -39,38 +41,42 @@ from app.schemas.screening import ScreeningReportOut, ScreeningTaskOut
 #                    字体注册
 # ============================================================
 
-_CN_FONT_NAME = "Helvetica"  # 默认回退
+_CN_FONT_NAME = "STSong-Light"
 _FONT_REGISTERED = False
 
 
 def _register_cn_font() -> str:
-    """注册中文字体（懒加载，仅首次调用时尝试）"""
+    """注册能画出中文的字体。成功后缓存，避免每次导出都读盘。"""
     global _CN_FONT_NAME, _FONT_REGISTERED
     if _FONT_REGISTERED:
         return _CN_FONT_NAME
 
-    candidates = [
-        # Windows
-        r"C:\Windows\Fonts\msyh.ttc",
-        r"C:\Windows\Fonts\msyh.ttf",
+    ttf_candidates = [
         r"C:\Windows\Fonts\simhei.ttf",
-        r"C:\Windows\Fonts\simsun.ttc",
-        # macOS
-        "/System/Library/Fonts/STHeiti Medium.ttc",
-        # Linux
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        r"C:\Windows\Fonts\simfang.ttf",
+        r"C:\Windows\Fonts\simkai.ttf",
         "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf",
     ]
-    for fp in candidates:
-        if os.path.exists(fp):
-            try:
-                pdfmetrics.registerFont(TTFont("CNFont", fp))
+    for fp in ttf_candidates:
+        if not os.path.exists(fp):
+            continue
+        try:
+            kwargs = {"subfontIndex": 0} if fp.lower().endswith(".ttc") else {}
+            pdfmetrics.registerFont(TTFont("CNFont", fp, **kwargs))
+            if pdfmetrics.stringWidth("中", "CNFont", 12) > 0:
                 _CN_FONT_NAME = "CNFont"
                 _FONT_REGISTERED = True
                 return _CN_FONT_NAME
-            except Exception:
-                continue
-    _FONT_REGISTERED = True  # 标记尝试过，避免反复扫盘
+        except Exception:
+            continue
+
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+
+    pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+    _CN_FONT_NAME = "STSong-Light"
+    _FONT_REGISTERED = True
     return _CN_FONT_NAME
 
 
@@ -224,7 +230,7 @@ def render_single_report_pdf(report: ScreeningReportOut) -> bytes:
 
     # ---- AI 分析结果 ----
     story.append(Paragraph("AI 分析结果", h2_style))
-    risk_text = {"red": "🔴 高风险", "yellow": "🟡 中风险", "green": "🟢 低风险"}.get(report.risk, report.risk)
+    risk_text = {"red": "高风险", "yellow": "中风险", "green": "低风险"}.get(report.risk, report.risk)
     risk_data = [
         ["风险等级", risk_text, "DR 分级", report.dr],
         ["AI 置信度", f"{report.confidence:.2%}", "报告生成时间", report.report_time],

@@ -72,10 +72,21 @@ class ImageSource(_CamelModel):
     modality: str = Field("CFP", description="影像模态编码")
     modality_text: str = Field("眼底彩照", description="影像模态中文名")
     exam_date: Optional[datetime] = Field(
-        None, description="检查日期；为空表示原始数据未采集，前端须显式提示未知",
+        None, description="检查日期，来自病例的 exam_on。为空表示没有提供，不得用入库时间代替",
     )
     exam_date_known: bool = Field(
-        False, description="检查日期是否可信。为 False 时不得用入库时间冒充检查日期",
+        False, description="exam_on 能按 YYYY-MM-DD 解析时才为真",
+    )
+    subject_no: str = ""
+    exam_on: str = ""
+    visit_index: int = 1
+    visit_count: int = 1
+    visits: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="同一病人编号下的其他检查。不含诊断",
+    )
+    fundus_only: bool = Field(
+        True, description="只有眼底照相，没有 OCT、视力或其他病历资料",
     )
     safety: Dict[str, Any] = Field(
         default_factory=dict,
@@ -172,6 +183,7 @@ class ReadingOut(_CamelModel):
     measurements: List[Dict[str, Any]] = Field(default_factory=list)
     layers: Optional[Dict[str, Any]] = None
     status: StatusLiteral = "DRAFT"
+    record_kind: str = "READING"
     note: str = ""
     review_comment: str = ""
     reviewer_id: Optional[int] = None

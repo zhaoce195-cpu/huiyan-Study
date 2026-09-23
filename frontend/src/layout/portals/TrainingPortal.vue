@@ -11,7 +11,6 @@ import {
   Setting,
   Share,
   Promotion,
-  Checked,
   Tickets,
   User,
   Bell,
@@ -20,7 +19,8 @@ import {
   Expand,
   MoreFilled,
   MagicStick,
-  Upload
+  Upload,
+  Notebook
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { useLogout } from '@/composables/useLogout'
@@ -63,9 +63,10 @@ const activeMenu = computed(() => {
   if (route.path.startsWith('/training/profile')) return '/training/profile'
   if (route.path.startsWith('/training/notices')) return '/training/notices'
   if (route.path.startsWith('/training/teaching-share')) return '/training/teaching-share'
+  if (route.path.startsWith('/training/exams')) return '/training/exams'
+  if (route.path.startsWith('/training/class')) return '/training/class'
   if (route.path.startsWith('/training/student-teaching')) return '/training/student-teaching'
   if (route.path.startsWith('/training/ai-builder')) return '/training/ai-builder'
-  if (route.path.startsWith('/training/review')) return '/training/review'
   if (route.path.startsWith('/training/my-reviews')) return '/training/my-reviews'
   return route.path
 })
@@ -108,24 +109,25 @@ const roleBadge = computed(() => {
         text-color="var(--ap-text-2)"
         active-text-color="var(--ap-accent)"
         :default-active="activeMenu"
+        :default-openeds="['teacher-teaching', 'study-personal']"
         :collapse="collapsed"
         :collapse-transition="false"
         router
       >
         <el-menu-item index="/training/home">
           <el-icon><home-filled /></el-icon>
-          <template #title>{{ isStudent ? '今日学习' : '教学首页' }}</template>
+          <template #title>{{ isStudent ? '今日学习' : '学员情况' }}</template>
         </el-menu-item>
 
         <!-- 病例与阅片（通用） -->
-        <el-menu-item-group title="病例与阅片">
+        <el-menu-item-group :title="isStudent ? '病例' : '病例与阅片'">
           <el-menu-item index="/training/cases">
             <el-icon><folder /></el-icon>
-            <template #title>病例库检索</template>
+            <template #title>病例库</template>
           </el-menu-item>
-          <el-menu-item index="/training/reading">
+          <el-menu-item v-if="!isStudent" index="/training/reading">
             <el-icon><Monitor /></el-icon>
-            <template #title>{{ isTeacher ? '阅片工作台 / 质量评估' : '阅片工作台' }}</template>
+            <template #title>阅片工作台</template>
           </el-menu-item>
         </el-menu-item-group>
 
@@ -133,7 +135,7 @@ const roleBadge = computed(() => {
         <el-menu-item-group v-if="isStudent" title="学生 · 训练">
           <el-menu-item index="/training/practice">
             <el-icon><aim /></el-icon>
-            <template #title>自主练习与自评</template>
+            <template #title>病例学习</template>
           </el-menu-item>
           <el-menu-item index="/training/student-teaching">
             <el-icon><promotion /></el-icon>
@@ -146,7 +148,19 @@ const roleBadge = computed(() => {
         </el-menu-item-group>
 
         <!-- 教师端 · 教学 -->
-        <el-menu-item-group v-if="isTeacher" title="教师 · 教学">
+        <el-sub-menu v-if="isTeacher" index="teacher-teaching">
+          <template #title>
+            <el-icon><notebook /></el-icon>
+            <span>教师 · 教学</span>
+          </template>
+          <el-menu-item index="/training/class">
+            <el-icon><user /></el-icon>
+            <template #title>班级学生</template>
+          </el-menu-item>
+          <el-menu-item index="/training/exams">
+            <el-icon><notebook /></el-icon>
+            <template #title>正式考试</template>
+          </el-menu-item>
           <el-menu-item index="/training/teaching-share">
             <el-icon><share /></el-icon>
             <template #title>我的教学分享</template>
@@ -155,10 +169,6 @@ const roleBadge = computed(() => {
             <el-icon><magic-stick /></el-icon>
             <template #title>AI 智能建案</template>
           </el-menu-item>
-          <el-menu-item index="/training/review">
-            <el-icon><checked /></el-icon>
-            <template #title>待审核</template>
-          </el-menu-item>
           <el-menu-item
             v-if="userStore.canAccessScreening"
             index="/screening"
@@ -166,7 +176,7 @@ const roleBadge = computed(() => {
             <el-icon><upload /></el-icon>
             <template #title>AI 批量筛查</template>
           </el-menu-item>
-        </el-menu-item-group>
+        </el-sub-menu>
 
         <!-- 管理员 · 平台管理 -->
         <el-menu-item-group v-if="isAdmin" title="管理员">
@@ -176,8 +186,11 @@ const roleBadge = computed(() => {
           </el-menu-item>
         </el-menu-item-group>
 
-        <!-- 学习与个人（通用） -->
-        <el-menu-item-group title="学习与个人">
+        <el-sub-menu index="study-personal">
+          <template #title>
+            <el-icon><user /></el-icon>
+            <span>学习与个人</span>
+          </template>
           <el-menu-item index="/training/learning">
             <el-icon><reading /></el-icon>
             <template #title>学习资料与笔记</template>
@@ -190,7 +203,7 @@ const roleBadge = computed(() => {
             <el-icon><user /></el-icon>
             <template #title>个人中心</template>
           </el-menu-item>
-        </el-menu-item-group>
+        </el-sub-menu>
 
       </el-menu>
 
@@ -329,17 +342,36 @@ const roleBadge = computed(() => {
   font-weight: 500;
 }
 
-/* 菜单区 */
+/* 菜单区：只占品牌和底部用户栏之间的高度，多出来的分组在这里滚动。
+   Element Plus 默认把菜单高度设成 100%，会连同顶栏一起高出视口，
+   底下的「教师 · 教学」「学习与个人」被裁掉且无法滚动。 */
 .aside-menu {
-  flex: 1;
+  flex: 1 1 0;
+  height: auto !important;
   min-height: 0;
-  overflow-y: auto;
+  max-height: none;
+  overflow-y: auto !important;
   overflow-x: hidden;
   border-right: 0;
   padding: 6px 0 12px;
   background: transparent;
 }
 /* 分组标题：Apple 分区头 */
+.aside-menu :deep(.el-sub-menu__title) {
+  margin: 8px 10px 2px;
+  padding-left: 14px !important;
+  border-radius: var(--ap-radius-sm);
+  height: 36px;
+  line-height: 36px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  color: #b7bec8;
+}
+.aside-menu :deep(.el-sub-menu__title:hover) {
+  background: var(--ap-fill);
+  color: #e4e7ec;
+}
 .aside-menu :deep(.el-menu-item-group__title) {
   padding: 16px 20px 6px;
   font-size: 12px;
@@ -397,6 +429,9 @@ const roleBadge = computed(() => {
 }
 .aside-menu :deep(.el-menu-item.is-active .el-icon) {
   color: var(--ap-accent);
+}
+.aside-menu :deep(.el-sub-menu .el-menu-item) {
+  padding-left: 36px !important;
 }
 
 /* ========== 侧边栏底部：用户（系统管理员）+ 收起 ========== */

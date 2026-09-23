@@ -47,6 +47,7 @@ from app.db.models.exam_record import (  # noqa: F401
     ExamRecord,
     ExamStatusEnum,
 )
+from app.db.models.exam_paper import ExamPaper  # noqa: F401
 from app.db.models.reading_annotation import (  # noqa: F401
     ReadingAnnotation,
     ReadingStatusEnum,

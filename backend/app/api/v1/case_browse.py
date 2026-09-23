@@ -10,9 +10,11 @@
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, File, Path, Query, UploadFile
+from fastapi.responses import Response
+from pydantic import BaseModel, Field
 
 from app.common.response import success
 from app.core.dependencies import CurrentUser, DbSession, require_roles
@@ -21,8 +23,10 @@ from app.schemas.case_browse import (
     CaseArchiveParams,
     CaseBrowseQuery,
     GoldStandardUpdate,
+    SubjectLinkUpdate,
 )
 from app.services.case_browse_service import CaseBrowseService
+from app.services.case_import_service import NAMING, CaseImportService
 
 router = APIRouter(
     prefix="/case-browse",
@@ -68,6 +72,49 @@ def list_cases(
     return success(data=data.model_dump(by_alias=True))
 
 
+class ImportCommitBody(BaseModel):
+    token: str = Field(..., min_length=8)
+
+
+@router.get("/import/template", summary="下载病例批量登记表")
+def import_template(current_user: CurrentUser):
+    CaseImportService.require_teacher(current_user)
+    body = CaseImportService.template().encode("utf-8-sig")
+    return Response(
+        content=body,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=case-register.csv"},
+    )
+
+
+@router.get("/import/rules", summary="影像命名要求")
+def import_rules(current_user: CurrentUser):
+    CaseImportService.require_teacher(current_user)
+    return success(data={"naming": NAMING})
+
+
+@router.post("/import/check", summary="入库前检查左右眼、质量、重复和患者信息")
+async def import_check(
+    current_user: CurrentUser,
+    db: DbSession,
+    sheet: UploadFile = File(...),
+    images: List[UploadFile] = File(...),
+):
+    files = [(item.filename or "", await item.read()) for item in images]
+    data = CaseImportService.check(db, current_user, await sheet.read(), files)
+    return success(data=data, msg="检查完成")
+
+
+@router.post("/import/commit", summary="把检查通过的病例写入病例库草稿")
+def import_commit(
+    body: ImportCommitBody,
+    current_user: CurrentUser,
+    db: DbSession,
+):
+    data = CaseImportService.commit(db, current_user, body.token)
+    return success(data=data, msg=f"已导入 {data['count']} 例未发布草稿")
+
+
 @router.get(
     "/{caseId}",
     summary="获取病例详情",
@@ -98,6 +145,23 @@ def archive_case(
     )
     msg = "已归档" if params.archive_status == "ARCHIVED" else "已恢复"
     return success(data=data.model_dump(by_alias=True), msg=msg)
+
+
+@router.put(
+    "/{caseId}/subject",
+    summary="把这张图和同一病人的其他时期连起来",
+    response_model=None,
+)
+def set_subject(
+    params: SubjectLinkUpdate,
+    current_user: CurrentUser,
+    db: DbSession,
+    caseId: int = Path(..., ge=1),
+):
+    data = CaseBrowseService.set_subject(
+        db=db, user=current_user, case_id=caseId, params=params,
+    )
+    return success(data=data.model_dump(by_alias=True), msg="已保存这次检查的病人编号和日期")
 
 
 # ============================================================

@@ -34,7 +34,7 @@ const props = withDefaults(
     modelValue: Record<string, any>
     schema: FilterSchema
     loading?: boolean
-    /** 是否显示「查询/重置/刷新」按钮组（覆盖 schema.showActions） */
+    /** 是否显示「查询/刷新」。「清除」始终显示。覆盖 schema.showActions。 */
     showActions?: boolean
   }>(),
   {
@@ -225,13 +225,24 @@ const widthOf = (f: FilterFieldSchema): string => {
       </label>
     </template>
 
-    <!-- 操作按钮组 -->
-    <div v-if="showActions" class="df-actions">
-      <el-button type="primary" size="small" :icon="Search" :loading="loading" @click="onSubmit">
+    <!-- 一键清除始终在；查询 / 刷新由 schema 或 showActions 决定 -->
+    <div class="df-actions">
+      <el-button class="df-clear" size="small" :icon="RefreshLeft" @click="resetAll">
+        清除
+      </el-button>
+      <el-button
+        v-if="showActions"
+        type="primary"
+        size="small"
+        :icon="Search"
+        :loading="loading"
+        @click="onSubmit"
+      >
         查询
       </el-button>
-      <el-button size="small" :icon="RefreshLeft" @click="resetAll">重置</el-button>
-      <el-button size="small" :icon="Refresh" :loading="loading" @click="onRefresh">刷新</el-button>
+      <el-button v-if="showActions" size="small" :icon="Refresh" :loading="loading" @click="onRefresh">
+        刷新
+      </el-button>
     </div>
   </div>
 </template>
@@ -270,5 +281,14 @@ const widthOf = (f: FilterFieldSchema): string => {
   align-items: center;
   gap: 8px;
   margin-left: auto;
+  flex-shrink: 0;
+}
+.df-clear {
+  --el-button-text-color: #1d2129;
+  --el-button-bg-color: #ffffff;
+  --el-button-border-color: #c9cdd4;
+  --el-button-hover-text-color: #1d2129;
+  --el-button-hover-bg-color: #f2f3f5;
+  --el-button-hover-border-color: #86909c;
 }
 </style>

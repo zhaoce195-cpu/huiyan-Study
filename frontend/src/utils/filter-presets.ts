@@ -243,7 +243,7 @@ export const CASE_BROWSE_FILTER: FilterSchema = {
     {
       key: 'onlyIncomplete',
       type: 'switch',
-      label: '仅看影像不完整',
+      label: '仅看没有眼底照',
     },
   ],
 }

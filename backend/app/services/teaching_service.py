@@ -207,23 +207,65 @@ def demo_fields(db: Session, share: TeachingShare, snapshot: dict) -> dict:
     }
 
 
+def _answers_open(share: TeachingShare) -> bool:
+    """入库教学本来就要讲答案。课堂临时分享可以先藏住，等老师公布。"""
+    if share.share_type != ShareTypeEnum.TEMPORARY.value:
+        return True
+    return bool(getattr(share, "answers_revealed", True))
+
+
+def _blind_title(db: Session, share: TeachingShare) -> str:
+    case = _training_case_for_share(db, share)
+    number = (case.case_no if case is not None else "") or ""
+    return f"课堂病例 {number}".strip()
+
+
+def _student_clinical(db: Session, share: TeachingShare, data: dict, revealed: bool) -> str:
+    """和病例详情用同一条规则：只有眼底照就不发其他病历；姓名换成病例编号。"""
+    if not revealed:
+        return ""
+    case = _training_case_for_share(db, share)
+    if case is None:
+        return data.get("clinical_info", "") or ""
+    from app.common.diagnosis_form import fundus_only as case_is_fundus_only
+    if case_is_fundus_only(case):
+        return ""
+    text = case.clinical_info or ""
+    stored = (case.patient_name or "").strip()
+    if stored:
+        text = text.replace(stored, case.case_no or "")
+    return text
+
+
 def _student_out(db: Session, share: TeachingShare) -> StudentCaseOut:
     data = dict(share.desensitized_data or {})
     demo = demo_fields(db, share, data)
+    revealed = _answers_open(share)
+    if not revealed:
+        demo = {
+            **demo,
+            "teaching_points": "",
+            "gold_diagnosis": "",
+            "gold_grade_text": "",
+            "lesions": [],
+            "annotations": [],
+            "lesion_mask_url": "",
+        }
     return StudentCaseOut(
         id=share.id,
         share_type=share.share_type,
-        title=data.get("title", ""),
-        description=data.get("description", ""),
-        patient_age=data.get("patient_age"),
-        patient_gender=data.get("patient_gender", "U"),
-        clinical_info=data.get("clinical_info", ""),
+        title=data.get("title", "") if revealed else _blind_title(db, share),
+        description=data.get("description", "") if revealed else "",
+        patient_age=None,
+        patient_gender="U",
+        clinical_info=_student_clinical(db, share, data, revealed),
         category=data.get("category", ""),
         difficulty=data.get("difficulty", ""),
         **_image_block(data.get("image_paths")),
         teacher_name=(share.teacher.real_name if share.teacher else ""),
         expired_at=share.expired_at,
         teaching_case_id=share.teaching_case_id,
+        answers_revealed=revealed,
         **demo,
     )
 
@@ -248,6 +290,7 @@ def _to_out(s: TeachingShare, db: Optional[Session] = None) -> TeachingShareOut:
         reviewer_name=(s.reviewer.real_name if s.reviewer else ""),
         teacher_id=s.teacher_id,
         teacher_name=(s.teacher.real_name if s.teacher else ""),
+        answers_revealed=_answers_open(s),
         created_at=s.created_at,
         updated_at=s.updated_at,
     )
@@ -286,6 +329,7 @@ class TeachingService:
             share_scope=params.share_scope,
             expire_hours=params.expire_hours,
             expired_at=now + timedelta(hours=params.expire_hours),
+            answers_revealed=not params.hide_answers,
             status=ShareStatusEnum.SHARING.value,
             teacher_id=user.id,
         )
@@ -313,6 +357,26 @@ class TeachingService:
         OpLogService.record(
             db, user=user, module="teaching", action="share_revoke",
             detail=f"收回分享#{share_id}", ip=ip, commit=False,
+        )
+        db.commit()
+        db.refresh(share)
+        return _to_out(share, db)
+
+    @staticmethod
+    def reveal_answers(db: Session, *, user: User, share_id: int, ip: str = "") -> TeachingShareOut:
+        share = db.query(TeachingShare).filter(TeachingShare.id == share_id).first()
+        if not share:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "分享记录不存在")
+        if share.teacher_id != user.id and user.role.code != RoleEnum.ADMIN.value:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "无权操作")
+        if share.share_type != ShareTypeEnum.TEMPORARY.value:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "入库教学本来就会展示标准结论")
+        if share.status != ShareStatusEnum.SHARING.value:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "当前状态不可公布")
+        share.answers_revealed = True
+        OpLogService.record(
+            db, user=user, module="teaching", action="share_reveal",
+            detail=f"公布分享#{share_id}的金标准", ip=ip, commit=False,
         )
         db.commit()
         db.refresh(share)

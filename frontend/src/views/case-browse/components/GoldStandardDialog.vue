@@ -7,6 +7,12 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { EditPen } from '@element-plus/icons-vue'
 import { CaseBrowseApi } from '@/api'
+import {
+  TEACHING_OUTLINE,
+  emptyTeachingSections,
+  parseTeachingPoints,
+  serializeTeachingPoints
+} from '@/utils/teaching-outline'
 
 type Detail = CaseBrowseApi.CaseBrowseDetail
 
@@ -44,10 +50,11 @@ const dialogVisible = computed({
 const form = reactive({
   goldDrGrade: '' as string,
   goldDiagnosis: '',
-  teachingPoints: '',
+  sections: emptyTeachingSections(),
   passScore: 60,
   lesionTypes: [] as string[]
 })
+const legacyPoints = ref('')
 
 const saving = ref(false)
 const publishing = ref(false)
@@ -55,7 +62,9 @@ const publishing = ref(false)
 const hydrate = (d: Detail | null) => {
   form.goldDrGrade = d?.goldDrGrade ?? (d?.drLevel != null ? String(d.drLevel) : '')
   form.goldDiagnosis = d?.goldDiagnosis || ''
-  form.teachingPoints = d?.teachingPoints || ''
+  const parsed = parseTeachingPoints(d?.teachingPoints || '')
+  form.sections = { ...emptyTeachingSections(), ...parsed.sections }
+  legacyPoints.value = parsed.legacy
   form.passScore = d?.passScore ?? 60
   form.lesionTypes = (d?.goldLesions || [])
     .map((x) => String(x?.type || x?.label || '').trim())
@@ -79,7 +88,7 @@ const buildLesions = () => {
 const payload = (): CaseBrowseApi.GoldStandardUpdate => ({
   goldDrGrade: form.goldDrGrade,
   goldDiagnosis: form.goldDiagnosis.trim(),
-  teachingPoints: form.teachingPoints.trim(),
+  teachingPoints: serializeTeachingPoints(form.sections) || legacyPoints.value.trim(),
   passScore: form.passScore,
   goldLesions: buildLesions()
 })
@@ -115,7 +124,7 @@ const title = computed(() =>
   <el-dialog
     v-model="dialogVisible"
     :title="title"
-    width="640"
+    width="760"
     :close-on-click-modal="false"
     destroy-on-close
   >
@@ -127,7 +136,7 @@ const title = computed(() =>
       <el-tag v-else type="success" size="small" effect="plain">已发布</el-tag>
     </div>
 
-    <el-form label-width="108px" class="gold-form">
+    <el-form label-width="132px" class="gold-form">
       <el-form-item label="金标准分级">
         <el-select v-model="form.goldDrGrade" style="width: 100%">
           <el-option
@@ -149,13 +158,19 @@ const title = computed(() =>
         />
       </el-form-item>
       <el-form-item label="教学要点">
+        <p class="outline-tip">按固定提纲填写。没写的项不会保存，学员端也只看到已填的项。</p>
+        <p v-if="legacyPoints" class="legacy">
+          这条还是自由文本。填进下面各项并保存后，就按提纲存放。原文：{{ legacyPoints }}
+        </p>
+      </el-form-item>
+      <el-form-item v-for="item in TEACHING_OUTLINE" :key="item.key" :label="item.label">
         <el-input
-          v-model="form.teachingPoints"
+          v-model="form.sections[item.key]"
           type="textarea"
-          :rows="4"
-          maxlength="800"
+          :rows="2"
+          maxlength="400"
           show-word-limit
-          placeholder="提交后展示给学员的讲解，例如：注意后极部微动脉瘤分布，与出血鉴别"
+          :placeholder="item.placeholder"
         />
       </el-form-item>
       <el-form-item label="典型病变">
@@ -221,5 +236,19 @@ const title = computed(() =>
   margin-left: 10px;
   color: #86909c;
   font-size: 12px;
+}
+.outline-tip,
+.legacy {
+  margin: 0;
+  line-height: 1.6;
+  font-size: 13px;
+  color: #4e5969;
+}
+.legacy {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #fff7e8;
+  color: #1d2129;
 }
 </style>

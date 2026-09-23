@@ -5,6 +5,7 @@
  * 开始练习的卡片不走这里，那里不能提前给出结论。
  */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import TeachingOutlineView from '@/components/TeachingOutlineView.vue'
 
 const props = defineProps<{
   source?: Record<string, any> | null
@@ -16,6 +17,11 @@ function pick<T>(camel: string, snake: string, fallback: T): T {
   return (value ?? fallback) as T
 }
 
+const answersHidden = computed(() => {
+  const src = props.source || {}
+  const flag = src.answersRevealed ?? src.answers_revealed
+  return flag === false
+})
 const teachingPoints = computed(() => String(pick('teachingPoints', 'teaching_points', '')))
 const goldDiagnosis = computed(() => String(pick('goldDiagnosis', 'gold_diagnosis', '')))
 const goldGradeText = computed(() => String(pick('goldGradeText', 'gold_grade_text', '')))
@@ -55,6 +61,7 @@ const showMarks = computed(() => active.value === 0)
 const mainImage = computed(() => images.value[active.value] || '')
 
 const caption = computed(() => {
+  if (answersHidden.value) return '现在只看原图。标准结论和标注要等老师公布。'
   if (!showMarks.value) return '标注和着色按第一张眼底图对齐，切换后只看原图。'
   const mask = !!lesionMaskUrl.value
   const boxes = annotations.value.length > 0
@@ -80,7 +87,7 @@ function draw() {
   const ctx = canvas.getContext('2d')
   if (!ctx) return
   ctx.clearRect(0, 0, w, h)
-  if (!showMarks.value) return
+  if (!showMarks.value || answersHidden.value) return
   const sx = w / img.naturalWidth
   const sy = h / img.naturalHeight
   for (const ann of annotations.value) {
@@ -139,20 +146,22 @@ onBeforeUnmount(() => observer?.disconnect())
       {{ [categoryText, difficultyText].filter(Boolean).join(' · ') }}
     </p>
 
-    <section>
+    <p v-if="answersHidden" class="hold">老师还没有公布标准结论。请先看眼底图，自己判断。</p>
+
+    <section v-if="!answersHidden">
       <h4>1. 先看什么</h4>
-      <p v-if="teachingPoints" class="body">{{ teachingPoints }}</p>
+      <TeachingOutlineView v-if="teachingPoints" :text="teachingPoints" />
       <p v-else class="empty">这份分享没有写带教要点。</p>
     </section>
 
-    <section>
+    <section v-if="!answersHidden">
       <h4>2. 标准结论</h4>
       <p v-if="goldGradeText" class="grade">{{ goldGradeText }}</p>
       <p v-if="goldDiagnosis" class="body">{{ goldDiagnosis }}</p>
       <p v-else class="empty">这份分享没有写标准诊断。</p>
     </section>
 
-    <section>
+    <section v-if="!answersHidden">
       <h4>3. 图上要找到的病灶</h4>
       <ul v-if="lesions.length" class="lesions">
         <li v-for="(item, i) in lesions" :key="i">
@@ -170,7 +179,7 @@ onBeforeUnmount(() => observer?.disconnect())
         <div class="stage">
           <img ref="imgRef" class="fundus" :src="mainImage" alt="眼底" @load="draw" />
           <img
-            v-if="showMarks && lesionMaskUrl"
+            v-if="showMarks && lesionMaskUrl && !answersHidden"
             class="mask"
             :src="lesionMaskUrl"
             alt=""
@@ -207,6 +216,15 @@ onBeforeUnmount(() => observer?.disconnect())
 <style scoped>
 .demo { display: flex; flex-direction: column; gap: 14px; }
 .kind { margin: 0; font-size: 13px; color: #4e5969; }
+.hold {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fff7e8;
+  color: #1d2129;
+  font-size: 14px;
+  line-height: 1.6;
+}
 section h4 {
   margin: 0 0 6px;
   font-size: 14px;

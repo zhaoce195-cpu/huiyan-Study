@@ -79,6 +79,7 @@ export interface PracticeRecord {
    * 2 没有框时把「没标」记成 100；
    * 3 没有框且没标则标注未考。
    * 4 文字题占 20%，分级 25%、标注 40%、诊断 15%。
+   * 5 病例学习：分级 40%、诊断 40%、文字题 20%。标注不计入总分。
    */
   scoreRuleVersion?: number
   studentAnnotations: PracticeAnnotation[]
@@ -108,6 +109,17 @@ export interface PracticeRecord {
   hintsLeft?: number
   nextSessionId?: number
   nextCaseId?: number
+  /** 老师发布的正式考试。0 表示旧的自行开考 */
+  examPaperId?: number
+  examTitle?: string
+  allowBack?: boolean
+  /** -1 不限时 */
+  examSecondsLeft?: number
+  paperClosed?: boolean
+  examPassScore?: number
+  prevSessionId?: number
+  prevCaseId?: number
+  examItems?: { index: number; sessionId: number; caseId: number; status: string }[]
   iouAvg: number
   accuracy: number
   gradeMatch: boolean
@@ -177,6 +189,7 @@ export interface WeakLabelItem {
 export interface PracticeStats {
   totalSessions: number
   submittedSessions: number
+  completedCases: number
   passRate: number
   avgScore: number
   avgIou: number

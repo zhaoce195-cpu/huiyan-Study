@@ -14,7 +14,7 @@ from random import shuffle
 from typing import List, Optional, Tuple
 
 from fastapi import HTTPException, status
-from sqlalchemy import desc, func, or_
+from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -30,6 +30,7 @@ from app.common import workflow
 from app.common.dr_grade import grade_level, grade_text, is_applicable
 from app.core.content_policy import Scene, redact, resolve_mode
 from app.services.op_log_service import OpLogService
+from app.services.common_service import learner_progress, learner_progress_sum
 from app.schemas.practice import (
     CaseBriefForPractice,
     ErrorPoint,
@@ -59,9 +60,11 @@ CATEGORY_TEXT = {
 DIFFICULTY_TEXT = {"EASY": "入门", "MEDIUM": "中级", "HARD": "高级"}
 
 # 标注分算法当前版本。改公式时必须同步 +1，否则新旧分数混在一起
-# 就再也分不清某个成绩是按哪套规则算出来的。
+# 就再也分不清某个成绩是按哪套规则算出来的。已交卷的成绩不重算。
 # 3：没有金标准框且学员也没标时，标注「未考」，不再记 100，权重摊给其余项。
-SCORE_RULE_VERSION = 4
+# 4：文字题占 20%，分级 25%、标注 40%、诊断 15%。
+# 5：病例学习。分级 40%、诊断 40%、文字题 20%。标注仍算出对照，不计入总分。
+SCORE_RULE_VERSION = 5
 
 DR_GRADE_TEXT = {
     "0": "0 级 无 DR",
@@ -89,7 +92,7 @@ def _bbox_of(points: List[Point2D]) -> Optional[Tuple[float, float, float, float
 
 
 def _is_finding_mark(ann) -> bool:
-    """指出征象位置的扩展标记，不参与金标准框的重合评分。"""
+    """指出征象位置的标记。小病灶和象限征象计分时要算上，不再因为不是手绘框就丢掉。"""
     if isinstance(ann, dict):
         layer = ann.get("layer") or ""
         tool = ann.get("tool") or ""
@@ -97,6 +100,153 @@ def _is_finding_mark(ann) -> bool:
         layer = getattr(ann, "layer", "") or ""
         tool = getattr(ann, "tool", "") or ""
     return layer == "finding" or tool in ("point", "quadrant")
+
+
+_LESION_ALIAS = {
+    "MA": "MA",
+    "微动脉瘤": "MA",
+    "微血管瘤": "MA",
+    "HE": "HE",
+    "出血": "HE",
+    "EX": "EX",
+    "硬性渗出": "EX",
+    "渗出": "EX",
+    "SE": "SE",
+    "软性渗出": "SE",
+    "棉绒斑": "SE",
+    "VB": "VB",
+    "静脉串珠": "VB",
+    "IRMA": "IRMA",
+    "视网膜内微血管异常": "IRMA",
+    "NV": "NV",
+    "NVD": "NV",
+    "NVE": "NV",
+    "新生血管": "NV",
+}
+
+
+def _lesion_code(label: str) -> str:
+    text = (label or "").strip()
+    if text in _LESION_ALIAS:
+        return _LESION_ALIAS[text]
+    head = text.split("·", 1)[0].strip()
+    return _LESION_ALIAS.get(head, text)
+
+
+def _is_small_span(box, canvas_w: float, canvas_h: float) -> bool:
+    """边界只有几十像素的病灶，手画很难和金标准面积重合。"""
+    span = max(box[2] - box[0], box[3] - box[1])
+    if span <= 48:
+        return True
+    longer = max(canvas_w, canvas_h, 0)
+    return longer > 0 and span <= longer * 0.02
+
+
+def _lesion_rule(label: str, box=None, canvas_w: float = 0, canvas_h: float = 0) -> str:
+    """微动脉瘤等小病灶看找对与否；大片出血渗出看范围；串珠、IRMA、新生血管看象限。"""
+    code = _lesion_code(label)
+    if code in ("VB", "IRMA", "NV"):
+        return "place"
+    if code == "MA":
+        return "small"
+    if box and _is_small_span(box, canvas_w, canvas_h):
+        return "small"
+    return "range"
+
+
+def _same_lesion(a: str, b: str) -> bool:
+    return _lesion_code(a) == _lesion_code(b) and bool(_lesion_code(a))
+
+
+def _center_of(box: Tuple[float, float, float, float]) -> Tuple[float, float]:
+    return ((box[0] + box[2]) / 2, (box[1] + box[3]) / 2)
+
+
+def _quadrant(x: float, y: float, width: float, height: float, eye: str) -> str:
+    if width <= 0 or height <= 0:
+        return ""
+    right = x >= width / 2
+    lower = y >= height / 2
+    if eye == "OD":
+        if not lower and right:
+            return "NS"
+        if not lower and not right:
+            return "TS"
+        if lower and right:
+            return "NI"
+        return "TI"
+    if eye == "OS":
+        if not lower and not right:
+            return "NS"
+        if not lower and right:
+            return "TS"
+        if lower and not right:
+            return "NI"
+        return "TI"
+    if not lower and not right:
+        return "LU"
+    if not lower and right:
+        return "RU"
+    if lower and not right:
+        return "LD"
+    return "RD"
+
+
+def _eye_for_place(ann, box, width: float, height: float, fallback: str) -> str:
+    """象限标记本身带着鼻颞侧代码。用落点反推当时看的是哪只眼，避免左右眼把颞侧和鼻侧对调。"""
+    remark = ""
+    if isinstance(ann, dict):
+        remark = ann.get("remark") or ""
+    else:
+        remark = getattr(ann, "remark", "") or ""
+    code = ""
+    if ":" in remark:
+        code = remark.split(":", 1)[1].strip().upper()
+    if code in ("LU", "RU", "LD", "RD") or width <= 0 or height <= 0:
+        return ""
+    if code not in ("TS", "NS", "TI", "NI"):
+        return fallback if fallback in ("OD", "OS") else ""
+    cx, cy = _center_of(box)
+    as_od = _quadrant(cx, cy, width, height, "OD")
+    as_os = _quadrant(cx, cy, width, height, "OS")
+    if code == as_od and code != as_os:
+        return "OD"
+    if code == as_os and code != as_od:
+        return "OS"
+    return fallback if fallback in ("OD", "OS") else ""
+
+
+def _mark_quadrant(ann, box, width: float, height: float, eye: str) -> str:
+    remark = ""
+    if isinstance(ann, dict):
+        remark = ann.get("remark") or ""
+    else:
+        remark = getattr(ann, "remark", "") or ""
+    if ":" in remark:
+        code = remark.split(":", 1)[1].strip().upper()
+        if code in ("TS", "NS", "TI", "NI", "LU", "RU", "LD", "RD"):
+            return code
+    cx, cy = _center_of(box)
+    return _quadrant(cx, cy, width, height, eye)
+
+
+def _small_hit(student_box, gold_box) -> bool:
+    """点到或圈到附近就算找对，不要求边界重合。"""
+    if _iou_box(student_box, gold_box) > 0:
+        return True
+    sx, sy = _center_of(student_box)
+    gx, gy = _center_of(gold_box)
+    span = max(gold_box[2] - gold_box[0], gold_box[3] - gold_box[1], 1.0)
+    margin = max(28.0, span * 1.5)
+    return (sx - gx) ** 2 + (sy - gy) ** 2 <= margin ** 2
+
+
+def _range_credit(student_box, gold_box) -> float:
+    """范围接近即可。0.45 的重叠视为这一处已经接近，不必完全重合。"""
+    iou = _iou_box(student_box, gold_box)
+    if iou < 0.2:
+        return 0.0
+    return min(1.0, iou / 0.45)
 
 
 def _iou_box(a, b) -> float:
@@ -154,6 +304,39 @@ def _gold_to_annotations(case: TrainingCase) -> List[PracticeAnnotation]:
     return out
 
 
+def _fundus_frame(db: Session, case: TrainingCase) -> Tuple[Tuple[int, int], str]:
+    """象限要按真实画幅和眼别切。只有一只眼有图时眼别才明确，双眼病例改由落点反推。"""
+    from app.db.models.case_image import CaseImage
+
+    size = (0, 0)
+    case_id = getattr(case, "id", None)
+    if case_id:
+        rows = (
+            db.query(CaseImage)
+            .filter(CaseImage.case_table == "training", CaseImage.case_id == case_id)
+            .order_by(CaseImage.sort_order.asc(), CaseImage.id.asc())
+            .all()
+        )
+        originals = [
+            row for row in rows
+            if row.role == "original" and (row.width or 0) > 0 and (row.height or 0) > 0
+        ]
+        sized = originals or [
+            row for row in rows if (row.width or 0) > 0 and (row.height or 0) > 0
+        ]
+        if sized:
+            size = (int(sized[0].width), int(sized[0].height))
+    paths = getattr(case, "image_paths", None)
+    eyes: List[str] = []
+    if isinstance(paths, dict):
+        for side in ("OD", "OS"):
+            arr = paths.get(side) or []
+            if isinstance(arr, list) and any(isinstance(url, str) and url for url in arr):
+                eyes.append(side)
+    eye = eyes[0] if len(eyes) == 1 else ""
+    return size, eye
+
+
 def _lesion_mask_url(db: Session, case_id: int) -> str:
     """彩色病灶图优先，其次叠加图。没有就返回空，调用方要如实说「没有」。"""
     from app.db.models.case_image import CaseImage
@@ -185,11 +368,14 @@ def _score(
     structured: Optional[dict] = None,
     text_ids: Optional[List[str]] = None,
     text_values: Optional[dict] = None,
+    image_size: Tuple[int, int] = (0, 0),
+    eye: str = "",
 ) -> Tuple[dict, List[ErrorPoint]]:
     """
     自动比对评分
     - 分级题：DR 分级一致 → 100，否则相差等级越近分越高
-    - 标注题：按 label 匹配最近金标准框，IoU 加权
+    - 标注题：小病灶看找对、漏标、多标；出血和渗出看范围是否接近；
+      静脉串珠、IRMA、新生血管看象限
     - 诊断书写：包含金标准关键词数 / 关键词总数（粗略匹配）
     """
     gold_anns = _gold_to_annotations(case)
@@ -216,97 +402,122 @@ def _score(
                 score_grade = 0.0
 
     # ----- 2. 标注题 -----
-    iou_threshold = 0.3
     error_points: List[ErrorPoint] = []
-    iou_sum = 0.0
-    iou_cnt = 0
-    recall = 0
-    used_g = set()
+    canvas_w, canvas_h = image_size
+    if canvas_w <= 0 or canvas_h <= 0:
+        xs: List[float] = []
+        ys: List[float] = []
+        for ann in list(gold_anns) + list(student_anns):
+            box = _bbox_of(ann.points)
+            if not box:
+                continue
+            xs.extend((box[0], box[2]))
+            ys.extend((box[1], box[3]))
+        canvas_w = max(xs) * 1.05 if xs else 0
+        canvas_h = max(ys) * 1.05 if ys else 0
 
+    drawable = []
     for sa in student_anns:
-        if _is_finding_mark(sa):
+        if _bbox_of(sa.points):
+            drawable.append(sa)
+    used_s: set = set()
+    used_g: set = set()
+    credits: List[float] = []
+    range_credits: List[float] = []
+    # 同一处学生标记只对应一处金标准。同等信用时取离病灶中心更近的，避免远处的点抢走近处的病灶。
+    pairs = []
+    for gi, ga in enumerate(gold_anns):
+        g_box = _bbox_of(ga.points)
+        if not g_box:
             continue
-        s_box = _bbox_of(sa.points)
-        if not s_box:
+        rule = _lesion_rule(ga.label, g_box, canvas_w, canvas_h)
+        for si, sa in enumerate(drawable):
+            if not _same_lesion(sa.label, ga.label):
+                continue
+            s_box = _bbox_of(sa.points)
+            if not s_box:
+                continue
+            if rule == "small":
+                credit = 1.0 if _small_hit(s_box, g_box) else 0.0
+            elif rule == "place":
+                eye_used = _eye_for_place(sa, s_box, canvas_w, canvas_h, eye) or eye
+                gold_quad = _mark_quadrant(ga, g_box, canvas_w, canvas_h, eye_used)
+                student_quad = _mark_quadrant(sa, s_box, canvas_w, canvas_h, eye_used)
+                credit = 1.0 if gold_quad and gold_quad == student_quad else 0.0
+            else:
+                credit = _range_credit(s_box, g_box)
+            if credit <= 0:
+                continue
+            gx, gy = _center_of(g_box)
+            sx, sy = _center_of(s_box)
+            dist = (sx - gx) ** 2 + (sy - gy) ** 2
+            pairs.append((credit, dist, gi, si, rule, ga))
+    pairs.sort(key=lambda item: (-item[0], item[1], item[2], item[3]))
+    for credit, _dist, gi, si, rule, ga in pairs:
+        if gi in used_g or si in used_s:
             continue
-        best_iou = 0.0
-        best_idx = -1
-        best_label = None
-        for gi, ga in enumerate(gold_anns):
-            if gi in used_g:
-                continue
-            g_box = _bbox_of(ga.points)
-            if not g_box:
-                continue
-            v = _iou_box(s_box, g_box)
-            if v > best_iou:
-                best_iou = v
-                best_idx = gi
-                best_label = ga.label
-        iou_sum += best_iou
-        iou_cnt += 1
-        if best_iou >= iou_threshold and best_idx >= 0:
-            used_g.add(best_idx)
-            recall += 1
-            if sa.label != best_label:
-                # 框对了但分类错了
-                error_points.append(ErrorPoint(
-                    type="wrong_label",
-                    label=sa.label,
-                    expected_label=best_label,
-                    iou=round(best_iou, 4),
-                    point=sa.points[0] if sa.points else None,
-                    note=f"标注框命中但分类错误：你标为「{sa.label}」，金标准为「{best_label}」",
-                ))
-            elif best_iou < 0.5:
+        used_s.add(si)
+        used_g.add(gi)
+        credits.append(credit)
+        if rule == "range":
+            range_credits.append(credit)
+            if credit < 0.7:
                 error_points.append(ErrorPoint(
                     type="low_iou",
-                    label=sa.label,
-                    iou=round(best_iou, 4),
-                    point=sa.points[0] if sa.points else None,
-                    note=f"标注框定位偏差较大（IoU={best_iou:.2f}），建议提高定位精度",
+                    label=ga.label,
+                    iou=round(credit, 4),
+                    point=ga.points[0] if ga.points else None,
+                    note=f"「{ga.label}」找到了，但标出的范围还不够接近",
                 ))
-        else:
-            # 误诊（学员标了一个不存在的病灶）
-            error_points.append(ErrorPoint(
-                type="false_positive",
-                label=sa.label,
-                point=sa.points[0] if sa.points else None,
-                note=f"误诊：金标准在该位置无「{sa.label}」病灶",
-            ))
 
-    # 漏诊
     for gi, ga in enumerate(gold_anns):
-        if gi in used_g:
+        if gi in used_g or not _bbox_of(ga.points):
             continue
         error_points.append(ErrorPoint(
             type="missed",
             label=ga.label,
             expected_label=ga.label,
             point=ga.points[0] if ga.points else None,
-            note=f"漏诊：未标注金标准中的「{ga.label}」",
+            note=f"漏标：没有找对「{ga.label}」",
         ))
 
-    iou_avg = (iou_sum / iou_cnt) if iou_cnt else 0.0
+    for si, sa in enumerate(drawable):
+        if si in used_s:
+            continue
+        error_points.append(ErrorPoint(
+            type="false_positive",
+            label=sa.label,
+            point=sa.points[0] if sa.points else None,
+            note=f"多标：这里并没有「{sa.label}」",
+        ))
+
     has_gold_boxes = len(gold_anns) > 0
-    student_drew = iou_cnt > 0
-    # 没有标准框、学员也没画，这项无从对错，不能记成 100。
-    # 有标准框没标到，或没有标准框却乱标，仍然要计分（都是 0）。
+    student_drew = len(drawable) > 0
     annotation_applicable = has_gold_boxes or student_drew
+    recall = len(credits)
     if has_gold_boxes:
         accuracy = recall / len(gold_anns)
     else:
         accuracy = 0.0
-
-    # 有框可比：召回率 70% + 平均 IoU 30%。
-    # 一个框都没画（iou_cnt == 0）时 IoU 没被度量，只按召回率。
-    # 有标准框但没标 → 召回 0 → 0 分；没有标准框却乱标 → 0 分。
+    fp_marks = len(drawable) - len(used_s)
+    # 每一处金标准最多 1 分。小病灶和象限征象找对就是 1；
+    # 出血、渗出按范围接近程度给 0 到 1。多标会把分母加大。
     if not annotation_applicable:
         score_annotation = 0.0
-    elif iou_cnt == 0:
-        score_annotation = round(accuracy * 100.0, 2)
     else:
-        score_annotation = round(accuracy * 70.0 + iou_avg * 30.0, 2)
+        denom = len(gold_anns) + fp_marks
+        score_annotation = round(100.0 * sum(credits) / denom, 2) if denom else 0.0
+    # 没有出血或渗出可比时，不把「框重合」记成 0。用 -1 表示这项不按重合。
+    if range_credits:
+        iou_avg = sum(range_credits) / len(range_credits)
+    elif any(
+        _lesion_rule(ga.label, _bbox_of(ga.points), canvas_w, canvas_h) == "range"
+        for ga in gold_anns
+        if _bbox_of(ga.points)
+    ):
+        iou_avg = 0.0
+    else:
+        iou_avg = -1.0
 
     # ----- 3. 诊断书写 -----
     keywords: List[str] = []
@@ -366,17 +577,18 @@ def _score(
         text_hit = None
 
     # ----- 总分加权 -----
-    # 有文字题：分级 25% + 标注 40% + 诊断 15% + 文字题 20%。
-    # 没有文字题的旧卷：分级 30% + 标注 50% + 诊断 20%。
+    # 有文字题的新练习（版本 5）：分级 40% + 诊断 40% + 文字题 20%。
+    # 标注对照仍计算，但不计入总分。临床学习看的是这例的结论，不是画框。
+    # 没有文字题的旧卷：分级 30% + 标注 50% + 诊断 20%。已交卷的不重算。
     # 某一项未考时，把它的权重摊给仍在考的项，满分仍是 100。
     if text_applicable:
-        w_grade, w_ann, w_diag, w_text = 0.25, 0.40, 0.15, 0.20
+        w_grade, w_ann, w_diag, w_text = 0.40, 0.0, 0.40, 0.20
     else:
         w_grade, w_ann, w_diag, w_text = 0.30, 0.50, 0.20, 0.0
     parts: List[Tuple[float, float]] = []
     if grade_applicable:
         parts.append((score_grade, w_grade))
-    if annotation_applicable:
+    if annotation_applicable and w_ann > 0:
         parts.append((score_annotation, w_ann))
     parts.append((score_diagnosis, w_diag))
     if text_applicable:
@@ -392,23 +604,26 @@ def _score(
     # ----- 学习建议 -----
     tips: List[str] = []
     if grade_applicable and not grade_match:
-        tips.append(f"DR 分级与金标准不一致（应为 {DR_GRADE_TEXT.get(gold_dr, gold_dr)}）。")
-    if iou_avg < 0.5 and iou_cnt > 0:
-        tips.append("标注定位精度偏低，建议放大病灶后再勾画。")
+        tips.append(f"DR 分级与这例的标准结论不一致（应为 {DR_GRADE_TEXT.get(gold_dr, gold_dr)}）。")
     for msg in structured_errors:
         tips.append(msg)
-    if not annotation_applicable:
-        tips.append("本病例没有金标准标注框，标注不计入成绩，没画框也不会记成 100 分。")
-    if missed_cnt > 0:
-        tips.append(f"存在 {missed_cnt} 处漏诊，请重点关注金标准图层中标注的病灶。")
-    if fp_cnt > 0:
-        tips.append(f"存在 {fp_cnt} 处误诊，请结合 AI 热力图与教学要点核对。")
     if scoring_mode == "keyword" and not student_diagnosis:
-        tips.append("未填写诊断结论，建议结合分级与典型病变做规范化书写。")
+        tips.append("还没有写下这例的诊断。")
     if text_hit and text_hit[0] < text_hit[1]:
         tips.append(f"文字题答对 {text_hit[0]}/{text_hit[1]}，已计入总分。")
-    if not tips:
-        tips.append("整体表现良好，继续保持规范化阅片习惯。")
+    if not text_applicable:
+        if range_credits and sum(range_credits) / len(range_credits) < 0.7:
+            tips.append("出血或渗出已经找到，但标出的范围还不够接近。")
+        if not annotation_applicable:
+            tips.append("本病例没有金标准标注框，标注不计入成绩，没画框也不会记成 100 分。")
+        if missed_cnt > 0:
+            tips.append(f"存在 {missed_cnt} 处漏诊，请重点关注金标准图层中标注的病灶。")
+        if fp_cnt > 0:
+            tips.append(f"存在 {fp_cnt} 处误诊，请结合 AI 热力图与教学要点核对。")
+        if not tips:
+            tips.append("整体表现良好，继续保持规范化阅片习惯。")
+    elif not tips:
+        tips.append("这例的分级和诊断都对上了。交卷后可以打开标准结论，再看病灶在哪里。")
 
     suggestion = " ".join(tips)
 
@@ -515,6 +730,11 @@ def _answers_open(db: Session, record: PracticeSession) -> bool:
     )
     if not _is_exam(record):
         return done
+    # 老师发布的考试要等收卷，避免先交卷的学员把答案传给还在考的人。
+    if int(getattr(record, "exam_paper_id", 0) or 0):
+        from app.services.exam_service import answers_locked_by_paper
+        if answers_locked_by_paper(db, record):
+            return False
     group_id = (record.exam_group_id or "").strip()
     if not group_id:
         return done
@@ -584,7 +804,7 @@ def _next_exam_item(db: Session, record: PracticeSession) -> Tuple[int, int]:
     return int(nxt.id), int(nxt.case_id)
 
 
-def _to_out(record: PracticeSession, db: Session) -> PracticeOut:
+def _to_out(record: PracticeSession, db: Session, viewer: Optional[User] = None) -> PracticeOut:
     case = record.case
     user = record.user
     teacher = record.teacher
@@ -592,6 +812,14 @@ def _to_out(record: PracticeSession, db: Session) -> PracticeOut:
     images = _flatten_images(case.image_paths) if case else []
     case_no = case.case_no if case else ""
     revealed = _answers_open(db, record)
+    show_scores = revealed or (
+        viewer is not None
+        and _is_teacher_or_admin(viewer)
+        and record.status in (
+            PracticeStatusEnum.SUBMITTED.value,
+            PracticeStatusEnum.REVIEWED.value,
+        )
+    )
     raw_title = case.title if case else ""
     case_title = raw_title if revealed else (f"病例 {case_no}" if case_no else "待判读病例")
     case_category = case.category if case else ""
@@ -601,7 +829,14 @@ def _to_out(record: PracticeSession, db: Session) -> PracticeOut:
     # 旧记录可能把「没有框」存成 100，界面仍应显示「未考」。
     gold_boxes = _gold_to_annotations(case) if case else []
     student_marks = record.student_annotations or []
-    scoring_marks = [m for m in student_marks if not _is_finding_mark(m)]
+    # 新口径把点选和象限也算进标注。旧记录的 iou 不会是负数，仍按当时「手绘框才算标注」显示，不改已存分数。
+    if (record.iou_avg or 0) < 0:
+        scoring_marks = [
+            m for m in student_marks
+            if isinstance(m, dict) and m.get("points")
+        ]
+    else:
+        scoring_marks = [m for m in student_marks if not _is_finding_mark(m)]
     annotation_applicable = bool(gold_boxes) or bool(scoring_marks)
 
     return PracticeOut(
@@ -625,21 +860,21 @@ def _to_out(record: PracticeSession, db: Session) -> PracticeOut:
         student_annotations=record.student_annotations or [],
         student_measurements=record.student_measurements or [],
         viewport=record.viewport_snapshot,
-        score_total=(record.score_total or 0.0) if revealed else 0.0,
-        score_grade=(record.score_grade or 0.0) if revealed else 0.0,
-        score_annotation=(record.score_annotation or 0.0) if revealed else 0.0,
+        score_total=(record.score_total or 0.0) if show_scores else 0.0,
+        score_grade=(record.score_grade or 0.0) if show_scores else 0.0,
+        score_annotation=(record.score_annotation or 0.0) if show_scores else 0.0,
         annotation_applicable=annotation_applicable,
-        score_diagnosis=(record.score_diagnosis or 0.0) if revealed else 0.0,
-        score_text=(record.score_text or 0.0) if revealed else 0.0,
+        score_diagnosis=(record.score_diagnosis or 0.0) if show_scores else 0.0,
+        score_text=(record.score_text or 0.0) if show_scores else 0.0,
         text_questions=_text_questions(record),
         text_items=_text_items(record) if revealed else [],
-        iou_avg=(record.iou_avg or 0.0) if revealed else 0.0,
-        accuracy=(record.accuracy or 0.0) if revealed else 0.0,
-        grade_match=bool(record.grade_match) if revealed else False,
-        is_passed=bool(record.is_passed) if revealed else False,
-        missed_count=(record.missed_count or 0) if revealed else 0,
-        false_positive_count=(record.false_positive_count or 0) if revealed else 0,
-        error_points=(record.error_points or []) if revealed else [],
+        iou_avg=(record.iou_avg or 0.0) if show_scores else 0.0,
+        accuracy=(record.accuracy or 0.0) if show_scores else 0.0,
+        grade_match=bool(record.grade_match) if show_scores else False,
+        is_passed=bool(record.is_passed) if show_scores else False,
+        missed_count=(record.missed_count or 0) if show_scores else 0,
+        false_positive_count=(record.false_positive_count or 0) if show_scores else 0,
+        error_points=(record.error_points or []) if show_scores else [],
         suggestion=(record.suggestion or "") if revealed else "",
         started_at=record.started_at,
         submitted_at=record.submitted_at,
@@ -664,9 +899,34 @@ def _to_out(record: PracticeSession, db: Session) -> PracticeOut:
             if _is_exam(record) or revealed
             else max(0, len(_hint_catalog(record, case)) - int(record.hint_step or 0))
         ),
-        next_session_id=_next_exam_item(db, record)[0],
-        next_case_id=_next_exam_item(db, record)[1],
+        **_exam_navigation(db, record),
     )
+
+
+def _exam_navigation(db: Session, record: PracticeSession) -> dict:
+    nxt = _next_exam_item(db, record)
+    face = _exam_face(db, record)
+    if face.get("allow_back"):
+        following = next(
+            (
+                item for item in face.get("exam_items") or []
+                if item.index == (record.exam_index or 0) + 1
+            ),
+            None,
+        )
+        nxt = (int(following.session_id), int(following.case_id)) if following else (0, 0)
+    return {
+        "next_session_id": nxt[0],
+        "next_case_id": nxt[1],
+        **face,
+    }
+
+
+def _exam_face(db: Session, record: PracticeSession) -> dict:
+    if not int(getattr(record, "exam_paper_id", 0) or 0):
+        return {}
+    from app.services.exam_service import paper_face
+    return paper_face(db, record)
 
 
 def _has_answered(db: Session, user: User, case_id: int) -> bool:
@@ -1100,7 +1360,7 @@ class PracticeService:
     # ---------- 提交（自动评分） ----------
 
     @staticmethod
-    def submit(db: Session, user: User, params: PracticeSubmitParams) -> PracticeOut:
+    def submit(db: Session, user: User, params: PracticeSubmitParams, _clock: bool = True) -> PracticeOut:
         record: Optional[PracticeSession] = (
             db.query(PracticeSession)
             .filter(PracticeSession.id == params.session_id)
@@ -1119,6 +1379,14 @@ class PracticeService:
         if record.status != PracticeStatusEnum.DRAFT.value:
             return _replay_or_reject(db, record, params.request_id)
 
+        if _clock and int(record.exam_paper_id or 0):
+            from app.services.exam_service import apply_draft, clock_expired, finalize_user
+            if clock_expired(db, record):
+                apply_draft(db, record, params)
+                finalize_user(db, record.user_id, int(record.exam_paper_id))
+                db.refresh(record)
+                return _to_out(record, db)
+
         case = record.case
         if not case:
             raise HTTPException(
@@ -1126,10 +1394,24 @@ class PracticeService:
                 detail="练习关联的病例已被删除",
             )
 
+        if _clock and params.diagnosis:
+            from app.common import diagnosis_form
+
+            dme_problem = diagnosis_form.dme_answer_problem(
+                params.diagnosis,
+                diagnosis_form.materials_for_case(db, case),
+            )
+            if dme_problem:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=dme_problem,
+                )
+
         # 评分
         if _ensure_text_paper(record):
             db.flush()
         text_values = {row.id: row.value for row in params.text_answers}
+        image_size, eye = _fundus_frame(db, case)
         result, error_points = _score(
             case=case,
             student_dr_grade=params.student_dr_grade,
@@ -1138,6 +1420,8 @@ class PracticeService:
             structured=params.diagnosis or None,
             text_ids=_question_ids(record),
             text_values=text_values,
+            image_size=image_size,
+            eye=eye,
         )
 
         # 抢占式置为已提交：WHERE status='DRAFT' 由数据库保证只有一个请求成功。
@@ -1262,7 +1546,7 @@ class PracticeService:
                 extra=f"学员 {record.user_id} 总分 {record.score_total}",
             ),
         )
-        return _to_out(record, db)
+        return _to_out(record, db, user)
 
     # ---------- 列表与详情 ----------
 
@@ -1299,7 +1583,7 @@ class PracticeService:
             total=total,
             page=query.page,
             page_size=query.page_size,
-            list=[_to_out(r, db) for r in rows],
+            list=[_to_out(r, db, user) for r in rows],
         )
 
     @staticmethod
@@ -1322,7 +1606,13 @@ class PracticeService:
         if record.status == PracticeStatusEnum.DRAFT.value and _ensure_text_paper(record):
             db.commit()
             db.refresh(record)
-        return _to_out(record, db)
+        if int(getattr(record, "exam_paper_id", 0) or 0):
+            from app.services.exam_service import expire_if_needed, guard_back
+            expire_if_needed(db, record)
+            db.refresh(record)
+            if not _is_teacher_or_admin(user):
+                guard_back(db, record)
+        return _to_out(record, db, user)
 
     # ---------- 个人 / 班级统计 ----------
 
@@ -1339,45 +1629,16 @@ class PracticeService:
             uid = target_user_id
 
         if uid == 0 and _is_teacher_or_admin(user):
-            # uid=0 + 教师/管理员：全局统计
+            progress = learner_progress_sum(learner_progress(db, None))
             base = db.query(PracticeSession)
         else:
+            progress = learner_progress(db, [uid])[uid]
             base = db.query(PracticeSession).filter(PracticeSession.user_id == uid)
 
         total = base.count()
-        submitted = base.filter(
-            PracticeSession.status.in_([
-                PracticeStatusEnum.SUBMITTED.value,
-                PracticeStatusEnum.REVIEWED.value,
-            ])
-        ).count()
-        passed = base.filter(PracticeSession.is_passed == 1).count()
-        avg_score = (
-            base.filter(
-                PracticeSession.status.in_([
-                    PracticeStatusEnum.SUBMITTED.value,
-                    PracticeStatusEnum.REVIEWED.value,
-                ])
-            )
-            .with_entities(func.avg(PracticeSession.score_total))
-            .scalar()
-        )
-        avg_iou = (
-            base.filter(
-                PracticeSession.status.in_([
-                    PracticeStatusEnum.SUBMITTED.value,
-                    PracticeStatusEnum.REVIEWED.value,
-                ])
-            )
-            .with_entities(func.avg(PracticeSession.iou_avg))
-            .scalar()
-        )
-        total_dur = (
-            base.with_entities(func.coalesce(func.sum(PracticeSession.duration_seconds), 0))
-            .scalar()
-        ) or 0
+        submitted = progress["practice_count"]
+        passed = progress["passed"]
 
-        # 薄弱知识点：聚合 error_points 中各 label 的次数
         rows = base.filter(
             PracticeSession.status.in_([
                 PracticeStatusEnum.SUBMITTED.value,
@@ -1430,10 +1691,11 @@ class PracticeService:
         return PracticeStats(
             total_sessions=total,
             submitted_sessions=submitted,
+            completed_cases=progress["completed_cases"],
             pass_rate=round((passed / submitted), 4) if submitted else 0.0,
-            avg_score=round(float(avg_score or 0.0), 2),
-            avg_iou=round(float(avg_iou or 0.0), 4),
-            total_duration=int(total_dur),
+            avg_score=progress["avg_score"],
+            avg_iou=progress["avg_iou"],
+            total_duration=progress["total_seconds"],
             weak_labels=weak_labels[:8],
             by_difficulty=by_difficulty,
         )

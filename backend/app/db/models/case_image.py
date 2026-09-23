@@ -32,7 +32,8 @@ class CaseImageTableEnum(str, Enum):
     TRAINING = "training"
 
 
-# IDRiD 视为「影像完整」必备的最小集
+# IDRiD 病灶着色层。这些是标注，不是另外的检查资料。
+# 教学病例只要有眼底照相原图就算齐。
 REQUIRED_ROLES_IDRID = [
     CaseImageRoleEnum.ORIGINAL.value,
     CaseImageRoleEnum.MA.value,
