@@ -56,6 +56,8 @@ const props = withDefaults(defineProps<{
   current?: ImageMeta | null
   safety?: SafetySummary | null
   statusText?: string
+  /** 教师阅片：眼别加大加粗，底色从纯白外壳过渡到暗画布 */
+  buffer?: boolean
 }>(), {
   caseNo: '',
   caseSn: '',
@@ -65,7 +67,8 @@ const props = withDefaults(defineProps<{
   examDateKnown: false,
   current: null,
   safety: null,
-  statusText: ''
+  statusText: '',
+  buffer: false
 })
 
 /** 眼别：无数据时显式提示未知，不留空 */
@@ -124,7 +127,7 @@ const conflict = computed(
 </script>
 
 <template>
-  <div class="safety-bar" role="status" aria-label="影像安全标识">
+  <div class="safety-bar" :class="{ buffer }" role="status" aria-label="影像安全标识">
     <!-- 眼别冲突：最高优先级，横贯整条 -->
     <div v-if="conflict" class="conflict-strip">
       <el-icon><Warning /></el-icon>
@@ -161,7 +164,7 @@ const conflict = computed(
         </button>
       </div>
 
-      <div class="cell" :class="{ 'is-warn': eyeUnknown }">
+      <div class="cell is-vital" :class="{ 'is-warn': eyeUnknown }">
         <span class="label">眼别</span>
         <span class="value strong">{{ eyeCode }}　{{ eyeText }}</span>
       </div>
@@ -222,6 +225,15 @@ const conflict = computed(
   flex-shrink: 0;
   background: #14161c;
   border-bottom: 1px solid #2a2a2a;
+}
+.safety-bar.buffer {
+  background: #314056;
+  border-bottom-color: #3d4d63;
+}
+.safety-bar.buffer .cell.is-vital .label,
+.safety-bar.buffer .cell.is-vital .value {
+  font-size: 15px;
+  font-weight: 700;
 }
 
 .conflict-strip {
@@ -318,6 +330,11 @@ button.copy:hover {
   .label,
   .value {
     font-size: 12px;
+  }
+  .safety-bar.buffer .cell.is-vital .label,
+  .safety-bar.buffer .cell.is-vital .value {
+    font-size: 15px;
+    font-weight: 700;
   }
 }
 </style>

@@ -69,6 +69,11 @@ const props = withDefaults(
     /** 病灶提示图（热力图）。只在 layers.heatmap 打开时画。 */
     heatmapOverlayUrl?: string
     /**
+     * 多病灶分割叠加图（出血 / 硬性渗出 / 软性渗出）。
+     * 只在带教工作台传入，不进图层存档，学员端保持空字符串。
+     */
+    lesionSegUrl?: string
+    /**
      * DICOM SEG 病灶分割。金标准若是像素级分割，用它比矢量框精确得多；
      * 同样受 layers.gold 控制。图层关闭时不取分割，避免答题时把答案请求出去。
      */
@@ -87,6 +92,7 @@ const props = withDefaults(
     laterality: '',
     goldOverlayUrl: '',
     heatmapOverlayUrl: '',
+    lesionSegUrl: '',
     segmentation: null,
     highlightId: ''
   }
@@ -196,7 +202,28 @@ const enableElement = async () => {
   enabled.value = true
 }
 
+const releaseGpuCanvases = (root: HTMLElement | null) => {
+  if (!root) return
+  root.querySelectorAll('canvas').forEach((canvas) => {
+    try {
+      const gl =
+        (canvas.getContext('webgl2') as WebGL2RenderingContext | null) ||
+        (canvas.getContext('webgl') as WebGLRenderingContext | null)
+      gl?.getExtension('WEBGL_lose_context')?.loseContext()
+      canvas.width = 1
+      canvas.height = 1
+    } catch {
+      /* 上下文已经释放时不再抛错 */
+    }
+  })
+}
+
 const disableElement = () => {
+  try {
+    renderingEngine?.disableElement?.(VIEWPORT_ID)
+  } catch {
+    /* ignore */
+  }
   try {
     csTools?.ToolGroupManager?.destroyToolGroup?.(TOOLGROUP_ID)
   } catch {
@@ -207,10 +234,26 @@ const disableElement = () => {
   } catch {
     /* ignore */
   }
+  releaseGpuCanvases(elementRef.value)
   renderingEngine = null
   viewport = null
   toolGroup = null
+  mapper = {
+    pixelToCanvas: (x: number, y: number) => ({ x, y }),
+    canvasToPixel: (x: number, y: number) => ({ x, y })
+  }
   enabled.value = false
+}
+
+/** 离开页面时由阅片页再调一次。重复调用是空操作。 */
+const releaseViewport = (purgeCache = false) => {
+  disableElement()
+  if (!purgeCache) return
+  try {
+    cs?.cache?.purgeCache?.()
+  } catch {
+    /* ignore */
+  }
 }
 
 /* =========================================================
@@ -571,6 +614,9 @@ const redrawOverlay = () => {
   if (effectiveLayers.value.heatmap && heatmapOverlay.value) {
     drawOverlayImage(ctx, heatmapOverlay.value, 0.5)
   }
+  if (lesionSegOverlay.value) {
+    drawOverlayImage(ctx, lesionSegOverlay.value, 0.45)
+  }
   // 金标准图像与分割掩码：像素级，画在矢量标注之下
   if (effectiveLayers.value.gold && goldOverlay.value) {
     drawGoldOverlay(ctx)
@@ -867,6 +913,7 @@ const segmentMasks = ref<SegmentMask[]>([])
 const segmentError = ref('')
 const goldOverlay = ref<HTMLImageElement | null>(null)
 const heatmapOverlay = ref<HTMLImageElement | null>(null)
+const lesionSegOverlay = ref<HTMLImageElement | null>(null)
 
 /** 彩色病灶图与眼底图同一画幅，拉伸到影像矩形上即可对齐。 */
 const drawOverlayImage = (
@@ -1628,7 +1675,7 @@ const clearAllTools = () => {
   redrawOverlay()
 }
 
-defineExpose({ clearAllTools })
+defineExpose({ clearAllTools, releaseViewport })
 
 /* =========================================================
  * 事件监听 / watch
@@ -1745,6 +1792,12 @@ watch(
 )
 
 watch(
+  () => props.lesionSegUrl,
+  (url) => loadOverlay(url || '', lesionSegOverlay),
+  { immediate: true }
+)
+
+watch(
   () => props.tool,
   (t) => {
     setActiveCornerstoneTool(t)
@@ -1765,7 +1818,7 @@ watch(
 )
 
 watch(
-  () => [props.annotations, props.measurements, effectiveLayers.value, props.goldAnnotations, props.goldOverlayUrl, props.heatmapOverlayUrl, props.highlightId, markMenu.value?.id],
+  () => [props.annotations, props.measurements, effectiveLayers.value, props.goldAnnotations, props.goldOverlayUrl, props.heatmapOverlayUrl, props.lesionSegUrl, props.highlightId, markMenu.value?.id],
   () => redrawOverlay(),
   { deep: true }
 )

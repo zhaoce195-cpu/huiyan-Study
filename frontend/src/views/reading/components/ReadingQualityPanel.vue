@@ -178,8 +178,15 @@ watch(() => props.caseId, () => {
   flex: 1;
   min-height: 0;
   padding: 20px 24px 28px;
-  background: #fff;
+  background: #eef2f6;
+  color: #1e293b;
   overflow: auto;
+}
+.quality-panel :deep(.el-table),
+.quality-panel :deep(.el-table tr),
+.quality-panel :deep(.el-table th.el-table__cell),
+.quality-panel :deep(.el-table td.el-table__cell) {
+  background: #f7f9fb;
 }
 .qp-head {
   display: flex;

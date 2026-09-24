@@ -6,6 +6,8 @@
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { ReadingApi } from '@/api'
+import ReviewPresetChips from './ReviewPresetChips.vue'
+import { EXCELLENT_PASS_COMMENT, appendReviewComment } from '../review-presets'
 
 const props = defineProps<{
   modelValue: boolean
@@ -39,6 +41,17 @@ const statusMeta = computed(() => {
 })
 
 const canSubmit = computed(() => props.row?.status === 'SUBMITTED')
+
+const addPreset = (phrase: string) => {
+  if (!canSubmit.value || submitting.value) return
+  comment.value = appendReviewComment(comment.value, phrase)
+}
+
+const passAsExcellent = () => {
+  if (!canSubmit.value || submitting.value) return
+  comment.value = EXCELLENT_PASS_COMMENT
+  submit(true)
+}
 
 const submit = async (accept: boolean) => {
   const row = props.row
@@ -98,8 +111,23 @@ const submit = async (accept: boolean) => {
         type="textarea"
         :rows="4"
         :disabled="!canSubmit"
-        placeholder="评定意见（驳回必填）"
+        placeholder="评定意见（驳回必填，也可点下方短语）"
       />
+      <ReviewPresetChips
+        v-if="canSubmit"
+        :disabled="submitting"
+        @pick="addPreset"
+      />
+      <el-button
+        v-if="canSubmit"
+        class="excellent-btn"
+        type="success"
+        plain
+        :loading="submitting"
+        @click="passAsExcellent"
+      >
+        标为优秀并通过
+      </el-button>
       <p v-if="!canSubmit" class="rev-hint">该记录已评定，不能再次提交。</p>
     </template>
     <template #footer>
@@ -150,5 +178,9 @@ const submit = async (accept: boolean) => {
   margin: 8px 0 0;
   font-size: 12px;
   color: #86909c;
+}
+.excellent-btn {
+  width: 100%;
+  margin-top: 10px;
 }
 </style>

@@ -29,7 +29,8 @@ import AiDiagnosisDialog from '@/components/AiDiagnosisDialog.vue'
 import type {
   ToolName,
   CanvasState,
-  AnnotationItem
+  AnnotationItem,
+  ViewportState
 } from './types'
 
 // keep-alive exclude 按组件名匹配，而 <script setup> 默认用文件名推断（这里会是
@@ -155,6 +156,8 @@ const onSelectCase = (id: number) => {
 const sourceLoading = ref(false)
 const source = ref<ImageSource | null>(null)
 const currentImageIndex = ref(0)
+/** 教师/管理员的双眼并排。学员不开启。 */
+const dualView = ref(false)
 
 /* ===== 多 role tabs（一对多影像扩展） ===== */
 const ROLE_LABEL: Record<string, string> = {
@@ -196,6 +199,7 @@ watch(availableRoles, (roles) => {
 })
 
 const onChangeRole = (r: string) => {
+  if (dualView.value && r !== 'original') dualView.value = false
   currentImageRole.value = r
   currentImageIndex.value = 0
   canvasState.annotations = []
@@ -687,7 +691,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
-  // 离开页面时清理 cornerstone 启用元素由 CoreRetinaStation 自身负责
+  releaseReadingViewports()
 })
 
 onActivated(() => {
@@ -712,7 +716,11 @@ watch(
   }
 )
 
+/** 双眼对比切换眼别时，不要走「换图即清空」 */
+let holdImageReset = false
+
 watch(currentImageIndex, () => {
+  if (holdImageReset || dualView.value) return
   // 切换影像时清空当前画布；可选择是否拉新草稿
   canvasState.annotations = []
   canvasState.measurements = []
@@ -773,6 +781,7 @@ watch(caseId, async (newId, oldId) => {
   sourceError.value = ''
   imageLoadError.value = false
   existingRecord.value = null
+  dualView.value = false
   currentImageIndex.value = 0
   // 重新拉取新病例
   if (recordId.value) {
@@ -806,6 +815,47 @@ const reloadCurrent = () => {
 
 /* ========== 质量门控（先质量后诊断） ========== */
 const qualityChecking = ref(false)
+const lesionSegLoading = ref(false)
+const lesionSegUrl = ref('')
+const lesionSegImage = ref('')
+const lesionSegHint = ref('')
+const lesionSegFor = (imageUrl: string) =>
+  lesionSegUrl.value && lesionSegImage.value === imageUrl ? lesionSegUrl.value : ''
+const runLesionSeg = async () => {
+  const imageUrl = currentImage.value
+  if (lesionSegUrl.value && lesionSegImage.value === imageUrl) {
+    lesionSegUrl.value = ''
+    lesionSegImage.value = ''
+    lesionSegHint.value = ''
+    return
+  }
+  const cid = source.value?.caseId ?? caseId.value
+  if (!cid || !imageUrl) {
+    lesionSegHint.value = '当前没有可分割的眼底原图'
+    return
+  }
+  lesionSegLoading.value = true
+  lesionSegHint.value = '正在分割出血、硬性渗出和软性渗出…'
+  try {
+    const r = await ReadingApi.segmentLesions(Number(cid), imageUrl)
+    if (!r?.available || !r.overlayUrl) {
+      lesionSegUrl.value = ''
+      lesionSegImage.value = ''
+      lesionSegHint.value = r?.message || '多病灶分割没有完成'
+      ElMessage.warning(lesionSegHint.value)
+      return
+    }
+    lesionSegImage.value = imageUrl
+    lesionSegUrl.value = r.overlayUrl
+    lesionSegHint.value = r.message || '分割结果已叠加'
+    ElMessage.success(lesionSegHint.value)
+  } catch (err: any) {
+    lesionSegHint.value = err?.message || '多病灶分割没有完成'
+    ElMessage.warning(lesionSegHint.value)
+  } finally {
+    lesionSegLoading.value = false
+  }
+}
 const runQualityCheck = async () => {
   const cid = source.value?.caseId ?? caseId.value
   if (!cid) return
@@ -884,6 +934,7 @@ const currentEyeLabel = computed(() => {
 const eyeHas = (code: 'OD' | 'OS') =>
   originalMetas.value.some((m) => m.eye === code || m.eye === 'OU')
 const selectEye = (code: 'OD' | 'OS') => {
+  if (dualView.value) return
   const metas = originalMetas.value
   const hit = metas.find((m) => m.eye === code) || metas.find((m) => m.eye === 'OU')
   if (!hit?.url) return
@@ -894,6 +945,225 @@ const selectEye = (code: 'OD' | 'OS') => {
   const idx = urls.findIndex((u) => u === hit.url)
   currentImageIndex.value = idx >= 0 ? idx : 0
 }
+
+type EyeSide = 'OD' | 'OS'
+interface EyeBoard {
+  imageIndex: number
+  imageUrl: string
+  annotations: AnnotationItem[]
+  measurements: AnnotationItem[]
+  viewport: ViewportState
+}
+
+const linkViewports = ref(true)
+const activeEye = ref<EyeSide>('OD')
+const dualSides: EyeSide[] = ['OD', 'OS']
+const eyeBoards = reactive<{ OD: EyeBoard | null; OS: EyeBoard | null }>({ OD: null, OS: null })
+const viewTools: ToolName[] = ['pan', 'zoom', 'wwwc']
+
+const freshViewport = (): ViewportState => ({
+  scale: 1,
+  x: 0,
+  y: 0,
+  ww: 255,
+  wl: 127,
+  invert: false
+})
+
+/** 必须是各自独立的原图。一张双眼图不能拆成左右对照。 */
+const dedicatedEye = (code: EyeSide) =>
+  originalMetas.value.find((m) => m.eye === code && !!m.url)
+const dualReady = computed(() => !!(dedicatedEye('OD') && dedicatedEye('OS')))
+
+const originalUrlList = () => {
+  const groups = source.value?.imageGroups || {}
+  const originals = (groups as any).original as string[] | undefined
+  if (originals?.length) return originals
+  return source.value?.images || []
+}
+
+const dicomIdFor = (url: string) => {
+  const hit = source.value?.dicomInstances?.[url]
+  if (!hit) return ''
+  return wadorsImageId(hit.studyInstanceUid, hit.seriesInstanceUid, hit.sopInstanceUid)
+}
+
+const cloneMarks = <T,>(rows: T[]) => JSON.parse(JSON.stringify(rows)) as T[]
+
+const loadEyeBoard = async (code: EyeSide): Promise<EyeBoard | null> => {
+  const meta = dedicatedEye(code)
+  if (!meta?.url) return null
+  const urls = originalUrlList()
+  const imageIndex = Math.max(0, urls.findIndex((url) => url === meta.url))
+  if (currentImage.value === meta.url) {
+    return {
+      imageIndex,
+      imageUrl: meta.url,
+      annotations: cloneMarks(canvasState.annotations),
+      measurements: cloneMarks(canvasState.measurements),
+      viewport: { ...canvasState.viewport }
+    }
+  }
+  let annotations: AnnotationItem[] = []
+  let measurements: AnnotationItem[] = []
+  let viewport = freshViewport()
+  if (caseId.value && !recordId.value) {
+    const draft = await ReadingApi.getLatestDraft(caseId.value, imageIndex)
+    if (draft) {
+      annotations = draft.annotations || []
+      measurements = draft.measurements || []
+      if (draft.viewport) viewport = { ...freshViewport(), ...draft.viewport }
+    }
+  }
+  return { imageIndex, imageUrl: meta.url, annotations, measurements, viewport }
+}
+
+const applyActiveBoard = (code: EyeSide) => {
+  const board = eyeBoards[code]
+  if (!board) return
+  holdImageReset = true
+  if (availableRoles.value.includes('original')) currentImageRole.value = 'original'
+  currentImageIndex.value = board.imageIndex
+  canvasState.annotations = cloneMarks(board.annotations)
+  canvasState.measurements = cloneMarks(board.measurements)
+  canvasState.viewport = { ...board.viewport }
+  canvasState.history = []
+  canvasState.redoStack = []
+  holdImageReset = false
+}
+
+const flushAutosave = async () => {
+  if (autosaveTimer) {
+    clearTimeout(autosaveTimer)
+    autosaveTimer = null
+  }
+  if (dirty) await doAutosave()
+}
+
+const openDual = async () => {
+  if (!canReview.value || !dualReady.value) return
+  const od = await loadEyeBoard('OD')
+  const os = await loadEyeBoard('OS')
+  if (!od || !os) return
+  eyeBoards.OD = od
+  eyeBoards.OS = os
+  activeEye.value = currentEyeCode.value === 'OS' ? 'OS' : 'OD'
+  applyActiveBoard(activeEye.value)
+  dualView.value = true
+}
+
+const closeDual = async () => {
+  await flushAutosave()
+  const board = eyeBoards[activeEye.value]
+  dualView.value = false
+  if (!board) return
+  holdImageReset = true
+  if (availableRoles.value.includes('original')) currentImageRole.value = 'original'
+  currentImageIndex.value = board.imageIndex
+  holdImageReset = false
+}
+
+const onDualToggle = async (on: boolean | string | number) => {
+  if (!canReview.value) return
+  if (on) {
+    if (!dualReady.value) {
+      ElMessage.info('当前病例仅采集了单眼影像，暂无法开启双眼对比')
+      return
+    }
+    await openDual()
+    return
+  }
+  await closeDual()
+}
+
+const focusEye = async (code: EyeSide) => {
+  if (!dualView.value || activeEye.value === code) return
+  await flushAutosave()
+  const prev = eyeBoards[activeEye.value]
+  if (prev) {
+    prev.annotations = cloneMarks(canvasState.annotations)
+    prev.measurements = cloneMarks(canvasState.measurements)
+    prev.viewport = { ...canvasState.viewport }
+  }
+  activeEye.value = code
+  applyActiveBoard(code)
+}
+
+const linkedPart = (v: ViewportState) => ({
+  scale: v.scale,
+  ww: v.ww,
+  wl: v.wl,
+  invert: v.invert
+})
+
+const sameLink = (a: ViewportState, b: ViewportState) =>
+  a.scale === b.scale && a.ww === b.ww && a.wl === b.wl && !!a.invert === !!b.invert
+
+const onEyeViewport = (code: EyeSide, v: ViewportState) => {
+  if (code === activeEye.value) canvasState.viewport = v
+  const board = eyeBoards[code]
+  if (board) board.viewport = { ...v }
+  if (!linkViewports.value || !dualView.value) return
+  ;(['OD', 'OS'] as const).forEach((side) => {
+    const item = eyeBoards[side]
+    if (!item || sameLink(item.viewport, v)) return
+    item.viewport = { ...item.viewport, ...linkedPart(v) }
+  })
+  if (!sameLink(canvasState.viewport, v)) {
+    canvasState.viewport = { ...canvasState.viewport, ...linkedPart(v) }
+  }
+}
+
+const onEyeAnnotations = (code: EyeSide, next: AnnotationItem[], meta?: { history?: boolean }) => {
+  if (code !== activeEye.value) return
+  onAnnotationsChange(next, meta)
+}
+
+const onEyeMeasurements = (code: EyeSide, next: AnnotationItem[]) => {
+  if (code !== activeEye.value) return
+  onMeasurementsChange(next)
+}
+
+const eyeTool = (code: EyeSide): ToolName => {
+  if (code === activeEye.value) return canvasState.tool
+  return viewTools.includes(canvasState.tool) ? canvasState.tool : 'pointer'
+}
+
+const eyeReadonly = (code: EyeSide) => {
+  const base = !canAnnotate.value || reviewMode.value || recordLocked.value
+  if (code !== activeEye.value && !viewTools.includes(canvasState.tool)) return true
+  return base
+}
+
+const bindActiveCanvas = (code: EyeSide, el: unknown) => {
+  if (activeEye.value === code) {
+    readingCanvasRef.value = el as InstanceType<typeof CoreRetinaStation> | null
+  }
+}
+
+type RetinaStation = InstanceType<typeof CoreRetinaStation> & {
+  releaseViewport?: (purgeCache?: boolean) => void
+}
+const eyeStationRefs: Record<EyeSide, RetinaStation | null> = { OD: null, OS: null }
+const bindEyeStation = (code: EyeSide, el: unknown) => {
+  eyeStationRefs[code] = (el as RetinaStation | null) || null
+  bindActiveCanvas(code, el)
+}
+const releaseReadingViewports = () => {
+  const stations = new Set<RetinaStation>()
+  if (eyeStationRefs.OD) stations.add(eyeStationRefs.OD)
+  if (eyeStationRefs.OS) stations.add(eyeStationRefs.OS)
+  if (readingCanvasRef.value) stations.add(readingCanvasRef.value as RetinaStation)
+  const list = [...stations]
+  list.forEach((station, index) => station.releaseViewport?.(index === list.length - 1))
+  eyeStationRefs.OD = null
+  eyeStationRefs.OS = null
+  readingCanvasRef.value = null
+}
+
+watch(dualReady, (ok) => {
+  if (!ok && dualView.value) closeDual()
+})
 
 const selectStripImage = (index: number) => {
   if (index < 0 || index >= currentRoleImages.value.length) return
@@ -963,7 +1233,7 @@ const openNote = () => {
 </script>
 
 <template>
-  <div class="reading-page">
+  <div class="reading-page" :class="{ 'is-teacher-tone': isTeacher || isAdmin }">
     <header class="page-header">
       <div class="header-left">
         <el-button :icon="Back" text @click="goBack">
@@ -1087,6 +1357,16 @@ const openNote = () => {
           {{ canReview ? '影像质控' : '质量评估' }}
         </el-button>
         <el-button
+          v-if="canReview && currentImage"
+          size="small"
+          type="primary"
+          plain
+          :loading="lesionSegLoading"
+          @click="runLesionSeg"
+        >
+          {{ lesionSegUrl && lesionSegImage === currentImage ? '关闭分割' : '多病灶分割' }}
+        </el-button>
+        <el-button
           size="small"
           :disabled="!source"
           @click="openNote"
@@ -1095,6 +1375,8 @@ const openNote = () => {
         </el-button>
       </div>
     </header>
+
+    <div v-if="canReview && lesionSegHint" class="lesion-seg-hint">{{ lesionSegHint }}</div>
 
     <div
       v-if="!canReview && existingRecord && existingRecord.status !== 'DRAFT'"
@@ -1168,6 +1450,7 @@ const openNote = () => {
       :current="currentImageMeta"
       :safety="(source as any).safety"
       :status-text="readingStatusText"
+      :buffer="isTeacher || isAdmin"
     />
 
     <!-- 患者信息栏 -->
@@ -1215,10 +1498,34 @@ const openNote = () => {
           </el-button>
         </span>
       </div>
-      <div class="pb-cell">
+      <div v-if="canReview" class="pb-cell">
+        <el-tooltip
+          :disabled="dualReady"
+          content="当前病例仅采集了单眼影像，暂无法开启双眼对比"
+          placement="bottom"
+        >
+          <span class="dual-switch" :class="{ 'is-locked': !dualReady }">
+            <el-switch
+              :model-value="dualView"
+              :disabled="!dualReady"
+              active-text="双眼并排"
+              inactive-text="单眼"
+              @change="onDualToggle"
+            />
+          </span>
+        </el-tooltip>
+        <el-switch
+          v-if="dualView"
+          v-model="linkViewports"
+          active-text="联动"
+          inactive-text="独立"
+          title="锁定后，缩放和窗宽窗位两边一起变"
+        />
+      </div>
+      <div class="pb-cell is-vital">
         <span class="pb-label">眼别</span>
         <span class="pb-value" :class="{ 'is-warn': currentEyeCode === 'UNKNOWN' }">
-          {{ currentEyeLabel }}
+          {{ dualView ? (activeEye === 'OD' ? '右眼标注中' : '左眼标注中') : currentEyeLabel }}
         </span>
       </div>
       <div v-if="source.patientPhone || source.phoneVisible !== false" class="pb-cell">
@@ -1280,7 +1587,7 @@ const openNote = () => {
           </span>
         </div>
 
-        <div v-if="!missingCaseId && source" class="eye-switch" aria-label="左右眼">
+        <div v-if="!missingCaseId && source && !dualView" class="eye-switch" aria-label="左右眼">
           <button
             type="button"
             class="eye-btn"
@@ -1344,31 +1651,75 @@ const openNote = () => {
             <el-button size="small" @click="goBack">返回病例库</el-button>
           </div>
         </div>
-        <CoreRetinaStation
-          :dicom-image-id="currentDicomImageId"
-          :segmentation="source?.segmentation || null"
-          v-else
-          :key="caseId"
-          ref="readingCanvasRef"
-          mode="reading"
-          :image-url="currentImage"
-          :tool="canvasState.tool"
-          :annotations="canvasState.annotations"
-          :measurements="canvasState.measurements"
-          :viewport="canvasState.viewport"
-          :layers="canvasState.layers"
-          :gold-annotations="(source?.goldAnnotations || []) as AnnotationItem[]"
-          :gold-overlay-url="source?.lesionMaskUrl || ''"
-          :heatmap-overlay-url="source?.heatmapUrl || ''"
-          :readonly="!canAnnotate || reviewMode || recordLocked"
-          :highlight-id="highlightId"
-          @update:annotations="onAnnotationsChange"
-          @pick-label="onPickLabel"
-          @update:measurements="onMeasurementsChange"
-          @update:viewport="(v) => (canvasState.viewport = v)"
-          @ready="onCanvasReady"
-          @error="onCanvasError"
-        />
+        <template v-else>
+          <div
+            v-if="canReview && dualView && eyeBoards.OD && eyeBoards.OS"
+            class="dual-stage"
+          >
+            <div
+              v-for="code in dualSides"
+              :key="code"
+              class="dual-pane"
+              :class="{ active: activeEye === code }"
+              @pointerdown="focusEye(code)"
+            >
+              <span class="dual-tag" :class="code === 'OD' ? 'is-od' : 'is-os'">
+                {{ code === 'OD' ? '右眼 (OD)' : '左眼 (OS)' }}
+              </span>
+              <CoreRetinaStation
+                mode="reading"
+                :ref="(el) => bindEyeStation(code, el)"
+                :dicom-image-id="dicomIdFor(eyeBoards[code].imageUrl)"
+                :segmentation="activeEye === code ? (source?.segmentation || null) : null"
+                :image-url="eyeBoards[code].imageUrl"
+                :laterality="code"
+                :tool="eyeTool(code)"
+                :annotations="activeEye === code ? canvasState.annotations : eyeBoards[code].annotations"
+                :measurements="activeEye === code ? canvasState.measurements : eyeBoards[code].measurements"
+                :viewport="activeEye === code ? canvasState.viewport : eyeBoards[code].viewport"
+                :layers="canvasState.layers"
+                :gold-annotations="activeEye === code ? ((source?.goldAnnotations || []) as AnnotationItem[]) : []"
+                :gold-overlay-url="activeEye === code ? (source?.lesionMaskUrl || '') : ''"
+                :heatmap-overlay-url="activeEye === code ? (source?.heatmapUrl || '') : ''"
+                :lesion-seg-url="lesionSegFor(eyeBoards[code].imageUrl)"
+                :readonly="eyeReadonly(code)"
+                :highlight-id="activeEye === code ? highlightId : ''"
+                @update:annotations="(v, meta) => onEyeAnnotations(code, v, meta)"
+                @pick-label="onPickLabel"
+                @update:measurements="(v) => onEyeMeasurements(code, v)"
+                @update:viewport="(v) => onEyeViewport(code, v)"
+                @ready="onCanvasReady"
+                @error="onCanvasError"
+              />
+            </div>
+          </div>
+          <CoreRetinaStation
+            v-else
+            :dicom-image-id="currentDicomImageId"
+            :segmentation="source?.segmentation || null"
+            :key="caseId"
+            ref="readingCanvasRef"
+            mode="reading"
+            :image-url="currentImage"
+            :tool="canvasState.tool"
+            :annotations="canvasState.annotations"
+            :measurements="canvasState.measurements"
+            :viewport="canvasState.viewport"
+            :layers="canvasState.layers"
+            :gold-annotations="(source?.goldAnnotations || []) as AnnotationItem[]"
+            :gold-overlay-url="source?.lesionMaskUrl || ''"
+            :heatmap-overlay-url="source?.heatmapUrl || ''"
+            :lesion-seg-url="lesionSegFor(currentImage)"
+            :readonly="!canAnnotate || reviewMode || recordLocked"
+            :highlight-id="highlightId"
+            @update:annotations="onAnnotationsChange"
+            @pick-label="onPickLabel"
+            @update:measurements="onMeasurementsChange"
+            @update:viewport="(v) => (canvasState.viewport = v)"
+            @ready="onCanvasReady"
+            @error="onCanvasError"
+          />
+        </template>
 
         <!-- 影像加载失败提示（cornerstone 加载阶段失败） -->
         <div v-if="imageLoadError && source && currentRoleImages.length > 0" class="img-err-tip">
@@ -1377,7 +1728,7 @@ const openNote = () => {
         </div>
 
         <!-- 多图切换条（当前 role 内多张时） -->
-        <div v-if="source && currentRoleImages.length > 1" class="image-strip">
+        <div v-if="source && !dualView && currentRoleImages.length > 1" class="image-strip">
           <div
             v-for="(img, i) in currentRoleImages"
             :key="i"
@@ -1473,6 +1824,29 @@ const openNote = () => {
   flex-direction: column;
   background: #0f1014;
   color: #e5e6eb;
+}
+.reading-page.is-teacher-tone .page-header,
+.reading-page.is-teacher-tone .patient-bar {
+  background: #314056;
+  border-bottom-color: #3d4d63;
+}
+.reading-page.is-teacher-tone .pb-cell.is-vital .pb-label,
+.reading-page.is-teacher-tone .pb-cell.is-vital .pb-value,
+.reading-page.is-teacher-tone .eye-now {
+  font-size: 15px;
+  font-weight: 700;
+}
+.reading-page.is-teacher-tone .case-select :deep(.el-select__selected-item) {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.lesion-seg-hint {
+  padding: 6px 16px;
+  background: #3a3324;
+  color: #f6d98a;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .page-header {
@@ -1601,6 +1975,12 @@ const openNote = () => {
   align-items: center;
   gap: 6px;
 }
+.patient-bar :deep(.el-switch__label) {
+  color: #c5cad3;
+}
+.patient-bar :deep(.el-switch__label.is-active) {
+  color: #8eb7ff;
+}
 .pb-label {
   color: #d5dae3;
   font-size: 13px;
@@ -1642,6 +2022,60 @@ const openNote = () => {
 .eye-now {
   color: #f2f4f8;
   font-size: 13px;
+}
+.dual-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.dual-switch.is-locked {
+  cursor: not-allowed;
+}
+.dual-switch.is-locked :deep(.el-switch) {
+  pointer-events: none;
+}
+.dual-stage {
+  flex: 1;
+  align-self: stretch;
+  width: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 8px;
+  box-sizing: border-box;
+}
+.dual-pane {
+  position: relative;
+  min-width: 0;
+  min-height: 280px;
+  height: 100%;
+  border: 2px solid #2a3344;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.dual-pane.active {
+  border-color: #8eb7ff;
+}
+.dual-tag {
+  position: absolute;
+  z-index: 5;
+  top: 10px;
+  left: 10px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+.dual-tag.is-od {
+  background: #1677ff;
+}
+.dual-tag.is-os {
+  background: #00b42a;
 }
 .pb-value.mono {
   font-family: 'Consolas', 'Monaco', monospace;

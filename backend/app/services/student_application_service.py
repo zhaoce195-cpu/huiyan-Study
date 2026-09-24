@@ -13,7 +13,7 @@ from sqlalchemy import desc, or_
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
-from app.db.models import Role, User, MessageTypeEnum
+from app.db.models import Department, Role, User, MessageTypeEnum
 from app.db.models.student_application import StudentApplication, StudentAppStatusEnum
 from app.db.models.user import RoleEnum, UserTypeEnum
 from app.schemas.student_application import (
@@ -216,12 +216,27 @@ class StudentApplicationService:
             username = app.phone
             if db.query(User).filter(User.username == username).first():
                 username = f"s{app.phone}"
+            dept_name = (app.department or "").strip()
+            dept_id = None
+            if dept_name:
+                matched = (
+                    db.query(Department)
+                    .filter(
+                        Department.hospital_id.is_(None),
+                        Department.is_active.is_(True),
+                        Department.name == dept_name,
+                    )
+                    .all()
+                )
+                if len(matched) == 1:
+                    dept_id = matched[0].id
             user = User(
                 username=username,
                 password_hash=hash_password(temp),
                 real_name=app.real_name,
                 phone=app.phone,
-                department=app.department or "",
+                department=dept_name,
+                department_id=dept_id,
                 role_id=role.id,
                 user_type=UserTypeEnum.STUDENT.value,
                 is_active=True,

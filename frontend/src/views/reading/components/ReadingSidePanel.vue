@@ -9,6 +9,8 @@ import type {
 } from '../types'
 import { markCaption } from '../types'
 import type { ReadingApi } from '@/api'
+import ReviewPresetChips from './ReviewPresetChips.vue'
+import { EXCELLENT_PASS_COMMENT, appendReviewComment } from '../review-presets'
 
 type ReadingRecord = ReadingApi.ReadingRecord
 
@@ -72,6 +74,17 @@ const onReview = (accept: boolean) => {
     return
   }
   emit('review', accept, reviewComment.value)
+}
+
+const addPreset = (phrase: string) => {
+  if (props.reviewLoading) return
+  reviewComment.value = appendReviewComment(reviewComment.value, phrase)
+}
+
+const passAsExcellent = () => {
+  if (props.reviewLoading) return
+  reviewComment.value = EXCELLENT_PASS_COMMENT
+  onReview(true)
 }
 </script>
 
@@ -308,9 +321,24 @@ const onReview = (accept: boolean) => {
         v-model="reviewComment"
         type="textarea"
         :rows="3"
-        placeholder="审核意见（驳回必填）"
+        placeholder="审核意见（驳回必填，也可点下方短语）"
         size="small"
       />
+      <ReviewPresetChips
+        tone="dark"
+        :disabled="reviewLoading"
+        @pick="addPreset"
+      />
+      <el-button
+        class="excellent-btn"
+        type="success"
+        size="small"
+        plain
+        :loading="reviewLoading"
+        @click="passAsExcellent"
+      >
+        标为优秀并通过
+      </el-button>
       <div class="review-btns">
         <el-button
           type="success"
@@ -453,6 +481,10 @@ const onReview = (accept: boolean) => {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+  margin-top: 10px;
+}
+.excellent-btn {
+  width: 100%;
   margin-top: 10px;
 }
 

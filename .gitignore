@@ -14,6 +14,8 @@ __pycache__/
 
 # ---- 运行时数据 / 上传内容（体积大、非源码）----
 backend/app/static/
+# 多病灶分割权重约 105MB，从压缩包解出，不进仓库
+backend/data/multi_lesions/*.pth
 *.db
 *.sqlite3
 *.log
@@ -48,4 +50,5 @@ backend/app/static/dicom/
 .claude/
 .pytest_cache/
 *.tar.gz
+_tmp_feedback/
 

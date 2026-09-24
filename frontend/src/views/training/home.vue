@@ -2,11 +2,12 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { PracticeApi, RotationApi } from '@/api'
+import { PracticeApi, ReadingApi, RotationApi } from '@/api'
 import type { GroupSummary, RotationTask, StudentHome, StudentProgress, TeacherHome } from '@/api/rotation'
 import type { PracticeRecord, PracticeStats } from '@/api/practice'
 import { useUserStore } from '@/stores/user'
 import { actorLabel } from '@/utils/actor'
+import ReadingQualityPanel from '@/views/reading/components/ReadingQualityPanel.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -30,6 +31,8 @@ const titleDraft = ref('')
 const yearFilter = ref('')
 const batchFilter = ref('')
 const mentorFilter = ref('')
+const activeTeacherTab = ref('monitor')
+const pendingReviewCount = ref(0)
 const groupDraft = ref({ studyYear: '', rotationBatch: '', mentorGroup: '' })
 const savingGroup = ref(false)
 
@@ -59,9 +62,23 @@ const loadOptions = async () => {
   resourceOptions.value = data.resources || []
 }
 
+const loadPendingReviews = async () => {
+  if (!isTeacher.value) return
+  try {
+    const page = await ReadingApi.getReadingList({
+      status: 'SUBMITTED',
+      page: 1,
+      pageSize: 1
+    })
+    pendingReviewCount.value = Number(page?.total) || 0
+  } catch {
+    pendingReviewCount.value = 0
+  }
+}
+
 onMounted(async () => {
   await load()
-  await loadOptions()
+  await Promise.all([loadOptions(), loadPendingReviews()])
 })
 
 const startCase = async (task: RotationTask) => {
@@ -437,39 +454,37 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
     </template>
 
     <template v-else-if="teacher">
+      <div class="teacher-board">
       <header class="page-head">
         <div>
           <h2>学员情况</h2>
-          <p>全班的练习次数、完成病例、平均成绩和学时。点开学员可看每次交卷、漏诊误诊和评语。</p>
+          <p>先看全班概况，再按页签处理学情、布置和待批改。</p>
         </div>
         <el-button type="primary" @click="router.push('/training/class')">管理班级</el-button>
       </header>
 
-      <section id="students" class="block students-entry">
-        <div class="stats class-stats">
-          <article>
-            <span>学员人数</span>
-            <strong>{{ classSummary.students }}</strong>
-            <span>已交卷 {{ classSummary.practiced }} 人</span>
-          </article>
-          <article>
-            <span>练习次数</span>
-            <strong>{{ classSummary.practice }}</strong>
-          </article>
-          <article>
-            <span>完成病例</span>
-            <strong>{{ classSummary.cases }}</strong>
-          </article>
-          <article>
-            <span>平均成绩</span>
-            <strong>{{ classSummary.avg.toFixed(1) }}</strong>
-          </article>
-          <article>
-            <span>学时</span>
-            <strong>{{ formatMinutes(classSummary.seconds) }}</strong>
-          </article>
-        </div>
+      <section class="teacher-metrics" aria-label="全班核心指标">
+        <article>
+          <span>学员数</span>
+          <strong>{{ classSummary.students }}</strong>
+          <span>已交卷 {{ classSummary.practiced }} 人</span>
+        </article>
+        <article>
+          <span>练习次数</span>
+          <strong>{{ classSummary.practice }}</strong>
+        </article>
+        <article>
+          <span>平均分</span>
+          <strong>{{ classSummary.avg.toFixed(1) }}</strong>
+        </article>
+        <article>
+          <span>学时</span>
+          <strong>{{ formatMinutes(classSummary.seconds) }}</strong>
+        </article>
+      </section>
 
+      <el-tabs v-model="activeTeacherTab" type="border-card" class="teacher-tabs">
+        <el-tab-pane label="学情监控与督学" name="monitor">
         <h3 class="subhead">按组查看</h3>
         <p class="lead">按年级、轮转批次和带教组分别看完成情况和常见漏诊、误诊。还没填写的学员先算在「未分组」。</p>
         <div class="assign">
@@ -491,7 +506,7 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
           </article>
         </div>
 
-        <h3 class="subhead">学员名单</h3>
+        <h3 class="subhead">学员进度</h3>
         <el-table :data="filteredStudents" empty-text="这一组还没有学员">
           <el-table-column type="expand">
             <template #default="{ row }">
@@ -537,8 +552,10 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
             </template>
           </el-table-column>
         </el-table>
-      </section>
+        </el-tab-pane>
 
+        <el-tab-pane label="任务与病例布置" name="assign">
+      <h3 class="subhead">轮转要求</h3>
       <section v-if="teacher.rotation" class="stats">
         <article>
           <span>轮转</span>
@@ -636,6 +653,15 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
           </el-table-column>
         </el-table>
       </section>
+        </el-tab-pane>
+
+        <el-tab-pane label="待审概况" name="review" lazy>
+          <p class="review-guide">
+            当前有 {{ pendingReviewCount }} 份作业待评定。点击可就地审阅，或点击侧栏「作业审核与质控」进行全屏深度判读。
+          </p>
+          <ReadingQualityPanel />
+        </el-tab-pane>
+      </el-tabs>
 
       <el-drawer v-model="drawerOpen" :title="focusStudent ? `${focusStudent.name}的学情` : '学情'" size="720px">
         <div v-loading="detailLoading">
@@ -733,6 +759,7 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
           </section>
         </div>
       </el-drawer>
+      </div>
     </template>
   </div>
 </template>
@@ -866,8 +893,8 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
   gap: 12px;
 }
 .group-grid article {
-  background: #fff;
-  border: 1px solid #e5e6eb;
+  background: #f7f9fb;
+  border: 1px solid #d5dee8;
   border-radius: 12px;
   padding: 14px 16px;
 }
@@ -880,7 +907,67 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
   font-size: 13px;
   line-height: 1.5;
 }
+.teacher-board {
+  background: #eef2f6;
+  border: 1px solid #d5dee8;
+  border-radius: 16px;
+  padding: 20px 22px 24px;
+}
+.teacher-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 16px 0 18px;
+}
+.teacher-metrics article {
+  background: #f7f9fb;
+  border: 1px solid #d5dee8;
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.teacher-metrics span {
+  color: #4e5969;
+  font-size: 13px;
+}
+.teacher-metrics strong {
+  font-size: 22px;
+  color: #1d2129;
+}
+.review-guide {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  background: #f7f9fb;
+  border: 1px solid #dfe3ea;
+  border-radius: 8px;
+  color: #1d2129;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.teacher-board :deep(.el-tabs--border-card) {
+  background: #eef2f6;
+  border-color: #d5dee8;
+  box-shadow: none;
+}
+.teacher-board :deep(.el-tabs--border-card > .el-tabs__header) {
+  background: #e4eaf1;
+  border-bottom-color: #d5dee8;
+}
+.teacher-board :deep(.el-tabs--border-card > .el-tabs__content) {
+  background: #eef2f6;
+}
+.teacher-board :deep(.el-table),
+.teacher-board :deep(.el-table tr),
+.teacher-board :deep(.el-table th.el-table__cell),
+.teacher-board :deep(.el-table td.el-table__cell) {
+  background: #f7f9fb;
+}
 @media (max-width: 800px) {
+  .teacher-metrics {
+    grid-template-columns: 1fr 1fr;
+  }
   .stats {
     grid-template-columns: 1fr;
   }

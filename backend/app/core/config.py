@@ -131,6 +131,11 @@ class Settings(BaseSettings):
     # 推理结果中的 base64 图（heatmap/overlay）落盘到 /static/csu/
     CSU_EYES_RESULT_SUBDIR: str = "csu"
 
+    # 多病灶分割（VM-UNet，出血 / 硬性渗出 / 软性渗出）。
+    # 空字符串时依次找 backend/data/multi_lesions/best_mdice.pth
+    # 和 D:/huiyan/multi_lesions_seg/weights/best_mdice.pth。
+    MULTI_LESION_WEIGHTS: str = ""
+
     # ---------- Orthanc / DICOMweb ----------
     # LTI 1.3：平台要按固定地址回调（redirect_uri 必须与注册时一致），
     # 不能靠请求头推断。反向代理后面 request.base_url 拿到的是内网地址，

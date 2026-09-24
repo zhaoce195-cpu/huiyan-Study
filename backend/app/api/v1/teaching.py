@@ -68,13 +68,13 @@ def my_shares(
     db: DbSession,
     user: CurrentUser,
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    share_type: Optional[str] = Query(None),
+    pageSize: int = Query(20, ge=1, le=100),
+    shareType: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
 ):
     r = TeachingService.list_for_teacher(
-        db, user=user, page=page, page_size=page_size,
-        share_type=share_type, status_filter=status,
+        db, user=user, page=page, page_size=pageSize,
+        share_type=shareType, status_filter=status,
     )
     return success(data=r.model_dump(by_alias=True))
 
@@ -90,9 +90,9 @@ def student_cases(
     db: DbSession,
     user: CurrentUser,
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    pageSize: int = Query(20, ge=1, le=100),
 ):
-    r = TeachingService.list_for_student(db, user=user, page=page, page_size=page_size)
+    r = TeachingService.list_for_student(db, user=user, page=page, page_size=pageSize)
     return success(data=r.model_dump(by_alias=True))
 
 
@@ -106,12 +106,12 @@ def student_case_detail(share_id: int = Path(...), db: DbSession = None, user: C
 def admin_reviews(
     db: DbSession,
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    pageSize: int = Query(20, ge=1, le=100),
     status: Optional[str] = Query(None),
     keyword: Optional[str] = Query(None),
 ):
     r = TeachingService.list_for_admin(
-        db, page=page, page_size=page_size,
+        db, page=page, page_size=pageSize,
         status_filter=status, keyword=keyword,
     )
     return success(data=r.model_dump(by_alias=True))

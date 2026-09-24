@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import {
@@ -25,9 +25,21 @@ import {
 import { useUserStore } from '@/stores/user'
 import { useLogout } from '@/composables/useLogout'
 import { triggerLoginNoticePopup } from '@/utils/login-notice'
+import { ReadingApi } from '@/api'
 
 const router = useRouter()
 const route = useRoute()
+
+/** 只有进出阅片工作站时淡入淡出，其它页面切换保持即时。 */
+const softenReading = ref(route.path.includes('/reading'))
+const readingEdge = (path: string) => path.includes('/reading')
+const stopReadingGuard = router.beforeEach((to, from) => {
+  softenReading.value = readingEdge(to.path) || readingEdge(from.path)
+})
+const settleReadingFade = () => {
+  softenReading.value = readingEdge(route.path)
+}
+onBeforeUnmount(stopReadingGuard)
 const userStore = useUserStore()
 const { logout } = useLogout()
 
@@ -36,6 +48,25 @@ const userInfo = computed(() => userStore.userInfo)
 const displayName = computed(() => userStore.displayName)
 const isAdmin = computed(() => userStore.isAdmin)
 const roleName = computed(() => userStore.roleName)
+const isTeacher = computed(() => userStore.isAdmin || userStore.isDoctor)
+const isStudent = computed(() => userStore.isTrainee)
+
+/** 教师/管理员待批改数。学员不请求、不展示。 */
+const pendingReviewCount = ref(0)
+
+const loadPendingReviews = async () => {
+  if (!isTeacher.value) return
+  try {
+    const page = await ReadingApi.getReadingList({
+      status: 'SUBMITTED',
+      page: 1,
+      pageSize: 1
+    })
+    pendingReviewCount.value = Number(page?.total) || 0
+  } catch {
+    pendingReviewCount.value = 0
+  }
+}
 
 onMounted(() => {
   // 入端口先校验：patient 不允许进入培训端
@@ -45,6 +76,7 @@ onMounted(() => {
     return
   }
   userStore.fetchProfile()
+  loadPendingReviews()
   window.setTimeout(() => triggerLoginNoticePopup(), 200)
 })
 
@@ -55,7 +87,12 @@ const collapsed = ref(false)
 const activeMenu = computed(() => {
   // 阅片工作站可能带 caseId 等参数，用 path 即可命中前缀
   if (route.path.startsWith('/training/home')) return '/training/home'
-  if (route.path.startsWith('/training/reading')) return '/training/reading'
+  if (route.path.startsWith('/training/reading')) {
+    if (isTeacher.value && String(route.query.tab || '') === 'quality') {
+      return '/training/reading?tab=quality'
+    }
+    return '/training/reading'
+  }
   if (route.path.startsWith('/training/practice')) return '/training/practice'
   if (route.path.startsWith('/training/learning')) return '/training/learning'
   if (route.path.startsWith('/training/cases')) return '/training/cases'
@@ -71,9 +108,6 @@ const activeMenu = computed(() => {
   return route.path
 })
 
-const isTeacher = computed(() => userStore.isAdmin || userStore.isDoctor)
-const isStudent = computed(() => userStore.isTrainee)
-
 /* ========== 角色徽标（老师/学生一眼可辨） ========== */
 const roleBadge = computed(() => {
   if (userStore.isAdmin) return { text: '管理员', cls: 'badge-admin' }
@@ -84,12 +118,12 @@ const roleBadge = computed(() => {
 </script>
 
 <template>
-  <el-container class="portal" :class="{ collapsed }">
+  <el-container class="portal" :class="{ collapsed, 'tone-slate': isTeacher }">
     <!-- 侧边栏：固定高度，不随页面滚动 -->
     <el-aside class="portal-aside" :width="collapsed ? '64px' : '240px'">
       <div class="aside-brand">
         <svg viewBox="0 0 48 48" width="32" height="32">
-          <circle cx="24" cy="24" r="22" fill="#2563eb" opacity="0.12" />
+          <circle cx="24" cy="24" r="22" fill="#2563eb" opacity="0.28" />
           <circle cx="24" cy="24" r="14" fill="none" stroke="#2563eb" stroke-width="2.5" />
           <circle cx="24" cy="24" r="6" fill="#2563eb" />
           <circle cx="24" cy="24" r="2.5" fill="#fff" />
@@ -105,9 +139,10 @@ const roleBadge = computed(() => {
 
       <el-menu
         class="aside-menu"
-        background-color="transparent"
-        text-color="var(--ap-text-2)"
-        active-text-color="var(--ap-accent)"
+        popper-class="portal-aside-popper"
+        background-color="#14171f"
+        text-color="#c4cad4"
+        active-text-color="#ffffff"
         :default-active="activeMenu"
         :default-openeds="['teacher-teaching', 'study-personal']"
         :collapse="collapsed"
@@ -118,6 +153,51 @@ const roleBadge = computed(() => {
           <el-icon><home-filled /></el-icon>
           <template #title>{{ isStudent ? '今日学习' : '学员情况' }}</template>
         </el-menu-item>
+
+        <!-- 教师端 · 教学：前置。学员不渲染这一组。 -->
+        <el-sub-menu v-if="isTeacher" index="teacher-teaching">
+          <template #title>
+            <el-icon><notebook /></el-icon>
+            <span>教师 · 教学</span>
+          </template>
+          <el-menu-item index="/training/reading?tab=quality">
+            <el-icon><tickets /></el-icon>
+            <template #title>
+              <span class="review-menu-title">
+                作业审核与质控
+                <el-badge
+                  v-if="pendingReviewCount > 0"
+                  :value="pendingReviewCount"
+                  :max="99"
+                  class="review-menu-badge"
+                />
+              </span>
+            </template>
+          </el-menu-item>
+          <el-menu-item index="/training/class">
+            <el-icon><user /></el-icon>
+            <template #title>班级学生</template>
+          </el-menu-item>
+          <el-menu-item index="/training/exams">
+            <el-icon><notebook /></el-icon>
+            <template #title>正式考试</template>
+          </el-menu-item>
+          <el-menu-item index="/training/teaching-share">
+            <el-icon><share /></el-icon>
+            <template #title>我的教学分享</template>
+          </el-menu-item>
+          <el-menu-item index="/training/ai-builder">
+            <el-icon><magic-stick /></el-icon>
+            <template #title>AI 智能建案</template>
+          </el-menu-item>
+          <el-menu-item
+            v-if="userStore.canAccessScreening"
+            index="/screening"
+          >
+            <el-icon><upload /></el-icon>
+            <template #title>AI 批量筛查</template>
+          </el-menu-item>
+        </el-sub-menu>
 
         <!-- 病例与阅片（通用） -->
         <el-menu-item-group :title="isStudent ? '病例' : '病例与阅片'">
@@ -146,37 +226,6 @@ const roleBadge = computed(() => {
             <template #title>教师评定</template>
           </el-menu-item>
         </el-menu-item-group>
-
-        <!-- 教师端 · 教学 -->
-        <el-sub-menu v-if="isTeacher" index="teacher-teaching">
-          <template #title>
-            <el-icon><notebook /></el-icon>
-            <span>教师 · 教学</span>
-          </template>
-          <el-menu-item index="/training/class">
-            <el-icon><user /></el-icon>
-            <template #title>班级学生</template>
-          </el-menu-item>
-          <el-menu-item index="/training/exams">
-            <el-icon><notebook /></el-icon>
-            <template #title>正式考试</template>
-          </el-menu-item>
-          <el-menu-item index="/training/teaching-share">
-            <el-icon><share /></el-icon>
-            <template #title>我的教学分享</template>
-          </el-menu-item>
-          <el-menu-item index="/training/ai-builder">
-            <el-icon><magic-stick /></el-icon>
-            <template #title>AI 智能建案</template>
-          </el-menu-item>
-          <el-menu-item
-            v-if="userStore.canAccessScreening"
-            index="/screening"
-          >
-            <el-icon><upload /></el-icon>
-            <template #title>AI 批量筛查</template>
-          </el-menu-item>
-        </el-sub-menu>
 
         <!-- 管理员 · 平台管理 -->
         <el-menu-item-group v-if="isAdmin" title="管理员">
@@ -214,7 +263,7 @@ const roleBadge = computed(() => {
             <el-avatar
               :size="34"
               :src="userInfo.avatar"
-              style="background:rgba(37,99,235,0.12);color:#2563eb;font-size:14px;flex-shrink:0"
+              style="background:rgba(22,119,255,0.22);color:#ffffff;font-size:14px;flex-shrink:0"
             >
               {{ displayName.charAt(0) }}
             </el-avatar>
@@ -253,9 +302,16 @@ const roleBadge = computed(() => {
 
     <el-main class="portal-main">
       <router-view v-slot="{ Component }">
-        <keep-alive :exclude="['Reading', 'PracticeWorkstation']">
-          <component :is="Component" />
-        </keep-alive>
+        <transition
+          :name="softenReading ? 'reading-fade' : undefined"
+          :css="softenReading"
+          mode="out-in"
+          @after-enter="settleReadingFade"
+        >
+          <keep-alive :exclude="['Reading', 'PracticeWorkstation']">
+            <component :is="Component" />
+          </keep-alive>
+        </transition>
       </router-view>
     </el-main>
   </el-container>
@@ -271,15 +327,15 @@ const roleBadge = computed(() => {
   color: var(--ap-text);
 }
 
-/* ========== 侧边栏：毛玻璃 + 发丝线 ========== */
+/* ========== 侧边栏：暗岩底，文字颜色写死，不跟主题变量走 ========== */
 .portal-aside {
   height: 100%;
   max-height: 100%;
   overflow: hidden;
-  background: var(--ap-glass);
-  backdrop-filter: blur(var(--ap-blur)) saturate(180%);
-  -webkit-backdrop-filter: blur(var(--ap-blur)) saturate(180%);
-  border-right: 1px solid var(--ap-hairline);
+  background: #14171f !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
   display: flex;
   flex-direction: column;
   padding: 0;
@@ -301,7 +357,7 @@ const roleBadge = computed(() => {
 .brand-name {
   font-size: 15px;
   font-weight: 600;
-  color: var(--ap-text);
+  color: #ffffff;
   letter-spacing: 0;
   white-space: nowrap;
   display: flex;
@@ -336,7 +392,7 @@ const roleBadge = computed(() => {
 }
 .brand-sub {
   font-size: 11px;
-  color: var(--ap-text-2);
+  color: #8f95a3;
   letter-spacing: 2.5px;
   margin-top: 3px;
   font-weight: 500;
@@ -354,9 +410,17 @@ const roleBadge = computed(() => {
   overflow-x: hidden;
   border-right: 0;
   padding: 6px 0 12px;
-  background: transparent;
+  background: #14171f !important;
+  --el-menu-bg-color: #14171f;
+  --el-menu-text-color: #c4cad4;
+  --el-menu-active-color: #ffffff;
+  --el-menu-hover-bg-color: rgba(255, 255, 255, 0.08);
+  --el-menu-hover-text-color: #ffffff;
 }
-/* 分组标题：Apple 分区头 */
+.aside-menu :deep(.el-menu) {
+  background: #14171f !important;
+}
+/* 分组标题：教师 · 教学、学习与个人、管理员 */
 .aside-menu :deep(.el-sub-menu__title) {
   margin: 8px 10px 2px;
   padding-left: 14px !important;
@@ -366,18 +430,34 @@ const roleBadge = computed(() => {
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 1.2px;
-  color: var(--ap-text-2);
+  color: #7b8392 !important;
+  background: transparent !important;
+}
+.aside-menu :deep(.el-sub-menu__title .el-icon),
+.aside-menu :deep(.el-sub-menu__icon-arrow) {
+  color: #9aa1af !important;
 }
 .aside-menu :deep(.el-sub-menu__title:hover) {
-  background: var(--ap-fill);
-  color: var(--ap-text);
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #ffffff !important;
+}
+.aside-menu :deep(.el-sub-menu__title:hover .el-icon),
+.aside-menu :deep(.el-sub-menu__title:hover .el-sub-menu__icon-arrow) {
+  color: #ffffff !important;
+}
+.aside-menu :deep(.el-sub-menu.is-active > .el-sub-menu__title) {
+  background: transparent !important;
+  color: #7b8392 !important;
+}
+.aside-menu :deep(.el-sub-menu.is-active > .el-sub-menu__title .el-icon) {
+  color: #9aa1af !important;
 }
 .aside-menu :deep(.el-menu-item-group__title) {
   padding: 16px 20px 6px;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 1.2px;
-  color: var(--ap-text-2);
+  color: #7b8392 !important;
 }
 /* 收起时：隐藏分组标题 + 图标水平居中 */
 .aside-menu.el-menu--collapse :deep(.el-menu-item-group__title) {
@@ -406,38 +486,69 @@ const roleBadge = computed(() => {
   height: 42px;
   line-height: 42px;
   font-size: calc(14px * var(--hy-font-scale, 1));
-  color: var(--ap-text);
+  color: #c4cad4 !important;
+  background: transparent !important;
   overflow: hidden;
   text-overflow: ellipsis;
   transition: background 0.2s var(--ap-ease), color 0.2s var(--ap-ease);
 }
 .aside-menu :deep(.el-menu-item .el-icon) {
-  color: var(--ap-text-2);
+  color: #9aa1af !important;
   transition: color 0.2s var(--ap-ease);
 }
 .aside-menu :deep(.el-menu-item:hover) {
-  background: var(--ap-fill);
-  color: var(--ap-text);
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #ffffff !important;
 }
 .aside-menu :deep(.el-menu-item:hover .el-icon) {
-  color: var(--ap-text);
+  color: #ffffff !important;
 }
-.aside-menu :deep(.el-menu-item.is-active) {
-  background: var(--ap-accent-soft);
-  color: var(--ap-accent) !important;
+.aside-menu :deep(.el-menu-item.is-active),
+.aside-menu :deep(.el-menu-item.is-active:hover) {
+  background: #1677ff !important;
+  color: #ffffff !important;
   font-weight: 600;
 }
-.aside-menu :deep(.el-menu-item.is-active .el-icon) {
-  color: var(--ap-accent);
+.aside-menu :deep(.el-menu-item.is-active .el-icon),
+.aside-menu :deep(.el-menu-item.is-active:hover .el-icon) {
+  color: #ffffff !important;
 }
 .aside-menu :deep(.el-sub-menu .el-menu-item) {
   padding-left: 36px !important;
+}
+.review-menu-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  line-height: 1;
+}
+.review-menu-badge {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.review-menu-badge :deep(.el-badge__content) {
+  position: static;
+  transform: none;
+  top: auto;
+  border: none;
+  box-shadow: none;
+  height: 16px;
+  min-width: 16px;
+  line-height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  background: #f53f3f !important;
+  color: #ffffff !important;
 }
 
 /* ========== 侧边栏底部：用户（系统管理员）+ 收起 ========== */
 .aside-footer {
   flex-shrink: 0;
-  border-top: 1px solid var(--ap-hairline);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
   padding: 10px;
   display: flex;
   align-items: center;
@@ -455,7 +566,7 @@ const roleBadge = computed(() => {
   transition: background 0.2s var(--ap-ease);
 }
 .aside-user:hover {
-  background: var(--ap-fill);
+  background: rgba(255, 255, 255, 0.08);
 }
 .aside-user.is-collapsed {
   justify-content: center;
@@ -468,21 +579,21 @@ const roleBadge = computed(() => {
 .au-name {
   font-size: calc(13px * var(--hy-font-scale, 1));
   font-weight: 600;
-  color: var(--ap-text);
+  color: #e5e8ef;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .au-role {
   font-size: calc(12px * var(--hy-font-scale, 1));
-  color: var(--ap-text-2);
+  color: #8f95a3;
   margin-top: 1px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .au-more {
-  color: var(--ap-text-2);
+  color: #8f95a3;
   font-size: 15px;
   flex-shrink: 0;
 }
@@ -495,14 +606,14 @@ const roleBadge = computed(() => {
   flex-shrink: 0;
   border: none;
   background: transparent;
-  color: var(--ap-text-2);
+  color: #9aa1af;
   border-radius: 9px;
   cursor: pointer;
   transition: background 0.2s var(--ap-ease), color 0.2s var(--ap-ease);
 }
 .collapse-btn:hover {
-  background: var(--ap-fill);
-  color: var(--ap-text);
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
 }
 .portal.collapsed .aside-footer {
   flex-direction: column;
@@ -517,8 +628,16 @@ const roleBadge = computed(() => {
   overflow-y: auto;
   overflow-x: hidden;
   padding: 0;
-  /* 内容区浅色（深色侧边栏 + 浅色内容 的搭配）；具体页面自带背景覆盖 */
-  background: var(--ap-l-bg);
+  /* 低眩光冷灰。页面里的白卡片叠在这层灰上，避免整屏纯白。 */
+  background: #eaedf2;
+}
+.reading-fade-enter-active,
+.reading-fade-leave-active {
+  transition: opacity 0.18s ease-in-out;
+}
+.reading-fade-enter-from,
+.reading-fade-leave-to {
+  opacity: 0;
 }
 .portal-main :deep(> *) {
   min-height: 100% !important;
@@ -539,14 +658,46 @@ const roleBadge = computed(() => {
   background: rgba(15, 23, 42, 0.28);
 }
 .aside-menu::-webkit-scrollbar-thumb {
-  background: var(--ap-hairline-strong);
+  background: rgba(255, 255, 255, 0.16);
   border-radius: 4px;
 }
 .aside-menu::-webkit-scrollbar-thumb:hover {
-  background: var(--ap-text-3);
+  background: rgba(255, 255, 255, 0.28);
 }
 .portal-main::-webkit-scrollbar-track,
 .aside-menu::-webkit-scrollbar-track {
   background: transparent;
+}
+
+</style>
+
+<style>
+/* 收起后弹出的子菜单挂在 body 上，不吃侧栏的 scoped 样式 */
+.portal-aside-popper.el-menu {
+  background: #14171f !important;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.portal-aside-popper .el-menu-item {
+  color: #c4cad4 !important;
+  background: transparent !important;
+}
+.portal-aside-popper .el-menu-item .el-icon {
+  color: #9aa1af !important;
+}
+.portal-aside-popper .el-menu-item:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #ffffff !important;
+}
+.portal-aside-popper .el-menu-item:hover .el-icon {
+  color: #ffffff !important;
+}
+.portal-aside-popper .el-menu-item.is-active,
+.portal-aside-popper .el-menu-item.is-active:hover {
+  background: #1677ff !important;
+  color: #ffffff !important;
+  font-weight: 600;
+}
+.portal-aside-popper .el-menu-item.is-active .el-icon {
+  color: #ffffff !important;
 }
 </style>

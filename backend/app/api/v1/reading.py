@@ -15,6 +15,7 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.common.response import success
 from app.core.dependencies import CurrentUser, DbSession, require_roles
@@ -83,6 +84,37 @@ async def check_image_quality(
         data["readingId"] = reviewed.id
     msg = "已提交教师质量评估" if data.get("reviewStatus") == "SUBMITTED" else "质量评估完成"
     return success(data=data, msg=msg)
+
+
+class LesionSegParams(BaseModel):
+    """只带当前眼底图地址。不改已有阅片保存结构。"""
+
+    model_config = ConfigDict(populate_by_name=True)
+    image_url: str = Field(..., alias="imageUrl", min_length=1)
+
+
+@router.post(
+    "/cases/{caseId}/lesion-seg",
+    summary="对当前眼底图做出血、硬性渗出、软性渗出分割（TEACHER/ADMIN）",
+    response_model=None,
+)
+def segment_lesions(
+    params: LesionSegParams,
+    current_user: CurrentUser,
+    db: DbSession,
+    caseId: int = Path(..., ge=1),
+):
+    """
+    调用本地 VM-UNet。不写阅片记录，不改评分，也不代替 CSU-EYES 分级。
+    学员调用会 403。运行环境缺 PyTorch 或 mamba_ssm 时返回 available=false，
+    不把失败当成检出了病灶。
+    """
+    from app.services.lesion_seg_service import LesionSegService
+
+    data = LesionSegService.run(
+        db=db, user=current_user, case_id=caseId, image_url=params.image_url,
+    )
+    return success(data=data, msg=data.get("message") or "")
 
 
 @router.get(

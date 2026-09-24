@@ -27,7 +27,7 @@ from app.common.response import (
 from app.core.config import settings
 from app.core.security import hash_password
 from app.db.base import Base
-from app.db.models import Role, RoleEnum, User, UserSetting
+from app.db.models import Department, Role, RoleEnum, User, UserSetting
 from app.db.session import SessionLocal, engine
 
 
@@ -389,6 +389,44 @@ def _init_database() -> None:
         db.close()
 
 
+def _link_named_departments() -> None:
+    """账号上只有科室名称、没有科室记录时，挂到同名且未归属医院的那一条。
+
+    同名科室在多家医院各有一条时不猜是哪一家，避免把平台账号写进某一家医院。
+    """
+    db = SessionLocal()
+    try:
+        pending = (
+            db.query(User)
+            .filter(User.department_id.is_(None), User.department != "")
+            .all()
+        )
+        changed = False
+        for user in pending:
+            rows = (
+                db.query(Department)
+                .filter(
+                    Department.hospital_id.is_(None),
+                    Department.is_active.is_(True),
+                    Department.name == user.department,
+                )
+                .all()
+            )
+            if len(rows) != 1:
+                continue
+            user.department_id = rows[0].id
+            if not user.department:
+                user.department = rows[0].name
+            changed = True
+        if changed:
+            db.commit()
+    except Exception as e:  # noqa: BLE001
+        db.rollback()
+        print(f"[startup] 科室关联失败：{e}")
+    finally:
+        db.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):  # noqa: ARG001
     try:
@@ -400,6 +438,10 @@ async def lifespan(app: FastAPI):  # noqa: ARG001
             _init_database()
         except SQLAlchemyError as e:
             print(f"[startup] 数据库初始化失败（请确认 MySQL 已启动且配置正确）：{e}")
+    try:
+        _link_named_departments()
+    except Exception as e:  # noqa: BLE001
+        print(f"[startup] 科室关联失败：{e}")
     yield
 
 

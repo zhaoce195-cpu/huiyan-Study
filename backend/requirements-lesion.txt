@@ -1,0 +1,8 @@
+# 阅片工作台「多病灶分割」的可选依赖。主服务 requirements.txt 不包含它们，
+# 缺了后端照常启动，按钮会提示环境未就绪。
+# mamba-ssm 在 Windows 上通常需要 CUDA 编译环境；Linux GPU 机器再装：
+#   pip install mamba-ssm
+torch
+scipy
+einops
+timm

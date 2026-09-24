@@ -541,7 +541,7 @@ const onShareSubmit = (row: Item) => {
 </script>
 
 <template>
-  <div class="case-browse-page">
+  <div class="case-browse-page" :class="{ 'tone-slate': userStore.isAdmin || userStore.isDoctor }">
     <main class="page-main">
       <!-- 筛选区 -->
       <section class="card filter-card">
@@ -628,6 +628,7 @@ const onShareSubmit = (row: Item) => {
             <template #default="{ row }">
               <el-tag
                 v-if="row.drLevel !== null && row.drLevel !== undefined"
+                class="grade-vital"
                 size="small"
                 :type="drTagType(row.drLevel)"
                 effect="plain"
@@ -902,16 +903,22 @@ const onShareSubmit = (row: Item) => {
 
 .case-browse-page {
   min-height: 100vh;
-  background: #f5f6fa;
+  background: #eaedf2;
   display: flex;
   flex-direction: column;
+}
+.case-browse-page.tone-slate :deep(.el-tag.grade-vital) {
+  font-size: 15px;
+  font-weight: 700;
+  height: auto;
+  line-height: 22px;
 }
 
 .page-header {
   height: 56px;
   padding: 0 24px;
-  background: #fff;
-  border-bottom: 1px solid #e5e6eb;
+  background: #ffffff;
+  border-bottom: 1px solid #dfe3ea;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -949,8 +956,8 @@ const onShareSubmit = (row: Item) => {
 }
 
 .card {
-  background: #fff;
-  border: 1px solid #e5e6eb;
+  background: #ffffff;
+  border: 1px solid #dfe3ea;
   border-radius: 12px;
   padding: 18px 20px;
   margin-bottom: 18px;

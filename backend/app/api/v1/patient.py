@@ -41,7 +41,7 @@ auth_router = APIRouter(prefix="/auth", tags=["1. 账号身份登录"])
 def send_code(params: SendCodeParams):
     data = PatientService.send_code(params)
     return success(
-        data=data.model_dump(),
+        data=data.model_dump(by_alias=True),
         msg="验证码已发送",
     )
 

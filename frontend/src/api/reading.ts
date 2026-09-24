@@ -323,6 +323,24 @@ export interface QualityCheckResult {
 export const checkImageQuality = (caseId: number) =>
   http.post<QualityCheckResult>(`/reading/cases/${caseId}/quality-check`)
 
+/** 当前眼底图的出血 / 硬性渗出 / 软性渗出分割。只给带教和管理员。 */
+export interface LesionSegResult {
+  available: boolean
+  overlayUrl: string
+  counts: { HE: number; EX: number; SE: number }
+  device?: string
+  seconds?: number
+  message: string
+}
+
+export const segmentLesions = (caseId: number, imageUrl: string) =>
+  http.post<LesionSegResult>(
+    `/reading/cases/${caseId}/lesion-seg`,
+    { imageUrl },
+    { showError: false },
+    { timeout: 10 * 60 * 1000 }
+  )
+
 /* ============ DICOMweb：影像与分割分离（报告 P1） ============ */
 
 /** 单个分段（如「微动脉瘤」「视盘」） */

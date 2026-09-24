@@ -25,6 +25,7 @@ class SendCodeParams(BaseModel):
 
 
 class SendCodeResult(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
     phone: str
     code: str = Field(..., description="模拟环境直接返回；生产环境应只发短信")
     expires_in: int = Field(..., description="有效期（秒）")
@@ -33,6 +34,7 @@ class SendCodeResult(BaseModel):
 # ====================== 注册 ======================
 
 class RegisterParams(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
     phone: str = Field(..., description="手机号")
     password: str = Field(..., min_length=6, max_length=64)
     code: str = Field(..., min_length=4, max_length=8, description="短信验证码")
