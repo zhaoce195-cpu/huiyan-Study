@@ -13,6 +13,7 @@ export interface AdminUserItem {
   role: AdminRole | string
   roleName: string
   department: string
+  hospitalName: string
   isActive: boolean
   mustChangePassword: boolean
   lastLoginAt?: string | null
@@ -32,6 +33,7 @@ export interface AdminUserCreate {
   realName: string
   role: AdminRole
   department?: string
+  departmentId?: number
   password: string
 }
 

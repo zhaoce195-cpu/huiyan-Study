@@ -188,6 +188,7 @@ class ReadingOut(_CamelModel):
     review_comment: str = ""
     reviewer_id: Optional[int] = None
     reviewer_name: str = ""
+    reviewer_role: str = ""
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     diagnosis: Dict[str, Any] = Field(default_factory=dict)

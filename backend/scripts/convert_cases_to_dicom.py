@@ -147,6 +147,7 @@ def main() -> int:
                             patient_sex=gender_to_dicom(case.patient_gender),
                             case_no=case.case_no,
                             eye=img.eye,
+                            role=getattr(img, "role", "") or "",
                             file_name=img.file_name or local.name,
                             # 现有数据模型未采集真实检查时间，
                             # 此处留空而不是用入库时间冒充
@@ -158,7 +159,9 @@ def main() -> int:
                         # 预演也做眼别校验，好在写文件前就暴露问题
                         from app.common.image_safety import detect_laterality_conflict
                         c = detect_laterality_conflict(
-                            eye=img.eye, file_name=img.file_name or local.name,
+                            eye=img.eye,
+                            file_name=img.file_name or local.name,
+                            role=getattr(img, "role", "") or "",
                         )
                         if c and not args.allow_laterality_conflict:
                             raise LateralityConflictError(c)

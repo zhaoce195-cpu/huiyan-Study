@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import desc, func, or_
+from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -148,6 +148,7 @@ def learner_progress_sum(rows: Dict[int, dict]) -> dict:
         "passed": passed,
     }
 from app.schemas.common import (
+    DepartmentMemberOut,
     DepartmentOut,
     DepartmentSaveParams,
     DictItemOut,
@@ -249,9 +250,46 @@ _HOSPITALS: List[Dict] = [
 ]
 
 
-# ============================================================
-#                    Service
-# ============================================================
+def _hospital_name(hospital_id: Optional[int]) -> str:
+    if hospital_id is None:
+        return ""
+    for row in _HOSPITALS:
+        if row["id"] == hospital_id:
+            return row["name"]
+    return ""
+
+
+def _members_for(db: Session, dept_ids: List[int]) -> Dict[int, List[DepartmentMemberOut]]:
+    if not dept_ids:
+        return {}
+    people = (
+        db.query(User)
+        .filter(User.department_id.in_(dept_ids))
+        .order_by(User.id.asc())
+        .all()
+    )
+    grouped: Dict[int, List[DepartmentMemberOut]] = {}
+    for person in people:
+        if person.department_id is None:
+            continue
+        grouped.setdefault(person.department_id, []).append(
+            DepartmentMemberOut(
+                id=person.id,
+                real_name=person.real_name or person.username,
+                title=person.title or "",
+            )
+        )
+    return grouped
+
+
+def _department_out(row: Department, members: Optional[List[DepartmentMemberOut]] = None) -> DepartmentOut:
+    return DepartmentOut(
+        id=row.id,
+        name=row.name,
+        hospital_id=row.hospital_id,
+        hospital_name=_hospital_name(row.hospital_id),
+        members=members or [],
+    )
 
 class CommonService:
 
@@ -344,29 +382,25 @@ class CommonService:
         hospital_id: Optional[int] = None,
     ) -> List[DepartmentOut]:
         """
-        指定医院时，返回「该医院的科室 + 全院通用科室」；不指定时返回全部。
-
-        原先无论选哪家医院都返回同一份全局清单（测试报告：在 ID 2 的医院建的
-        科室，切到别的医院也看得到）。
+        指定医院时只返回这家医院自己的科室。未指定医院的旧数据不混进任何一家，
+        否则每家医院都会看到同一份名单。不指定医院时返回全部，供后台总览。
         """
         q = db.query(Department).filter(Department.is_active == True)  # noqa: E712
         if hospital_id is not None:
-            q = q.filter(
-                or_(
-                    Department.hospital_id == hospital_id,
-                    Department.hospital_id.is_(None),
-                )
-            )
+            q = q.filter(Department.hospital_id == hospital_id)
         rows: List[Department] = q.order_by(
             Department.sort_order.asc(), Department.id.asc()
         ).all()
+        grouped = _members_for(db, [row.id for row in rows])
         return [
-            DepartmentOut(id=r.id, name=r.name, hospital_id=r.hospital_id)
-            for r in rows
+            _department_out(row, grouped.get(row.id, []))
+            for row in rows
         ]
 
     @staticmethod
     def create_department(db: Session, params: DepartmentSaveParams) -> DepartmentOut:
+        if params.hospital_id is None:
+            raise HTTPException(400, detail="请选择所属医院")
         CommonService._assert_hospital_exists(params.hospital_id)
         # code 缺省自动生成 DEPT_<id>
         d = Department(
@@ -384,13 +418,15 @@ class CommonService:
         db.add(d)
         db.commit()
         db.refresh(d)
-        return DepartmentOut(id=d.id, name=d.name, hospital_id=d.hospital_id)
+        return _department_out(d, _members_for(db, [d.id]).get(d.id, []))
 
     @staticmethod
     def update_department(db: Session, dept_id: int, params: DepartmentSaveParams) -> DepartmentOut:
         d = db.query(Department).filter(Department.id == dept_id).first()
         if not d:
             raise HTTPException(404, detail=f"科室不存在：{dept_id}")
+        if params.hospital_id is None:
+            raise HTTPException(400, detail="请选择所属医院")
         CommonService._assert_hospital_exists(params.hospital_id)
         new_hospital_id = params.hospital_id
         new_code = params.code.strip().upper() if params.code else d.code
@@ -410,7 +446,7 @@ class CommonService:
         d.remark = params.remark or ""
         db.commit()
         db.refresh(d)
-        return DepartmentOut(id=d.id, name=d.name, hospital_id=d.hospital_id)
+        return _department_out(d, _members_for(db, [d.id]).get(d.id, []))
 
     @staticmethod
     def delete_department(db: Session, dept_id: int) -> None:

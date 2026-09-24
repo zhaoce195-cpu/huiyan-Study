@@ -6,6 +6,7 @@ import { PracticeApi, RotationApi } from '@/api'
 import type { GroupSummary, RotationTask, StudentHome, StudentProgress, TeacherHome } from '@/api/rotation'
 import type { PracticeRecord, PracticeStats } from '@/api/practice'
 import { useUserStore } from '@/stores/user'
+import { actorLabel } from '@/utils/actor'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -328,6 +329,11 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
           <h2>今日学习任务</h2>
           <p>
             {{ student.studyYear }} · {{ student.rotationBatch }} · {{ student.mentorGroup }}。
+            <template v-if="actorLabel(student.groupEditorName, student.groupEditorRole)">
+              分组由 {{ actorLabel(student.groupEditorName, student.groupEditorRole) }}
+              <template v-if="student.groupEditedAt">于 {{ student.groupEditedAt }}</template>
+              填写。
+            </template>
             {{ student.rotation?.title || '本轮转' }}。必做计入进度。拓展病例是老师另外推荐的，做完不改变必做进度。
           </p>
         </div>
@@ -500,6 +506,11 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
           <el-table-column prop="studyYear" label="年级" width="110" />
           <el-table-column prop="rotationBatch" label="轮转批次" width="130" />
           <el-table-column prop="mentorGroup" label="带教组" width="120" />
+          <el-table-column label="分组修改人" min-width="180">
+            <template #default="{ row }">
+              {{ actorLabel(row.groupEditorName, row.groupEditorRole) || '尚未记录' }}
+            </template>
+          </el-table-column>
           <el-table-column label="练习次数" width="100">
             <template #default="{ row }">{{ row.practiceCount }}</template>
           </el-table-column>
@@ -636,6 +647,13 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
               <el-input v-model="groupDraft.mentorGroup" placeholder="带教组" style="width: 160px" />
               <el-button type="primary" :loading="savingGroup" @click="saveGroup">保存分组</el-button>
             </div>
+            <p v-if="focusStudent" class="lead">
+              {{
+                actorLabel(focusStudent.groupEditorName, focusStudent.groupEditorRole)
+                  ? `最近由 ${actorLabel(focusStudent.groupEditorName, focusStudent.groupEditorRole)}${focusStudent.groupEditedAt ? ` 于 ${focusStudent.groupEditedAt}` : ''} 修改`
+                  : '这次保存会记下修改人'
+              }}
+            </p>
           </section>
           <div v-if="studentStats" class="stats detail-stats">
             <article>
@@ -706,6 +724,9 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
                       保存
                     </el-button>
                   </div>
+                  <p v-if="row.teacherName" class="lead">
+                    点评人 {{ actorLabel(row.teacherName, row.teacherRole) }}
+                  </p>
                 </template>
               </el-table-column>
             </el-table>

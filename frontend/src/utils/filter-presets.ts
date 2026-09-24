@@ -177,7 +177,7 @@ export const CASE_BROWSE_FILTER: FilterSchema = {
     {
       key: 'keyword',
       type: 'text',
-      label: '编号 / case_sn / 患者姓名 / 标题',
+      label: '来源编号 / 平台病例号 / 患者姓名 / 标题',
       prefixIcon: 'Search',
       width: '280px',
     },

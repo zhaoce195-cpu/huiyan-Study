@@ -32,31 +32,26 @@
   --hy-font: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei',
     'Helvetica Neue', Helvetica, Arial, sans-serif;
 
-  /* ===== Apple 风格设计令牌（深色 · 玻璃拟态） ===== */
-  /* 左侧导航（外壳）用深色，与阅片工作台的深色画面相配；内容页仍走浅色令牌 --ap-l-* */
-  --ap-accent: #3b82f6; /* 深色栏强调蓝 */
-  --ap-accent-2: #60a5fa;
-  --ap-accent-soft: rgba(59, 130, 246, 0.18);
-  --ap-bg: #0f1116; /* 深色最底层背景 */
-  --ap-bg-grad: radial-gradient(
-      1100px 620px at 50% -20%,
-      rgba(59, 130, 246, 0.08),
-      transparent 60%
-    ),
-    #0f1116;
-  --ap-glass: rgba(22, 24, 30, 0.72); /* 深色毛玻璃 */
-  --ap-glass-strong: rgba(22, 24, 30, 0.9);
-  --ap-hairline: rgba(255, 255, 255, 0.08); /* 发丝分隔线 */
-  --ap-hairline-strong: rgba(255, 255, 255, 0.14);
-  --ap-text: #e8eaed; /* 深底上的浅色文字 */
-  --ap-text-2: #9aa0a6; /* 次级文字 */
-  --ap-text-3: #6b7078; /* 三级/占位 */
-  --ap-fill: rgba(255, 255, 255, 0.06); /* 悬停填充 */
+  /* ===== 外壳令牌：默认浅色，和个人中心保存的 theme 一致 ===== */
+  /* 深色在 html[data-theme='dark']。内容页仍走 --ap-l-*，阅片画面自己保持深色。 */
+  --ap-accent: #1677ff;
+  --ap-accent-2: #4096ff;
+  --ap-accent-soft: #eef4ff;
+  --ap-bg: #f5f9ff;
+  --ap-bg-grad: #f5f9ff;
+  --ap-glass: #ffffff;
+  --ap-glass-strong: #ffffff;
+  --ap-hairline: #e6effe;
+  --ap-hairline-strong: #d6e4ff;
+  --ap-text: #1d2129;
+  --ap-text-2: #4e5969;
+  --ap-text-3: #86909c;
+  --ap-fill: rgba(22, 93, 255, 0.06);
   --ap-radius: 14px;
   --ap-radius-sm: 10px;
   --ap-blur: 22px;
-  --ap-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
-  --ap-shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.5);
+  --ap-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --ap-shadow-lg: 0 12px 40px rgba(15, 23, 42, 0.08);
   --ap-ease: cubic-bezier(0.4, 0, 0.2, 1);
 
   font-family: var(--hy-font);
@@ -289,4 +284,52 @@ html[data-font-size='large'] {
   --el-font-size-base: 16px;
   --el-font-size-small: 14px;
   --el-font-size-extra-small: 13px;
+}
+
+/*
+ * 宽表格的横向滚动条跟在全部行的最底下。
+ * 页面先被拉高后，不滚到表尾就摸不到这条滚动条。
+ * 三个端口的主区域都是 .portal-main，把表体高度收进当前画面，
+ * 横向滚动条就停在可见区域底部。
+ */
+.portal-main .el-table > .el-table__inner-wrapper > .el-table__body-wrapper > .el-scrollbar > .el-scrollbar__wrap {
+  max-height: calc(100vh - 360px);
+  scrollbar-width: thin;
+}
+.portal-main .el-table .el-scrollbar__wrap--hidden-default::-webkit-scrollbar {
+  display: block;
+  width: 10px;
+  height: 10px;
+}
+.portal-main .el-table .el-scrollbar__bar.is-horizontal {
+  display: block !important;
+  opacity: 1 !important;
+  height: 10px !important;
+}
+.portal-main .el-table .el-scrollbar__bar.is-horizontal .el-scrollbar__thumb {
+  background-color: rgba(30, 41, 59, 0.45);
+}
+
+/* 深色外壳：学员端和管理员筛查端共用，由偏好设置里的「界面风格」切换 */
+html[data-theme='dark'] {
+  --ap-accent: #3b82f6;
+  --ap-accent-2: #60a5fa;
+  --ap-accent-soft: rgba(59, 130, 246, 0.18);
+  --ap-bg: #0f1116;
+  --ap-bg-grad: radial-gradient(
+      1100px 620px at 50% -20%,
+      rgba(59, 130, 246, 0.08),
+      transparent 60%
+    ),
+    #0f1116;
+  --ap-glass: rgba(22, 24, 30, 0.72);
+  --ap-glass-strong: rgba(22, 24, 30, 0.9);
+  --ap-hairline: rgba(255, 255, 255, 0.08);
+  --ap-hairline-strong: rgba(255, 255, 255, 0.14);
+  --ap-text: #e8eaed;
+  --ap-text-2: #b7bec8;
+  --ap-text-3: #6b7078;
+  --ap-fill: rgba(255, 255, 255, 0.06);
+  --ap-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --ap-shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.5);
 }

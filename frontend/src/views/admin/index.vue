@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { Bell, OfficeBuilding, Collection, Document, DataAnalysis, Upload, Promotion, Reading, User, Avatar } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import NoticesSection from './sections/NoticesSection.vue'
@@ -15,12 +16,32 @@ import TeachingReviewSection from './sections/TeachingReviewSection.vue'
 
 
 const userStore = useUserStore()
-
+const route = useRoute()
 
 const isAdmin = computed(() => userStore.isAdmin)
 const canManage = computed(() => userStore.canManage)
 
 const activeTab = ref(isAdmin.value ? 'users' : 'notices')
+const reviewRef = ref<{ reload: () => void } | null>(null)
+const reviewNotice = ref('')
+
+watch(
+  () => route.query.tab,
+  (tab) => {
+    if (typeof tab === 'string' && tab) activeTab.value = tab
+  },
+  { immediate: true }
+)
+watch(
+  () => route.query.notice,
+  (notice) => {
+    reviewNotice.value = typeof notice === 'string' ? notice : ''
+  },
+  { immediate: true }
+)
+watch(activeTab, (name) => {
+  if (name === 'teaching-review') reviewRef.value?.reload()
+})
 </script>
 
 <template>
@@ -94,7 +115,7 @@ const activeTab = ref(isAdmin.value ? 'users' : 'notices')
           <template #label>
             <span class="tab-label"><el-icon><Reading /></el-icon>教学病例审核</span>
           </template>
-          <TeachingReviewSection :can-manage="isAdmin" />
+          <TeachingReviewSection ref="reviewRef" :can-manage="isAdmin" :notice="reviewNotice" />
         </el-tab-pane>
       </el-tabs>
     </main>

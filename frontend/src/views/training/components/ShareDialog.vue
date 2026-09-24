@@ -5,6 +5,7 @@
  * - share_type='PERMANENT'：入库申请（标题 + 描述）
  */
 import { computed, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { TeachingApi } from '@/api'
 
@@ -18,6 +19,7 @@ const props = defineProps<{
   sourceCaseId: number
   caseTitle?: string
 }>()
+const router = useRouter()
 const emit = defineEmits<{
   (e: 'update:visible', v: boolean): void
   (e: 'submitted'): void
@@ -33,51 +35,149 @@ const dialogTitle = computed(() =>
   isTemporary.value ? '分享病例至学员实训' : '提交病例入教学库'
 )
 
+type ScopeName = 'ALL' | 'YEAR' | 'BATCH' | 'GROUP' | 'PEOPLE'
+
+const emptyTargets = (): TeachingApi.ShareTargets => ({
+  years: [],
+  batches: [],
+  groups: [],
+  students: [],
+})
+
 const form = ref({
-  shareScope: 'ALL',
+  shareScope: 'ALL' as ScopeName,
+  picks: [] as string[],
   expireHours: 24,
   hideAnswers: true,
   title: '',
   description: '',
 })
 
+const targets = ref<TeachingApi.ShareTargets>(emptyTargets())
 const submitting = ref(false)
+
+const groupField = computed(() => {
+  if (form.value.shareScope === 'BATCH') return 'rotationBatch' as const
+  if (form.value.shareScope === 'GROUP') return 'mentorGroup' as const
+  return 'studyYear' as const
+})
+
+const groupNames = computed(() => {
+  if (form.value.shareScope === 'BATCH') return targets.value.batches
+  if (form.value.shareScope === 'GROUP') return targets.value.groups
+  return targets.value.years
+})
+
+const optionGroups = computed(() =>
+  groupNames.value.map((value) => ({
+    value,
+    label: value,
+    members: targets.value.students.filter((item) => item[groupField.value] === value),
+  }))
+)
+
+const scopePlaceholder = computed(() => {
+  if (form.value.shareScope === 'BATCH') return '选择轮转批次或其中的学员'
+  if (form.value.shareScope === 'GROUP') return '选择带教组或其中的学员'
+  return '选择年级或其中的学员'
+})
+
+const resolvePicks = () => {
+  const allValues = form.value.picks.filter((item) => item.startsWith('all:')).map((item) => item.slice(4))
+  const userIds = form.value.picks
+    .filter((item) => item.startsWith('user:'))
+    .map((item) => Number(item.slice(5)))
+    .filter((item) => Number.isFinite(item))
+  if (allValues.length === 1 && userIds.length === 0) {
+    return {
+      shareScope: form.value.shareScope,
+      scopeValue: allValues[0],
+      audienceIds: [] as number[],
+    }
+  }
+  const ids = new Set(userIds)
+  for (const value of allValues) {
+    for (const student of targets.value.students) {
+      if (student[groupField.value] === value) ids.add(student.id)
+    }
+  }
+  return {
+    shareScope: 'PEOPLE' as const,
+    scopeValue: '',
+    audienceIds: [...ids],
+  }
+}
+
+const loadTargets = () => {
+  TeachingApi.getShareTargets()
+    .then((data) => {
+      targets.value = {
+        years: data?.years || [],
+        batches: data?.batches || [],
+        groups: data?.groups || [],
+        students: data?.students || [],
+      }
+    })
+    .catch(() => {
+      targets.value = emptyTargets()
+    })
+}
 
 watch(
   () => props.visible,
   (v) => {
-    if (v) {
-      form.value = {
-        shareScope: 'ALL',
-        expireHours: 24,
-        hideAnswers: true,
-        title: props.caseTitle || '',
-        description: '',
-      }
+    if (!v) return
+    form.value = {
+      shareScope: 'ALL',
+      picks: [],
+      expireHours: 24,
+      hideAnswers: true,
+      title: props.caseTitle || '',
+      description: '',
     }
-  }
+    loadTargets()
+  },
+  { immediate: true }
 )
 
 const onSubmit = async () => {
   submitting.value = true
   try {
     if (isTemporary.value) {
+      if (form.value.shareScope !== 'ALL' && form.value.picks.length === 0) {
+        ElMessage.warning(scopePlaceholder.value)
+        return
+      }
+      const chosen = form.value.shareScope === 'ALL'
+        ? { shareScope: 'ALL' as const, scopeValue: '', audienceIds: [] as number[] }
+        : resolvePicks()
+      if (chosen.shareScope === 'PEOPLE' && chosen.audienceIds.length === 0) {
+        ElMessage.warning('请选择要分享的学员')
+        return
+      }
       await TeachingApi.createShare({
         sourceType: props.sourceType,
         sourceCaseId: props.sourceCaseId,
-        shareScope: form.value.shareScope,
+        shareScope: chosen.shareScope,
+        scopeValue: chosen.scopeValue,
+        audienceIds: chosen.audienceIds,
         expireHours: form.value.expireHours,
         hideAnswers: form.value.hideAnswers,
       })
       ElMessage.success(form.value.hideAnswers ? '已分享。学员先看不到金标准，讨论结束后再公布' : '已分享，学员现在就能看到金标准')
     } else {
-      await TeachingApi.submitForReview({
+      const saved = await TeachingApi.submitForReview({
         sourceType: props.sourceType,
         sourceCaseId: props.sourceCaseId,
         title: form.value.title.trim(),
         description: form.value.description.trim(),
       })
-      ElMessage.success('已提交，等待管理员审核')
+      if (saved?.status === 'APPROVED') {
+        ElMessage.success('已转为教学病例，无需再审核')
+        router.push({ path: '/training/admin', query: { tab: 'teaching-review', notice: 'approved' } })
+      } else {
+        ElMessage.success('已提交，等待管理员审核')
+      }
     }
     emit('submitted')
     innerVisible.value = false
@@ -93,7 +193,7 @@ const onSubmit = async () => {
   <el-dialog
     v-model="innerVisible"
     :title="dialogTitle"
-    width="520"
+    width="640"
     :close-on-click-modal="false"
     align-center
   >
@@ -106,10 +206,49 @@ const onSubmit = async () => {
 
     <el-form label-width="92px" label-position="left" style="margin-top: 16px">
       <template v-if="isTemporary">
-        <el-form-item label="分享范围">
-          <el-radio-group v-model="form.shareScope">
-            <el-radio-button value="ALL">全体学员</el-radio-button>
-          </el-radio-group>
+        <el-form-item label="分享对象">
+          <div class="scope-row">
+            <el-select
+              v-model="form.shareScope"
+              style="width: 160px"
+              @change="form.picks = []"
+            >
+              <el-option label="全体学员" value="ALL" />
+              <el-option label="指定年级" value="YEAR" />
+              <el-option label="指定轮转批次" value="BATCH" />
+              <el-option label="指定带教组" value="GROUP" />
+            </el-select>
+            <el-select
+              v-if="form.shareScope !== 'ALL'"
+              v-model="form.picks"
+              multiple
+              filterable
+              collapse-tags
+              collapse-tags-tooltip
+              :placeholder="optionGroups.length ? scopePlaceholder : '还没有可选项'"
+              style="width: 360px"
+            >
+              <el-option-group
+                v-for="group in optionGroups"
+                :key="group.value"
+                :label="group.label"
+              >
+                <el-option
+                  :label="`全部 ${group.members.length} 人`"
+                  :value="`all:${group.value}`"
+                />
+                <el-option
+                  v-for="item in group.members"
+                  :key="item.id"
+                  :label="item.name"
+                  :value="`user:${item.id}`"
+                />
+              </el-option-group>
+            </el-select>
+          </div>
+          <div class="muted small">
+            每一组里都可以选「全部」，发给这一组的所有人；也可以只勾其中几个人。
+          </div>
         </el-form-item>
         <el-form-item label="有效期">
           <el-input-number
@@ -184,6 +323,11 @@ const onSubmit = async () => {
 .case-hint .title-text {
   font-weight: 600;
   margin-left: 6px;
+}
+.scope-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .muted { color: #86909c; font-size: 12px; }
 .muted.small { font-size: 12px; line-height: 1.7; }

@@ -239,6 +239,7 @@ class PracticeOut(_CamelModel):
     teacher_comment: str = ""
     teacher_id: Optional[int] = None
     teacher_name: str = ""
+    teacher_role: str = ""
 
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

@@ -23,7 +23,7 @@ import {
 } from '@/utils/cornerstone3d'
 import type { SegmentMask } from '@/utils/cornerstone3d'
 import type { AnnotationItem, LayerState, ToolName, ViewportState } from '@/views/reading/types'
-import { LESION_LABELS } from '@/views/reading/types'
+import { LESION_LABELS, markCaption } from '@/views/reading/types'
 import {
   QUAD_LABEL,
   quadAt,
@@ -76,6 +76,8 @@ const props = withDefaults(
       sopInstanceUid: string
       segments: Array<{ number: number; label: string }>
     } | null
+    /** 右侧列表悬停的那一条。图上用同一编号，并给它加一圈亮边。 */
+    highlightId?: string
   }>(),
   {
     mode: 'reading',
@@ -85,7 +87,8 @@ const props = withDefaults(
     laterality: '',
     goldOverlayUrl: '',
     heatmapOverlayUrl: '',
-    segmentation: null
+    segmentation: null,
+    highlightId: ''
   }
 )
 
@@ -382,6 +385,16 @@ const dragging = ref<DragState | null>(null)
 /** 一次拖动只记一条撤销，避免鼠标每移动一像素就堆一条历史 */
 let dragRecorded = false
 
+/** 右键点在某一条标注上时弹出。编号和右侧列表相同。 */
+const markMenu = ref<{
+  kind: 'annotation' | 'measurement'
+  id: string
+  caption: string
+  x: number
+  y: number
+} | null>(null)
+const markMenuRef = ref<HTMLElement | null>(null)
+
 /** 矩形存在两个对角点，画面上却画了四个角。四个角都要能抓住。 */
 const hitRectCorner = (px: number, py: number) => {
   const list = props.annotations
@@ -430,10 +443,10 @@ const nearStroke = (
   px: number,
   py: number,
   pts: { x: number; y: number }[],
-  closed: boolean
+  closed: boolean,
+  limit = 8
 ) => {
   if (pts.length < 2) return false
-  const limit = 8
   const n = closed ? pts.length : pts.length - 1
   for (let i = 0; i < n; i++) {
     const a = pts[i]
@@ -481,6 +494,16 @@ const hitBody = (px: number, py: number) => {
     } else if (nearStroke(px, py, screen, ann.tool === 'polygon')) {
       return i
     }
+  }
+  return null
+}
+
+/** 右键落在测量线上。比拖动框的命中宽一点，细线不好点。 */
+const hitMeasurement = (px: number, py: number) => {
+  const list = props.measurements
+  for (let i = list.length - 1; i >= 0; i--) {
+    const pts = (list[i].points || []).map((p) => pixelToCanvas(p.x, p.y))
+    if (nearStroke(px, py, pts, false, 14)) return i
   }
   return null
 }
@@ -567,7 +590,16 @@ const redrawOverlay = () => {
 
   // 已落地的标注
   if (effectiveLayers.value.my) {
-    props.annotations.forEach((a) => drawAnnotation(ctx, a))
+    props.annotations.forEach((a, i) => {
+      const hot = a.id === props.highlightId || a.id === markMenu.value?.id
+      ctx.save()
+      if (hot) {
+        ctx.shadowColor = '#ffffff'
+        ctx.shadowBlur = 16
+      }
+      drawAnnotation(ctx, a, false, markCaption(props.annotations, i))
+      ctx.restore()
+    })
     // 只画 Cornerstone3D 自己没在画的那些测量。
     //
     // 内置 Length / Angle 工具会自行渲染手柄与数值；overlay 若再画一遍，
@@ -575,8 +607,16 @@ const redrawOverlay = () => {
     // 但从数据库恢复的历史测量并不在 Cornerstone3D 的标注状态里，
     // 那些仍然要由 overlay 负责画出来。
     const live = liveAnnotationUids()
-    props.measurements.forEach((m) => {
-      if (!live.has(m.id)) drawMeasurement(ctx, m)
+    props.measurements.forEach((m, i) => {
+      if (live.has(m.id)) return
+      const hot = m.id === props.highlightId || m.id === markMenu.value?.id
+      ctx.save()
+      if (hot) {
+        ctx.shadowColor = '#ffffff'
+        ctx.shadowBlur = 16
+      }
+      drawMeasurement(ctx, m, markCaption(props.measurements, i))
+      ctx.restore()
     })
   }
 
@@ -680,10 +720,35 @@ const drawQuadrantGuides = (ctx: CanvasRenderingContext2D) => {
   ctx.restore()
 }
 
+/** 编号贴在框的左上角，白字黑底，和右侧列表里的句子一致。 */
+const drawMarkCaption = (
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  color: string
+) => {
+  ctx.save()
+  ctx.font = '12px sans-serif'
+  ctx.setLineDash([])
+  const width = ctx.measureText(text).width
+  const left = x + 6
+  const top = Math.max(16, y - 8)
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.78)'
+  ctx.fillRect(left - 4, top - 13, width + 8, 18)
+  ctx.strokeStyle = color
+  ctx.lineWidth = 1
+  ctx.strokeRect(left - 4, top - 13, width + 8, 18)
+  ctx.fillStyle = '#fff'
+  ctx.fillText(text, left, top)
+  ctx.restore()
+}
+
 const drawAnnotation = (
   ctx: CanvasRenderingContext2D,
   ann: AnnotationItem,
-  preview = false
+  preview = false,
+  caption = ''
 ) => {
   if (ann.points.length === 0) return
   const color = ann.color || colorOf(ann.label)
@@ -773,10 +838,24 @@ const drawAnnotation = (
     }
   }
 
-  if (!preview && pts.length > 0 && ann.label) {
-    ctx.fillStyle = color
-    ctx.font = '12px sans-serif'
-    ctx.fillText(ann.label, pts[0].x + 4, pts[0].y - 4)
+  if (!preview && pts.length > 0) {
+    const text = caption || ann.label
+    if (text) {
+      let ax = pts[0].x
+      let ay = pts[0].y
+      if (ann.tool === 'rect' && pts.length >= 2) {
+        ax = Math.min(pts[0].x, pts[1].x)
+        ay = Math.min(pts[0].y, pts[1].y)
+      } else {
+        for (const p of pts) {
+          if (p.y < ay) {
+            ax = p.x
+            ay = p.y
+          }
+        }
+      }
+      drawMarkCaption(ctx, text, ax, ay, color)
+    }
   }
 }
 
@@ -911,7 +990,7 @@ const liveAnnotationUids = (): Set<string> => {
   return out
 }
 
-const drawMeasurement = (ctx: CanvasRenderingContext2D, m: AnnotationItem) => {
+const drawMeasurement = (ctx: CanvasRenderingContext2D, m: AnnotationItem, caption = '') => {
   if (m.points.length < 2) return
   const pts = m.points.map((p) => pixelToCanvas(p.x, p.y))
   const color = m.color || '#52c41a'
@@ -935,6 +1014,7 @@ const drawMeasurement = (ctx: CanvasRenderingContext2D, m: AnnotationItem) => {
     ctx.font = '12px sans-serif'
     ctx.fillText(`${m.value.toFixed(1)} ${m.unit || ''}`, last.x + 6, last.y - 6)
   }
+  if (caption) drawMarkCaption(ctx, caption, pts[0].x, pts[0].y, color)
 }
 
 /* =========================================================
@@ -1150,6 +1230,7 @@ const onLocateDown = (e: MouseEvent) => {
 }
 
 const onMouseDown = (e: MouseEvent) => {
+  if (e.button !== 0) return
   if (locating()) {
     onLocateDown(e)
     return
@@ -1243,7 +1324,63 @@ const onMouseMove = (e: MouseEvent) => {
   redrawOverlay()
 }
 
-const onMouseUp = (_e: MouseEvent) => {
+const onContextMenu = (e: MouseEvent) => {
+  e.preventDefault()
+  if (effectiveReadonly.value) {
+    markMenu.value = null
+    return
+  }
+  const wrap = e.currentTarget as HTMLElement
+  const bounds = wrap.getBoundingClientRect()
+  const px = e.clientX - bounds.left
+  const py = e.clientY - bounds.top
+  const annIndex = hitBody(px, py)
+  const measIndex = annIndex == null ? hitMeasurement(px, py) : null
+  if (annIndex == null && measIndex == null) {
+    markMenu.value = null
+    return
+  }
+  const item = annIndex != null ? props.annotations[annIndex] : props.measurements[measIndex as number]
+  const caption =
+    annIndex != null
+      ? markCaption(props.annotations, annIndex)
+      : markCaption(props.measurements, measIndex as number)
+  const menuW = 210
+  const menuH = 86
+  markMenu.value = {
+    kind: annIndex != null ? 'annotation' : 'measurement',
+    id: item.id,
+    caption,
+    x: Math.max(8, Math.min(px, bounds.width - menuW)),
+    y: Math.max(8, Math.min(py, bounds.height - menuH))
+  }
+}
+
+const removeMarked = () => {
+  const menu = markMenu.value
+  if (!menu) return
+  if (menu.kind === 'annotation') {
+    emit(
+      'update:annotations',
+      props.annotations.filter((a) => a.id !== menu.id)
+    )
+  } else {
+    emit(
+      'update:measurements',
+      props.measurements.filter((m) => m.id !== menu.id)
+    )
+  }
+  markMenu.value = null
+}
+
+const closeMarkMenu = (e: MouseEvent) => {
+  if (!markMenu.value || !markMenuRef.value) return
+  if (markMenuRef.value.contains(e.target as Node)) return
+  markMenu.value = null
+}
+
+const onMouseUp = (e: MouseEvent) => {
+  if (e.button !== 0) return
   if (locating() && props.locate?.method === 'circle') return
   if (dragging.value) {
     finishDrag()
@@ -1541,12 +1678,14 @@ onMounted(async () => {
 
   resizeObserver = new ResizeObserver(onResize)
   if (elementRef.value) resizeObserver.observe(elementRef.value)
+  window.addEventListener('mousedown', closeMarkMenu)
 
   refreshSegmentMasks()
 })
 
 onBeforeUnmount(() => {
   finishDrag()
+  window.removeEventListener('mousedown', closeMarkMenu)
   window.removeEventListener('mouseup', finishCircle)
   if (resizeObserver) resizeObserver.disconnect()
   if (elementRef.value && renderedEventName) {
@@ -1626,7 +1765,7 @@ watch(
 )
 
 watch(
-  () => [props.annotations, props.measurements, effectiveLayers.value, props.goldAnnotations, props.goldOverlayUrl, props.heatmapOverlayUrl],
+  () => [props.annotations, props.measurements, effectiveLayers.value, props.goldAnnotations, props.goldOverlayUrl, props.heatmapOverlayUrl, props.highlightId, markMenu.value?.id],
   () => redrawOverlay(),
   { deep: true }
 )
@@ -1640,7 +1779,7 @@ watch(
 </script>
 
 <template>
-  <div class="canvas-wrap">
+  <div class="canvas-wrap" @contextmenu="onContextMenu">
     <!-- Cornerstone 视口 -->
     <div
       ref="elementRef"
@@ -1676,6 +1815,18 @@ watch(
     </div>
 
     <div v-if="loading" class="loader">影像加载中…</div>
+
+    <div
+      v-if="markMenu"
+      ref="markMenuRef"
+      class="mark-menu"
+      :style="{ left: markMenu.x + 'px', top: markMenu.y + 'px' }"
+      @mousedown.stop
+      @contextmenu.prevent
+    >
+      <div class="mark-menu-title">{{ markMenu.caption }}</div>
+      <button type="button" class="mark-menu-del" @click="removeMarked">删除</button>
+    </div>
   </div>
 </template>
 
@@ -1710,6 +1861,36 @@ watch(
   background: rgba(0, 0, 0, 0.6);
   padding: 8px 16px;
   border-radius: 6px;
+}
+
+.mark-menu {
+  position: absolute;
+  z-index: 8;
+  min-width: 168px;
+  padding: 8px;
+  border-radius: 8px;
+  background: #1c1f27;
+  border: 1px solid #5c6574;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.mark-menu-title {
+  color: #f2f4f8;
+  font-size: 13px;
+  font-weight: 650;
+  margin-bottom: 8px;
+}
+.mark-menu-del {
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  background: #a61d24;
+  color: #fff;
+  font-size: 13px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.mark-menu-del:hover {
+  background: #d4380d;
 }
 
 .label-picker {

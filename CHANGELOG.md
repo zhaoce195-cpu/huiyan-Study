@@ -2,6 +2,25 @@
 
 本文档记录了平台自纳入 Git 版本管理以来的所有版本迭代内容与改动详情。
 
+## [v4.3] - 2026-09-24
+
+### 🎯 版本概述
+**管理端整改与教学分享范围升级**。本版本全面重构并完善了平台管理后台的多项核心中枢能力（科室院区权限隔离、用户管理中枢、带教入库审核、IDRiD 数据集导入管理），并扩展升级了“病例分享至学员实训”的分享范围机制，全面支持按年级、轮转批次、带教组或学员个体精准分发。
+
+### ✨ 新增与重构 (Added / Refactored)
+- **管理端中枢深度整改 (`views/admin/sections/*`)**：
+  - **科室与院区管理 (`DepartmentsSection.vue` / `test_department_hospital_scope.py`)**：完善科室层级与所属院区数据隔离；
+  - **用户与权限管理 (`UsersSection.vue` / `admin_user_service.py` / `admin-users.ts`)**：支持更严密的角色分配、密码重置与部门归属管理；
+  - **带教入库审核流 (`TeachingReviewSection.vue` / `test_teaching_review_approve.py`)**：优化病例入库审核、一键发布及驳回提示机制；
+  - **数据集管理 (`IdridImportSection.vue` / `idrid_import_service.py`)**：修复并稳定 IDRiD 批量数据集导入流水线。
+- **教学病例分享范围扩展 (`ShareDialog.vue` / `models/teaching_share.py` / `teaching_service.py` / `test_teaching_share_scope.py`)**：
+  - 打破原先仅支持“全体学员”的限制，新增**指定年级 (`YEAR`)**、**指定轮转批次 (`BATCH`)**、**指定带教组 (`GROUP`)** 以及**指定具体学员 (`PEOPLE`)** 多级筛选模式；
+  - 支持组内一键勾选“全部”或按姓名点选学员，学员端仅可见自身所在班级/组别的分享病例。
+- **阅片安全与工作站工具提升 (`CoreRetinaStation.vue` / `ReadingSafetyBar.vue` / `CaseIdPair.vue`)**：
+  - 增强影像安全校验与脱敏呈现，对齐工作站工具栏及各门户（培训/筛查/患者）主题配色。
+
+---
+
 ## [v4.2] - 2026-09-23
 
 ### 🎯 版本概述

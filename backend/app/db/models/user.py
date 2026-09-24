@@ -57,7 +57,14 @@ class User(Base, TimestampMixin):
         String(128), nullable=False, default="", comment="邮箱"
     )
     department: Mapped[str] = mapped_column(
-        String(64), nullable=False, default="", comment="所属科室"
+        String(64), nullable=False, default="", comment="所属科室名称"
+    )
+    department_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("biz_department.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="所属科室记录。同名科室按医院分开，人员挂在具体这一条上",
     )
     title: Mapped[str] = mapped_column(
         String(32), nullable=False, default="", comment="职称（住院医师/主治医师/副主任医师等）"
@@ -70,6 +77,12 @@ class User(Base, TimestampMixin):
     )
     mentor_group: Mapped[str] = mapped_column(
         String(32), nullable=False, default="", comment="带教组"
+    )
+    group_editor_id: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, comment="最近一次修改分组的用户"
+    )
+    group_edited_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True, comment="最近一次修改分组的时间"
     )
     avatar: Mapped[str] = mapped_column(
         String(255), nullable=False, default="", comment="头像URL"
@@ -110,6 +123,11 @@ class User(Base, TimestampMixin):
 
     # 关系
     role = relationship("Role", back_populates="users", lazy="joined")
+    home_department = relationship(
+        "Department",
+        foreign_keys=[department_id],
+        lazy="joined",
+    )
     setting = relationship(
         "UserSetting",
         back_populates="user",
@@ -120,3 +138,13 @@ class User(Base, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<User #{self.id} {self.username}>"
+
+
+def actor_role_text(user: Optional["User"]) -> str:
+    """界面上区分点按钮的人是教师还是管理员。"""
+    code = user.role.code if user is not None and user.role else ""
+    return {
+        RoleEnum.ADMIN.value: "平台管理员",
+        RoleEnum.TEACHER.value: "教师",
+        RoleEnum.STUDENT.value: "学员",
+    }.get(code, "")

@@ -23,6 +23,7 @@ import {
 } from '@element-plus/icons-vue'
 
 import { DiagnosisApi } from '@/api'
+import CaseIdPair from '@/components/CaseIdPair.vue'
 
 type DiagnosisType = DiagnosisApi.DiagnosisType
 type DiagnosisOut = DiagnosisApi.DiagnosisOut
@@ -420,8 +421,7 @@ import { drGradeColorNum as drGradeColor } from '@/utils/dr-format'
         <!-- 头部摘要 -->
         <div class="rs-header">
           <div class="rs-title">
-            <span class="case-no">{{ resultData.taskId }}</span>
-            <span v-if="resultData.caseSn" class="case-sn">/ {{ resultData.caseSn }}</span>
+            <CaseIdPair :source-no="resultData.taskId" :platform-no="resultData.caseSn" />
             <el-tag :type="RISK_TYPE[resultData.riskLevel]" effect="dark">
               {{ RISK_LABEL[resultData.riskLevel] }}
             </el-tag>

@@ -15,6 +15,9 @@ export interface TeachingShare {
   teachingCaseId?: number | null
   desensitizedData: Record<string, any>
   shareScope: string
+  scopeValue?: string
+  audienceIds?: number[]
+  audienceLabel?: string
   expireHours: number
   expiredAt?: string | null
   status: ShareStatus
@@ -32,6 +35,7 @@ export interface TeachingSharePage {
   total: number
   page: number
   pageSize: number
+  pendingCount?: number
   list: TeachingShare[]
 }
 
@@ -71,9 +75,26 @@ export interface StudentCasePage {
 export interface ShareCreateParams {
   sourceType: ShareSource
   sourceCaseId: number
-  shareScope?: string
+  shareScope?: 'ALL' | 'YEAR' | 'BATCH' | 'GROUP' | 'PEOPLE'
+  scopeValue?: string
+  audienceIds?: number[]
   expireHours?: number
   hideAnswers?: boolean
+}
+
+export interface ShareStudent {
+  id: number
+  name: string
+  studyYear: string
+  rotationBatch: string
+  mentorGroup: string
+}
+
+export interface ShareTargets {
+  years: string[]
+  batches: string[]
+  groups: string[]
+  students: ShareStudent[]
 }
 
 export interface SubmitCreateParams {
@@ -90,6 +111,9 @@ export interface ReviewParams {
 
 export const createShare = (params: ShareCreateParams) =>
   http.post<TeachingShare>('/teaching/share', params)
+
+export const getShareTargets = () =>
+  http.get<ShareTargets>('/teaching/share-targets')
 
 export const revokeShare = (id: number) =>
   http.post<TeachingShare>(`/teaching/share/${id}/revoke`)

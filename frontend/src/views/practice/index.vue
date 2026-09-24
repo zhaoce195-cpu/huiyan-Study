@@ -6,6 +6,7 @@ import { ExamApi, PracticeApi } from '@/api'
 import type { ExamPaper } from '@/api/exam'
 import { useUserStore } from '@/stores/user'
 import { isDrGradeNotApplicable } from '@/utils/filter-presets'
+import { actorLabel } from '@/utils/actor'
 
 const router = useRouter()
 const route = useRoute()
@@ -483,6 +484,18 @@ onMounted(async () => {
                 </template>
               </el-table-column>
               <el-table-column prop="submittedAt" label="提交时间" width="170" />
+              <el-table-column label="点评人" min-width="160">
+                <template #default="{ row }">
+                  <span v-if="row.status === 'DRAFT'" style="color: #c9cdd4">—</span>
+                  <template v-else>
+                    <span v-if="row.teacherName">{{ actorLabel(row.teacherName, row.teacherRole) }}</span>
+                    <span v-else style="color: #86909c">系统评分</span>
+                    <div v-if="row.teacherComment" style="color: #4e5969; font-size: 12px">
+                      {{ row.teacherComment }}
+                    </div>
+                  </template>
+                </template>
+              </el-table-column>
               <el-table-column label="操作" width="200" fixed="right">
                 <template #default="{ row }">
                   <el-button

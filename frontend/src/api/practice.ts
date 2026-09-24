@@ -136,6 +136,7 @@ export interface PracticeRecord {
   teacherComment: string
   teacherId: number | null
   teacherName: string
+  teacherRole: string
   createdAt: string | null
   updatedAt: string | null
 }

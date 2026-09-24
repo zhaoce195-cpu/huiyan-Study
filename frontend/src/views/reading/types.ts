@@ -32,6 +32,41 @@ export interface CanvasState {
   layers: LayerState
 }
 
+/** 工具内部名到界面上的叫法。列表和图上的编号都用这一套。 */
+export const MARK_TOOL_LABEL: Record<string, string> = {
+  rect: '矩形',
+  polygon: '多边形',
+  freehand: '手绘',
+  pen: '画笔',
+  ellipse: '椭圆',
+  point: '点',
+  quadrant: '象限',
+  length: '距离',
+  angle: '角度'
+}
+
+/**
+ * 同一工具按出现顺序编号。
+ * 两个都叫「出血」的矩形会变成「矩形 1 · 出血」「矩形 2 · 出血」，
+ * 图上的字和右侧列表用的是同一句。
+ */
+export function markCaption(
+  list: { tool: string; label?: string }[],
+  index: number
+): string {
+  const item = list[index]
+  if (!item) return ''
+  let n = 0
+  for (let i = 0; i <= index; i++) {
+    if (list[i].tool === item.tool) n += 1
+  }
+  const tool = MARK_TOOL_LABEL[item.tool] || item.tool
+  const head = `${tool} ${n}`
+  const label = (item.label || '').trim()
+  if (!label || label === tool) return head
+  return `${head} · ${label}`
+}
+
 export const LESION_LABELS: { label: string; value: string; color: string }[] = [
   { label: '出血', value: '出血', color: '#f53f3f' },
   { label: '渗出', value: '渗出', color: '#ff7d00' },

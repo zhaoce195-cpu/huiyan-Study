@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { RotationApi } from '@/api'
 import type { StudentProgress } from '@/api/rotation'
+import { actorLabel } from '@/utils/actor'
 
 interface Draft {
   userId: number
@@ -12,6 +13,9 @@ interface Draft {
   studyYear: string
   rotationBatch: string
   mentorGroup: string
+  groupEditorName: string
+  groupEditorRole: string
+  groupEditedAt: string
 }
 
 const router = useRouter()
@@ -36,7 +40,10 @@ const load = async () => {
       username: row.username || '',
       studyYear: blank(row.studyYear),
       rotationBatch: blank(row.rotationBatch),
-      mentorGroup: blank(row.mentorGroup)
+      mentorGroup: blank(row.mentorGroup),
+      groupEditorName: row.groupEditorName || '',
+      groupEditorRole: row.groupEditorRole || '',
+      groupEditedAt: row.groupEditedAt || ''
     }))
   } finally {
     loading.value = false
@@ -48,6 +55,13 @@ const visible = computed(() => {
   if (!text) return rows.value
   return rows.value.filter((row) => row.name.includes(text) || row.username.includes(text))
 })
+
+const groupActor = (row: Draft) => {
+  const who = actorLabel(row.groupEditorName, row.groupEditorRole)
+  if (who) return row.groupEditedAt ? `${who} · ${row.groupEditedAt}` : who
+  if (row.studyYear || row.rotationBatch || row.mentorGroup) return '尚未记录'
+  return '—'
+}
 
 const ungrouped = computed(
   () => rows.value.filter((row) => !row.studyYear && !row.rotationBatch && !row.mentorGroup).length
@@ -66,6 +80,9 @@ const save = async (row: Draft) => {
       row.studyYear = blank(latest.studyYear)
       row.rotationBatch = blank(latest.rotationBatch)
       row.mentorGroup = blank(latest.mentorGroup)
+      row.groupEditorName = latest.groupEditorName || ''
+      row.groupEditorRole = latest.groupEditorRole || ''
+      row.groupEditedAt = latest.groupEditedAt || ''
     }
     ElMessage.success('已保存。学员情况和推荐病例按这个分组计算')
   } finally {
@@ -112,6 +129,11 @@ onMounted(load)
           <el-input v-model="row.mentorGroup" placeholder="如 眼底一组" />
         </template>
       </el-table-column>
+      <el-table-column label="最近修改" min-width="200">
+        <template #default="{ row }">
+          <span class="muted">{{ groupActor(row) }}</span>
+        </template>
+      </el-table-column>
       <el-table-column label="" width="100">
         <template #default="{ row }">
           <el-button type="primary" link :loading="savingId === row.userId" @click="save(row)">
@@ -154,5 +176,9 @@ onMounted(load)
   margin: 20px 0 12px;
   color: #4e5969;
   font-size: 14px;
+}
+.muted {
+  color: #4e5969;
+  font-size: 13px;
 }
 </style>

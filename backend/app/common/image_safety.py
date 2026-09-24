@@ -26,7 +26,8 @@ EYE_TEXT = {
 UNKNOWN_EYE = "UNKNOWN"
 UNKNOWN_EYE_TEXT = "眼别未知"
 
-# 文件名中可识别的眼别线索（用于与元数据交叉校验）
+# 文件名中可识别的眼别线索（用于与元数据交叉校验）。
+# IDRiD 视盘层文件名以 _OD 结尾，这个 OD 是视盘，不是右眼，不能拿来和眼别记录比。
 _EYE_PATTERNS = [
     (re.compile(r"(?<![A-Za-z])OD(?![A-Za-z])", re.I), "OD"),
     (re.compile(r"(?<![A-Za-z])OS(?![A-Za-z])", re.I), "OS"),
@@ -45,18 +46,32 @@ def eye_text(eye: Optional[str]) -> str:
     return EYE_TEXT.get(code, UNKNOWN_EYE_TEXT)
 
 
-def eye_from_filename(file_name: str) -> Optional[str]:
+_IDRID_DISC_FILE = re.compile(r"(?i)^IDRiD_\d+_OD\.(png|tif|tiff)$")
+_DISC_SUFFIX = re.compile(r"(?i)([_\-])OD(?=\.[A-Za-z0-9]+$)")
+
+
+def _name_for_eye_check(file_name: str, role: str = "") -> str:
+    """视盘层文件名末尾的 _OD 是图层名，先去掉再认眼别。"""
+    name = file_name or ""
+    base = name.replace("\\", "/").rsplit("/", 1)[-1]
+    if (role or "").strip().upper() == "OD" or _IDRID_DISC_FILE.match(base):
+        return _DISC_SUFFIX.sub("", name, count=1)
+    return name
+
+
+def eye_from_filename(file_name: str, *, role: str = "") -> Optional[str]:
     """从文件名推断眼别；无法判断时返回 None（不猜）"""
-    if not file_name:
+    name = _name_for_eye_check(file_name, role)
+    if not name:
         return None
     for pattern, code in _EYE_PATTERNS:
-        if pattern.search(file_name):
+        if pattern.search(name):
             return code
     return None
 
 
 def detect_laterality_conflict(
-    *, eye: Optional[str], file_name: str,
+    *, eye: Optional[str], file_name: str, role: str = "",
 ) -> Optional[str]:
     """
     交叉校验元数据眼别与文件名线索。
@@ -68,7 +83,7 @@ def detect_laterality_conflict(
     if meta_eye not in EYE_TEXT:
         return None
 
-    name_eye = eye_from_filename(file_name)
+    name_eye = eye_from_filename(file_name, role=role)
     if not name_eye or name_eye == meta_eye:
         return None
 
@@ -170,7 +185,9 @@ def build_image_meta(
             eye = (getattr(r, "eye", "") or "").upper()
             role = getattr(r, "role", "") or ""
             file_name = getattr(r, "file_name", "") or ""
-            conflict = detect_laterality_conflict(eye=eye, file_name=file_name)
+            conflict = detect_laterality_conflict(
+                eye=eye, file_name=file_name, role=role,
+            )
             q = quality_map.get(getattr(r, "id", None))
             q_code = (getattr(q, "quality", None) or UNKNOWN_QUALITY) if q else UNKNOWN_QUALITY
             out.append({

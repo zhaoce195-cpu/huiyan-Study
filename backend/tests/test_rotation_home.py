@@ -233,6 +233,13 @@ def test_groups_keep_completion_and_problems_apart(db):
     assert len(moved.groups) == 1
     assert moved.groups[0].student_count == 2
     assert moved.groups[0].study_year == "2024级"
+    edited = next(row for row in moved.students if row.user_id == other.id)
+    assert edited.group_editor_name == "管理员"
+    assert edited.group_editor_role == "平台管理员"
+    assert edited.group_edited_at
+    seen = RotationService.home(db, other)
+    assert seen.group_editor_name == "管理员"
+    assert seen.group_editor_role == "平台管理员"
 
 
 def test_recommend_by_year_or_group_and_keep_order(db):

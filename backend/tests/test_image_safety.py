@@ -80,6 +80,23 @@ def test_laterality_conflict_detected():
     assert "右眼" in msg and "左眼" in msg
 
 
+def test_optic_disc_filename_is_not_a_right_eye():
+    """IDRiD 的 *_OD.png 是视盘层。记录为左眼时，不能把文件名报成右眼。"""
+    assert eye_from_filename("IDRiD_81_OD.png", role="OD") is None
+    assert detect_laterality_conflict(
+        eye="OS", file_name="IDRiD_81_OD.png", role="OD",
+    ) is None
+    records = [
+        FakeImage("/o.jpg", eye="OS", role="original", file_name="IDRiD_81.jpg"),
+        FakeImage("/d.png", eye="OS", role="OD", file_name="IDRiD_81_OD.png"),
+    ]
+    meta = build_image_meta(records=records)
+    assert meta[0]["lateralityConflict"] is None
+    assert meta[1]["lateralityConflict"] is None
+    assert summarize_safety(meta)["hasLateralityConflict"] is False
+    assert detect_laterality_conflict(eye="OS", file_name="IDRiD_81_OD.png") is None
+
+
 def test_laterality_conflict_reverse():
     msg = detect_laterality_conflict(eye="OS", file_name="scan_right_eye.png")
     assert msg

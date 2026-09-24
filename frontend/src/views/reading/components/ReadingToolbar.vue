@@ -18,14 +18,20 @@ import {
 } from '@element-plus/icons-vue'
 import type { ToolName } from '../types'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   tool: ToolName
   canAnnotate: boolean
   canUndo: boolean
   canRedo: boolean
-  /** 病例学习只看图。画框留给阅片工作台。 */
+  /**
+   * 阅片工作台默认带矩形、多边形、手绘和测量。
+   * 病例学习页显式关掉，那里只看图。
+   * 缺省必须是 true：Vue 会把没传的布尔属性当成 false。
+   */
   showMarks?: boolean
-}>()
+}>(), {
+  showMarks: true
+})
 
 const emit = defineEmits<{
   (e: 'set-tool', t: ToolName): void
@@ -131,6 +137,8 @@ const handleClick = (t: ToolDef) => {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  height: 100%;
+  min-height: 0;
   overflow-y: auto;
 }
 

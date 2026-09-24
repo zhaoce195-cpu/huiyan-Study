@@ -154,7 +154,7 @@ const widthOf = (f: FilterFieldSchema): string => {
 
 <template>
   <div class="dynamic-filter">
-    <template v-for="f in schema.fields" :key="f.key">
+    <template v-for="(f, index) in schema.fields" :key="f.key">
       <!-- 文本输入 -->
       <el-input
         v-if="f.type === 'text'"
@@ -223,13 +223,21 @@ const widthOf = (f: FilterFieldSchema): string => {
         />
         <span class="df-switch-label">{{ f.label || f.key }}</span>
       </label>
-    </template>
 
-    <!-- 一键清除始终在；查询 / 刷新由 schema 或 showActions 决定 -->
-    <div class="df-actions">
-      <el-button class="df-clear" size="small" :icon="RefreshLeft" @click="resetAll">
+      <!-- 紧挨搜索框，不用划到筛选条最右边 -->
+      <el-button
+        v-if="index === 0"
+        class="df-clear"
+        size="small"
+        :icon="RefreshLeft"
+        @click="resetAll"
+      >
         清除
       </el-button>
+    </template>
+
+    <!-- 查询 / 刷新由 schema 或 showActions 决定 -->
+    <div v-if="showActions" class="df-actions">
       <el-button
         v-if="showActions"
         type="primary"
@@ -280,7 +288,6 @@ const widthOf = (f: FilterFieldSchema): string => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  margin-left: auto;
   flex-shrink: 0;
 }
 .df-clear {

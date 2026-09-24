@@ -79,13 +79,20 @@ def my_shares(
     return success(data=r.model_dump(by_alias=True))
 
 
+@router.get("/share-targets", dependencies=[_teacher_dep])
+def share_targets(db: DbSession):
+    r = TeachingService.share_targets(db)
+    return success(data=r.model_dump(by_alias=True))
+
+
 @router.get("/student/cases", dependencies=[_student_dep])
 def student_cases(
     db: DbSession,
+    user: CurrentUser,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
-    r = TeachingService.list_for_student(db, page=page, page_size=page_size)
+    r = TeachingService.list_for_student(db, user=user, page=page, page_size=page_size)
     return success(data=r.model_dump(by_alias=True))
 
 

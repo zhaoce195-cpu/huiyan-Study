@@ -23,10 +23,18 @@ export interface Hospital {
   city?: string
 }
 
+export interface DepartmentMember {
+  id: number
+  realName: string
+  title: string
+}
+
 export interface Department {
   id: number | string
   name: string
-  hospitalId?: number | string
+  hospitalId?: number | string | null
+  hospitalName?: string
+  members?: DepartmentMember[]
 }
 
 export interface SystemConfig {
@@ -133,7 +141,7 @@ export interface NoticeSaveParams {
 /* === 科室管理 === */
 
 export interface DepartmentSaveParams {
-  /** 所属医院；不传 = 全院通用科室（所有医院可见） */
+  /** 所属医院。新建时必填，只在这家医院下可见。 */
   hospitalId?: number
   code?: string
   name: string

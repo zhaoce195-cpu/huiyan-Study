@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { rememberedReadingCaseId } from '@/utils/reading-case'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -116,8 +117,21 @@ const routes: RouteRecordRaw[] = [
         path: 'reading',
         name: 'TrainingReading',
         component: () => import('@/views/reading/index.vue'),
-        // 无 caseId、且没有点开质量评估时，页面回到上次阅片的那一例
-        meta: { title: '影像阅片工作站' }
+        meta: { title: '影像阅片工作站' },
+        // 侧栏「阅片工作台」只有路径、没有病例编号。从病例库回来时把上次的编号补上，
+        // 否则页面没有 caseId，影像请求发不出去。
+        beforeEnter: (to) => {
+          if (to.query.caseId || to.query.recordId) return true
+          const tab = String(to.query.tab || '')
+          if (tab === 'quality' || tab === 'review') return true
+          const saved = rememberedReadingCaseId()
+          if (!saved) return true
+          return {
+            path: to.path,
+            query: { ...to.query, caseId: String(saved) },
+            replace: true
+          }
+        }
       },
       {
         path: 'practice',

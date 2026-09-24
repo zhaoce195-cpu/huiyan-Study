@@ -62,7 +62,16 @@ class TeachingShare(Base, TimestampMixin):
     )
 
     share_scope: Mapped[str] = mapped_column(
-        String(16), nullable=False, default="ALL", comment="分享范围：ALL/CLASS"
+        String(16), nullable=False, default="ALL",
+        comment="分享对象：ALL 全体 / YEAR 年级 / BATCH 轮转批次 / GROUP 带教组",
+    )
+    scope_value: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="",
+        comment="年级、轮转批次或带教组名称；全体学员或指定学员时为空",
+    )
+    audience_ids: Mapped[Optional[list]] = mapped_column(
+        JSON, nullable=True,
+        comment="指定学员时的用户 ID 列表",
     )
     expire_hours: Mapped[int] = mapped_column(
         Integer, nullable=False, default=24, comment="有效期（小时）"

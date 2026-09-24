@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Back, Document, ArrowLeft, ArrowRight, MagicStick } from '@element-plus/icons-vue'
@@ -13,6 +13,8 @@ import {
   summaryHtml
 } from '@/utils/submit-guard'
 import { wadorsImageId } from '@/utils/cornerstone3d'
+import { rememberReadingCaseId, rememberedReadingCaseId } from '@/utils/reading-case'
+import { actorLabel } from '@/utils/actor'
 import { useUserStore } from '@/stores/user'
 
 import ReadingToolbar from './components/ReadingToolbar.vue'
@@ -21,6 +23,7 @@ import ReadingSidePanel from './components/ReadingSidePanel.vue'
 import ReadingQualityPanel from './components/ReadingQualityPanel.vue'
 import ReadingSubmitDialog from './components/ReadingSubmitDialog.vue'
 import ReadingSafetyBar from './components/ReadingSafetyBar.vue'
+import CaseIdPair from '@/components/CaseIdPair.vue'
 import NoteEditDialog from '@/views/learning/components/NoteEditDialog.vue'
 import AiDiagnosisDialog from '@/components/AiDiagnosisDialog.vue'
 import type {
@@ -59,7 +62,6 @@ const missingCaseId = computed(() => !caseId.value && !recordId.value)
 /** 质量评估只在地址明确带 tab=quality 时出现。侧栏「阅片工作台」不带这个参数，应打开阅片画面。 */
 type WorkbenchTab = 'reading' | 'quality'
 const workbenchTab = ref<WorkbenchTab>('reading')
-const LAST_CASE_KEY = 'huiyan.reading.lastCaseId'
 const showQualityPanel = computed(
   () => canReview.value && !(recordId.value > 0) && workbenchTab.value === 'quality'
 )
@@ -68,24 +70,9 @@ const wantsQualityList = () => {
   const tab = String(route.query.tab || '')
   return tab === 'quality' || tab === 'review'
 }
-const rememberReadingCase = (id: number) => {
-  if (!(id > 0)) return
-  try {
-    sessionStorage.setItem(LAST_CASE_KEY, String(id))
-  } catch {
-    /* 写不进去时，下次从列表第一例进入 */
-  }
-}
-const preferredReadingCaseId = () => {
-  let saved = 0
-  try {
-    saved = Number(sessionStorage.getItem(LAST_CASE_KEY) || 0)
-  } catch {
-    saved = 0
-  }
-  if (saved > 0 && caseList.value.some((c) => c.id === saved)) return saved
-  return caseList.value[0]?.id || 0
-}
+const rememberReadingCase = (id: number) => rememberReadingCaseId(id)
+const preferredReadingCaseId = () => rememberedReadingCaseId() || caseList.value[0]?.id || 0
+const onReadingRoute = () => route.path.endsWith('/reading')
 const applyWorkbenchTabFromRoute = () => {
   if (!canReview.value) {
     workbenchTab.value = 'reading'
@@ -150,14 +137,18 @@ const gotoCaseByIndex = (idx: number) => {
   if (idx < 0 || idx >= caseList.value.length) return
   const target = caseList.value[idx]
   if (!target || target.id === caseId.value) return
-  const q: any = { ...route.query, caseId: target.id }
+  const q: any = { ...route.query, caseId: String(target.id) }
   delete q.recordId
-  router.replace({ query: q })
+  router.replace({ path: route.path, query: q })
 }
 const onSelectCase = (id: number) => {
-  const q: any = { ...route.query, caseId: id }
+  if (!(id > 0)) return
+  rememberReadingCase(id)
+  const q: any = { ...route.query, caseId: String(id) }
   delete q.recordId
-  router.replace({ query: q })
+  delete q.tab
+  const path = onReadingRoute() ? route.path : '/training/reading'
+  router.replace({ path, query: q })
 }
 
 /* ========== 影像源 ========== */
@@ -234,6 +225,9 @@ const recordLocked = computed(() => {
 const existingRecord = ref<ReadingRecord | null>(null)
 
 /* ========== 画布状态 ========== */
+
+/** 右侧列表当前指着的那一条，画布用它把对应的框亮出来 */
+const highlightId = ref('')
 
 const canvasState = reactive<CanvasState>({
   tool: 'pointer',
@@ -696,9 +690,16 @@ onBeforeUnmount(() => {
   // 离开页面时清理 cornerstone 启用元素由 CoreRetinaStation 自身负责
 })
 
+onActivated(() => {
+  if (!onReadingRoute() || caseId.value || recordId.value || wantsQualityList()) return
+  const id = preferredReadingCaseId()
+  if (id) onSelectCase(id)
+})
+
 watch(
   () => [route.query.tab, route.query.recordId, route.query.caseId],
   () => {
+    if (!onReadingRoute()) return
     applyWorkbenchTabFromRoute()
     if (caseId.value) {
       rememberReadingCase(caseId.value)
@@ -735,6 +736,8 @@ watch(currentImageIndex, () => {
 let stickyCaseId = 0
 watch(caseId, async (newId, oldId) => {
   if (newId === oldId) return
+  // 离开阅片去病例库时，地址上的病例编号会消失。不要在这一步把编号写回病例库。
+  if (!onReadingRoute()) return
   if (newId > 0) rememberReadingCase(newId)
   if (!newId) {
     if (oldId > 0 && !recordId.value && !wantsQualityList()) {
@@ -1108,8 +1111,8 @@ const openNote = () => {
       <span class="review-bar-who">
         {{
           existingRecord.status === 'SUBMITTED'
-            ? '教师尚未评定'
-            : existingRecord.reviewComment || '（无评语）'
+            ? '尚未评定'
+            : `${actorLabel(existingRecord.reviewerName, existingRecord.reviewerRole) || '尚未记录评定人'}${existingRecord.reviewComment ? `：${existingRecord.reviewComment}` : '（无评语）'}`
         }}
       </span>
       <el-button text size="small" @click="router.push('/training/my-reviews')">
@@ -1157,6 +1160,7 @@ const openNote = () => {
     <ReadingSafetyBar
       v-if="!showQualityPanel && source"
       :case-no="source.caseNo"
+      :case-sn="source.caseSn"
       :patient-name="source.patientName"
       :modality-text="(source as any).modalityText"
       :exam-date="(source as any).examDate"
@@ -1231,9 +1235,7 @@ const openNote = () => {
         </span>
       </div>
       <div class="pb-cell pb-no">
-        <span class="pb-label">病例编号</span>
-        <span class="pb-value mono">{{ source.caseNo }}</span>
-        <span v-if="source.caseSn" class="pb-sn">{{ source.caseSn }}</span>
+        <CaseIdPair tone="dark" :source-no="source.caseNo" :platform-no="source.caseSn" />
       </div>
     </div>
 
@@ -1242,6 +1244,7 @@ const openNote = () => {
       <ReadingToolbar
         :tool="canvasState.tool"
         :can-annotate="canAnnotate && !reviewMode && !recordLocked"
+        :show-marks="true"
         :can-undo="canvasState.history.length > 0"
         :can-redo="canvasState.redoStack.length > 0"
         @set-tool="setTool"
@@ -1358,6 +1361,7 @@ const openNote = () => {
           :gold-overlay-url="source?.lesionMaskUrl || ''"
           :heatmap-overlay-url="source?.heatmapUrl || ''"
           :readonly="!canAnnotate || reviewMode || recordLocked"
+          :highlight-id="highlightId"
           @update:annotations="onAnnotationsChange"
           @pick-label="onPickLabel"
           @update:measurements="onMeasurementsChange"
@@ -1397,6 +1401,7 @@ const openNote = () => {
         :can-review="canReview && reviewMode && existingRecord?.status === 'SUBMITTED'"
         :review-loading="reviewLoading"
         :layer-notes="layerNotes"
+        @highlight="(id) => (highlightId = id)"
         @update:viewport="(v) => (canvasState.viewport = v)"
         @update:layers="(l) => (canvasState.layers = l)"
         @remove-annotation="
@@ -1576,7 +1581,7 @@ const openNote = () => {
 .page-body {
   flex: 1;
   display: grid;
-  grid-template-columns: 64px 1fr 320px;
+  grid-template-columns: 76px 1fr 320px;
   min-height: 0;
 }
 

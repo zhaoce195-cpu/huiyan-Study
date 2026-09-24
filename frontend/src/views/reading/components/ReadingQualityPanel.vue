@@ -5,6 +5,7 @@
 import { onMounted, ref, watch } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import { ReadingApi } from '@/api'
+import { actorLabel } from '@/utils/actor'
 import ReadingReviewDialog from './ReadingReviewDialog.vue'
 
 const props = defineProps<{
@@ -119,6 +120,15 @@ watch(() => props.caseId, () => {
         </template>
       </el-table-column>
       <el-table-column prop="updatedAt" label="提交 / 更新" width="180" />
+      <el-table-column label="评定人" min-width="150">
+        <template #default="{ row }">
+          {{
+            row.status === 'SUBMITTED'
+              ? '尚未评定'
+              : actorLabel(row.reviewerName, row.reviewerRole) || '尚未记录'
+          }}
+        </template>
+      </el-table-column>
       <el-table-column label="评语" min-width="160">
         <template #default="{ row }">
           {{ row.reviewComment || '—' }}

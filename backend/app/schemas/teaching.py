@@ -23,9 +23,27 @@ class _CamelModel(BaseModel):
 class TeachingShareCreate(_CamelModel):
     source_type: Literal["SCREENING", "TRAINING"]
     source_case_id: int
-    share_scope: str = "ALL"
+    share_scope: Literal["ALL", "YEAR", "BATCH", "GROUP", "PEOPLE"] = "ALL"
+    scope_value: str = ""
+    audience_ids: List[int] = []
     expire_hours: int = Field(default=24, ge=1, le=720)
     hide_answers: bool = True
+
+
+class ShareStudentOut(_CamelModel):
+    id: int
+    name: str
+    study_year: str = ""
+    rotation_batch: str = ""
+    mentor_group: str = ""
+
+
+class ShareTargetsOut(_CamelModel):
+    """班级学生里已经填写过的分组，以及可勾选的学员。"""
+    years: List[str] = []
+    batches: List[str] = []
+    groups: List[str] = []
+    students: List[ShareStudentOut] = []
 
 
 class TeachingSubmitCreate(_CamelModel):
@@ -50,6 +68,9 @@ class TeachingShareOut(_CamelModel):
     teaching_case_id: Optional[int] = None
     desensitized_data: Dict[str, Any] = {}
     share_scope: str = "ALL"
+    scope_value: str = ""
+    audience_ids: List[int] = []
+    audience_label: str = ""
     expire_hours: int = 24
     expired_at: Optional[datetime] = None
     status: str
@@ -67,6 +88,7 @@ class TeachingSharePage(_CamelModel):
     total: int = 0
     page: int = 1
     page_size: int = 20
+    pending_count: int = 0
     list: List[TeachingShareOut] = []
 
 

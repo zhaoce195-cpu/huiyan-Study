@@ -84,7 +84,7 @@ const roleBadge = computed(() => {
 </script>
 
 <template>
-  <el-container class="portal portal-dark" :class="{ collapsed }">
+  <el-container class="portal" :class="{ collapsed }">
     <!-- 侧边栏：固定高度，不随页面滚动 -->
     <el-aside class="portal-aside" :width="collapsed ? '64px' : '240px'">
       <div class="aside-brand">
@@ -125,7 +125,7 @@ const roleBadge = computed(() => {
             <el-icon><folder /></el-icon>
             <template #title>病例库</template>
           </el-menu-item>
-          <el-menu-item v-if="!isStudent" index="/training/reading">
+          <el-menu-item index="/training/reading">
             <el-icon><Monitor /></el-icon>
             <template #title>阅片工作台</template>
           </el-menu-item>
@@ -336,7 +336,7 @@ const roleBadge = computed(() => {
 }
 .brand-sub {
   font-size: 11px;
-  color: #b7bec8;
+  color: var(--ap-text-2);
   letter-spacing: 2.5px;
   margin-top: 3px;
   font-weight: 500;
@@ -366,18 +366,18 @@ const roleBadge = computed(() => {
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 1.2px;
-  color: #b7bec8;
+  color: var(--ap-text-2);
 }
 .aside-menu :deep(.el-sub-menu__title:hover) {
   background: var(--ap-fill);
-  color: #e4e7ec;
+  color: var(--ap-text);
 }
 .aside-menu :deep(.el-menu-item-group__title) {
   padding: 16px 20px 6px;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 1.2px;
-  color: #b7bec8;
+  color: var(--ap-text-2);
 }
 /* 收起时：隐藏分组标题 + 图标水平居中 */
 .aside-menu.el-menu--collapse :deep(.el-menu-item-group__title) {
@@ -406,13 +406,13 @@ const roleBadge = computed(() => {
   height: 42px;
   line-height: 42px;
   font-size: calc(14px * var(--hy-font-scale, 1));
-  color: #e4e7ec;
+  color: var(--ap-text);
   overflow: hidden;
   text-overflow: ellipsis;
   transition: background 0.2s var(--ap-ease), color 0.2s var(--ap-ease);
 }
 .aside-menu :deep(.el-menu-item .el-icon) {
-  color: #c5cad3;
+  color: var(--ap-text-2);
   transition: color 0.2s var(--ap-ease);
 }
 .aside-menu :deep(.el-menu-item:hover) {
@@ -475,14 +475,14 @@ const roleBadge = computed(() => {
 }
 .au-role {
   font-size: calc(12px * var(--hy-font-scale, 1));
-  color: #c5cad3;
+  color: var(--ap-text-2);
   margin-top: 1px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .au-more {
-  color: #c5cad3;
+  color: var(--ap-text-2);
   font-size: 15px;
   flex-shrink: 0;
 }
@@ -538,13 +538,12 @@ const roleBadge = computed(() => {
 .portal-main::-webkit-scrollbar-thumb:hover {
   background: rgba(15, 23, 42, 0.28);
 }
-/* 侧边栏（深色）：浅色滚动条 */
 .aside-menu::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--ap-hairline-strong);
   border-radius: 4px;
 }
 .aside-menu::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.26);
+  background: var(--ap-text-3);
 }
 .portal-main::-webkit-scrollbar-track,
 .aside-menu::-webkit-scrollbar-track {

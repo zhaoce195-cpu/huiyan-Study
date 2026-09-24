@@ -130,6 +130,7 @@ def build_op_dataset(
     case_no: str = "",
     eye: Optional[str] = None,
     file_name: str = "",
+    role: str = "",
     exam_datetime: Optional[datetime] = None,
     series_description: str = "",
     instance_number: int = 1,
@@ -155,7 +156,7 @@ def build_op_dataset(
 
     # ---- 眼别一致性校验（报告 8.3 首条 P0）----
     conflict = detect_laterality_conflict(
-        eye=eye, file_name=file_name or image_path.name,
+        eye=eye, file_name=file_name or image_path.name, role=role,
     )
     if conflict and strict_laterality:
         raise LateralityConflictError(conflict)

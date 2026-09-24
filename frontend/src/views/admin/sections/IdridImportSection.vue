@@ -59,7 +59,7 @@ const runProbe = async (path?: string) => {
   try {
     const res = await CaseImageApi.probeIdrid(path)
     probe.value = res
-    if (!form.sourcePath && res.sourcePath) {
+    if (!form.sourcePath && res.ready && res.sourcePath) {
       form.sourcePath = res.sourcePath
     }
   } catch (e: any) {
@@ -203,7 +203,7 @@ const runBackfill = async (overwrite = false) => {
         <div class="card-header">
           <div class="card-title">
             <el-icon class="title-icon"><Files /></el-icon>
-            服务器约定目录
+            目录检查
           </div>
           <el-button
             size="small"
@@ -222,9 +222,11 @@ const runBackfill = async (overwrite = false) => {
           :title="probe.ready ? '约定目录就绪' : '约定目录未就绪'"
         >
           {{ probe.hint }}
-          <div v-if="probe.ready" class="probe-meta">
-            训练 {{ probe.trainCount }} 张 · 测试 {{ probe.testCount }} 张 · 路径
-            <code>{{ probe.sourcePath }}</code>
+          <div class="probe-meta">
+            正在检查 <code>{{ probe.sourcePath }}</code>
+            <template v-if="probe.ready">
+              · 训练 {{ probe.trainCount }} 张 · 测试 {{ probe.testCount }} 张
+            </template>
           </div>
         </el-alert>
         <div v-else class="muted">正在探测服务器约定目录…</div>
@@ -299,17 +301,17 @@ const runBackfill = async (overwrite = false) => {
           <el-form-item label="源目录路径">
             <el-input
               v-model="form.sourcePath"
-              placeholder="留空 = 使用服务器约定目录"
+              placeholder="例如 D:\datasets\IDRiD"
               clearable
             >
-              <template #prepend>服务器路径</template>
+              <template #prepend>本机路径</template>
             </el-input>
             <div class="hint">
-              <strong>这是后端服务器上的路径，不是你这台电脑上的路径。</strong>
-              运维先把数据集放到约定目录（容器部署时还需挂载进容器）。
-              目录下应包含「1. Original Images」「2. All Segmentation Groundtruths」
-              「3. IDRID_4_lesion_processed」三个子目录。正式入库会把文件复制到
-              <code>backend/app/static/training/idrid/</code> 下并按 role 分目录。
+              填运行后端的这台电脑上的文件夹，不要带引号。
+              根目录里要有「1. Original Images」和「2. All Segmentation Groundtruths」；
+              官方压缩包多一层「A. Segmentation」也可以，填外面那一层就行。
+              「3. IDRID_4_lesion_processed」可以没有。
+              留空时检查约定目录 <code>{{ probe?.defaultPath || 'backend/data/idrid' }}</code>。
             </div>
           </el-form-item>
 

@@ -211,6 +211,7 @@ export interface ReadingRecord {
   reviewComment: string
   reviewerId: number | null
   reviewerName: string
+  reviewerRole: string
   createdAt: string | null
   updatedAt: string | null
 }

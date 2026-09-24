@@ -98,6 +98,7 @@ class AdminUserItem(_CamelUser):
     role: str = ""
     role_name: str = ""
     department: str = ""
+    hospital_name: str = ""
     is_active: bool = True
     must_change_password: bool = False
     last_login_at: Optional[datetime] = None
@@ -116,6 +117,7 @@ class AdminUserCreate(_CamelUser):
     real_name: str = Field(..., min_length=1, max_length=32, description="真实姓名")
     role: RoleEnum = Field(..., description="STUDENT / TEACHER / ADMIN")
     department: str = Field("", max_length=64, description="所属科室")
+    department_id: Optional[int] = Field(None, description="所属科室记录，用来把同名科室按医院分开")
     password: str = Field(..., min_length=6, max_length=64, description="初始密码")
 
     @field_validator("username")

@@ -6,6 +6,7 @@ import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Refresh } from '@element-plus/icons-vue'
 import { ReadingApi } from '@/api'
+import { actorLabel } from '@/utils/actor'
 
 const router = useRouter()
 const loading = ref(false)
@@ -55,6 +56,12 @@ onMounted(fetchAll)
             <el-tag size="small" :type="readingMeta(row.status).tag">
               {{ readingMeta(row.status).label }}
             </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="评定人" min-width="160">
+          <template #default="{ row }">
+            <span v-if="row.status === 'SUBMITTED'" class="muted">尚未评定</span>
+            <span v-else>{{ actorLabel(row.reviewerName, row.reviewerRole) || '尚未记录' }}</span>
           </template>
         </el-table-column>
         <el-table-column label="教师评语" min-width="240">

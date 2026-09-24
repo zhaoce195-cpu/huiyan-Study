@@ -80,7 +80,9 @@ const onReset = () => {
 const depts = ref<CommonApi.Department[]>([])
 const fetchDepts = async () => {
   try {
-    depts.value = (await CommonApi.getDepartmentList()) || []
+    depts.value = ((await CommonApi.getDepartmentList()) || []).filter(
+      (row) => row.hospitalId != null
+    )
   } catch {
     depts.value = []
   }
@@ -89,11 +91,12 @@ const fetchDepts = async () => {
 const createVisible = ref(false)
 const createLoading = ref(false)
 const createFormRef = ref<FormInstance>()
-const createForm = reactive<AdminUsersApi.AdminUserCreate>({
+const createForm = reactive<AdminUsersApi.AdminUserCreate & { departmentPick: number | string }>({
   username: '',
   realName: '',
   role: 'STUDENT',
   department: '',
+  departmentPick: '',
   password: ''
 })
 
@@ -118,11 +121,15 @@ const createRules: FormRules = {
   ]
 }
 
+const deptLabel = (row: CommonApi.Department) =>
+  row.hospitalName ? `${row.name} · ${row.hospitalName}` : row.name
+
 const openCreate = () => {
   createForm.username = ''
   createForm.realName = ''
   createForm.role = 'STUDENT'
   createForm.department = ''
+  createForm.departmentPick = ''
   createForm.password = ''
   createVisible.value = true
 }
@@ -133,7 +140,15 @@ const submitCreate = async () => {
     if (!valid) return
     createLoading.value = true
     try {
-      await AdminUsersApi.createAdminUser({ ...createForm })
+      const chosen = depts.value.find((row) => Number(row.id) === Number(createForm.departmentPick))
+      await AdminUsersApi.createAdminUser({
+        username: createForm.username,
+        realName: createForm.realName,
+        role: createForm.role,
+        department: chosen ? chosen.name : String(createForm.departmentPick || ''),
+        departmentId: chosen && chosen.hospitalId != null ? Number(chosen.id) : undefined,
+        password: createForm.password
+      })
       createVisible.value = false
       fetchList()
     } catch {
@@ -250,8 +265,14 @@ onMounted(() => {
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="department" label="科室" min-width="160">
-          <template #default="{ row }">{{ row.department || '—' }}</template>
+        <el-table-column label="科室" min-width="220">
+          <template #default="{ row }">
+            <span v-if="row.department">
+              {{ row.department }}
+              <span v-if="row.hospitalName" class="muted"> · {{ row.hospitalName }}</span>
+            </span>
+            <span v-else>—</span>
+          </template>
         </el-table-column>
         <el-table-column label="启用" width="100">
           <template #default="{ row }">
@@ -323,14 +344,19 @@ onMounted(() => {
         </el-form-item>
         <el-form-item label="科室">
           <el-select
-            v-model="createForm.department"
+            v-model="createForm.departmentPick"
             filterable
             allow-create
             clearable
-            placeholder="选择或输入科室"
+            placeholder="选择医院下的科室"
             style="width: 100%"
           >
-            <el-option v-for="d in depts" :key="d.id" :label="d.name" :value="d.name" />
+            <el-option
+              v-for="d in depts"
+              :key="d.id"
+              :label="deptLabel(d)"
+              :value="Number(d.id)"
+            />
           </el-select>
         </el-form-item>
         <el-form-item label="初密" prop="password">

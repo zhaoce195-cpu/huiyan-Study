@@ -14,7 +14,9 @@
  *   4. 颜色只作冗余提示，信息本身一律有文字。
  */
 import { computed } from 'vue'
+import { ElMessage } from 'element-plus'
 import { Warning } from '@element-plus/icons-vue'
+import { copyText } from '@/utils/copy-text'
 
 interface ImageMeta {
   url?: string
@@ -45,6 +47,8 @@ interface SafetySummary {
 
 const props = withDefaults(defineProps<{
   caseNo?: string
+  /** 平台病例号。和来源编号分开显示，单击只复制这一条。 */
+  caseSn?: string
   patientName?: string
   modalityText?: string
   examDate?: string | null
@@ -54,6 +58,7 @@ const props = withDefaults(defineProps<{
   statusText?: string
 }>(), {
   caseNo: '',
+  caseSn: '',
   patientName: '',
   modalityText: '眼底彩照',
   examDate: null,
@@ -105,6 +110,14 @@ const ungradableWarn = computed(() => {
     + `应标记不可判读并进入重拍或转诊流程`
 })
 
+const copyId = async (text: string | undefined, name: string) => {
+  const value = (text || '').trim()
+  if (!value) return
+  const ok = await copyText(value)
+  if (ok) ElMessage.success(`已复制${name}`)
+  else ElMessage.error('复制失败，请手动选择编号')
+}
+
 const conflict = computed(
   () => props.current?.lateralityConflict || props.safety?.lateralityConflicts?.[0] || ''
 )
@@ -126,8 +139,26 @@ const conflict = computed(
 
     <div class="bar-row">
       <div class="cell">
-        <span class="label">病例</span>
-        <span class="value strong">{{ caseNo || '—' }}</span>
+        <span class="label">来源编号</span>
+        <button
+          type="button"
+          class="value strong copy"
+          title="原数据或外部系统中的编号，对外沟通时复制这一条。单击复制。"
+          @click="copyId(caseNo, '来源编号')"
+        >
+          {{ caseNo || '—' }}
+        </button>
+      </div>
+      <div v-if="caseSn" class="cell">
+        <span class="label">平台病例号</span>
+        <button
+          type="button"
+          class="value copy"
+          title="本平台生成的唯一号，只在本系统内对照。单击复制。"
+          @click="copyId(caseSn, '平台病例号')"
+        >
+          {{ caseSn }}
+        </button>
       </div>
 
       <div class="cell" :class="{ 'is-warn': eyeUnknown }">
@@ -244,6 +275,17 @@ const conflict = computed(
 .value.strong {
   font-weight: 700;
   letter-spacing: 0.02em;
+}
+button.copy {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+button.copy:hover {
+  text-decoration: underline;
 }
 
 /* 颜色只作冗余提示：文字本身已完整表达信息 */

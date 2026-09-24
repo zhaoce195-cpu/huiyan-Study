@@ -44,14 +44,22 @@ class HospitalOut(_CamelModel):
     city: Optional[str] = None
 
 
+class DepartmentMemberOut(_CamelModel):
+    id: int
+    real_name: str = ""
+    title: str = ""
+
+
 class DepartmentOut(_CamelModel):
     id: Union[int, str]
     name: str
     hospital_id: Optional[Union[int, str]] = None
+    hospital_name: str = ""
+    members: List[DepartmentMemberOut] = Field(default_factory=list)
 
 
 class DepartmentSaveParams(_CamelModel):
-    # 不传 = 全院通用科室（所有医院都能看到）
+    # 必须归属一家医院。不传时服务层拒绝，避免新建后出现在每一家医院下。
     hospital_id: Optional[int] = None
     code: Optional[str] = Field(None, max_length=32)
     name: str = Field(..., min_length=1, max_length=64)

@@ -7,6 +7,7 @@ import type {
   LayerState,
   ViewportState
 } from '../types'
+import { markCaption } from '../types'
 import type { ReadingApi } from '@/api'
 
 type ReadingRecord = ReadingApi.ReadingRecord
@@ -28,8 +29,19 @@ const emit = defineEmits<{
   (e: 'update:layers', v: LayerState): void
   (e: 'remove-annotation', idx: number): void
   (e: 'remove-measurement', idx: number): void
+  (e: 'highlight', id: string): void
   (e: 'review', accept: boolean, comment: string): void
 }>()
+
+const hoverId = ref('')
+const enterMark = (id: string) => {
+  hoverId.value = id
+  emit('highlight', id)
+}
+const leaveMark = () => {
+  hoverId.value = ''
+  emit('highlight', '')
+}
 
 const wwwc = computed({
   get: () => [props.viewport.ww, props.viewport.wl] as [number, number],
@@ -197,15 +209,22 @@ const onReview = (accept: boolean) => {
         我的标注
         <span class="muted ml6">{{ annotations.length }}</span>
       </div>
+      <p class="ann-hint">编号和图上左上角的字是同一条。鼠标停在某一行上，图里对应的框会亮起来。在图上右键那一条，可以直接删除。</p>
       <div v-if="annotations.length === 0" class="empty">尚未进行标注</div>
       <div v-else class="ann-list">
-        <div v-for="(a, i) in annotations" :key="a.id" class="ann-row">
+        <div
+          v-for="(a, i) in annotations"
+          :key="a.id"
+          class="ann-row"
+          :class="{ active: hoverId === a.id }"
+          @mouseenter="enterMark(a.id)"
+          @mouseleave="leaveMark"
+        >
           <span
             class="dot"
             :style="{ background: a.color || '#4091ff' }"
           />
-          <span class="ann-tool">{{ a.tool }}</span>
-          <span class="ann-label">{{ a.label }}</span>
+          <span class="ann-label">{{ markCaption(annotations, i) }}</span>
           <el-button
             text
             type="danger"
@@ -225,11 +244,20 @@ const onReview = (accept: boolean) => {
       </div>
       <div v-if="measurements.length === 0" class="empty">尚无测量数据</div>
       <div v-else class="ann-list">
-        <div v-for="(m, i) in measurements" :key="m.id" class="ann-row">
+        <div
+          v-for="(m, i) in measurements"
+          :key="m.id"
+          class="ann-row"
+          :class="{ active: hoverId === m.id }"
+          @mouseenter="enterMark(m.id)"
+          @mouseleave="leaveMark"
+        >
           <span class="dot" :style="{ background: m.color || '#52c41a' }" />
-          <span class="ann-tool">{{ m.tool }}</span>
           <span class="ann-label">
-            {{ m.value !== undefined ? m.value.toFixed(1) + ' ' + (m.unit || '') : m.label }}
+            {{ markCaption(measurements, i) }}
+            <template v-if="m.value !== undefined">
+              · {{ m.value.toFixed(1) }} {{ m.unit || '' }}
+            </template>
           </span>
           <el-button
             text
@@ -370,6 +398,12 @@ const onReview = (accept: boolean) => {
   padding: 14px 0;
 }
 
+.ann-hint {
+  margin: 0 0 8px;
+  color: #d5dae3;
+  font-size: 12px;
+  line-height: 1.5;
+}
 .ann-list {
   display: flex;
   flex-direction: column;
@@ -383,6 +417,11 @@ const onReview = (accept: boolean) => {
   padding: 4px 8px;
   border-radius: 6px;
   font-size: 12px;
+  cursor: default;
+}
+.ann-row.active {
+  background: #1d4f91;
+  outline: 1px solid #8eb7ff;
 }
 .dot {
   width: 10px;

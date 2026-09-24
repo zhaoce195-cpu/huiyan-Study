@@ -107,6 +107,15 @@ const showDetail = (row: Share) => {
   detailVisible.value = true
 }
 
+const scopeLabel = (row: Share) => {
+  if (row.shareType !== 'TEMPORARY') return '公共教学库'
+  if (row.shareScope === 'YEAR') return `年级 · ${row.scopeValue || '—'}`
+  if (row.shareScope === 'BATCH') return `轮转批次 · ${row.scopeValue || '—'}`
+  if (row.shareScope === 'GROUP') return `带教组 · ${row.scopeValue || '—'}`
+  if (row.shareScope === 'PEOPLE') return `指定学员 · ${row.audienceLabel || '—'}`
+  return '全体学员'
+}
+
 const isExpired = (row: Share) => {
   if (row.shareType !== 'TEMPORARY' || row.status !== 'SHARING') return false
   if (!row.expiredAt) return false
@@ -339,6 +348,11 @@ onMounted(() => {
             </div>
           </template>
         </el-table-column>
+        <el-table-column label="分享对象" min-width="150">
+          <template #default="{ row }">
+            {{ scopeLabel(row) }}
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="110">
           <template #default="{ row }">
             <el-tag size="small" :type="statusMap[effectiveStatus(row)]?.type || 'info'">
@@ -465,6 +479,10 @@ onMounted(() => {
           <span>{{ detail.desensitizedData?.title || '—' }}</span>
         </div>
         <TeachingDemoBody :source="detail.desensitizedData" />
+        <div class="row" v-if="detail.shareType === 'TEMPORARY'">
+          <span class="lbl">分享对象</span>
+          <span>{{ scopeLabel(detail) }}</span>
+        </div>
         <div class="row">
           <span class="lbl">来源病例</span>
           <span>{{ detail.sourceType === 'SCREENING' ? '筛查' : '实训' }}#{{ detail.sourceCaseId }}</span>

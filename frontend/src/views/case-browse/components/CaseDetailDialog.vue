@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import { Picture, Promotion, Check } from '@element-plus/icons-vue'
 import { CaseBrowseApi } from '@/api'
 import TeachingOutlineView from '@/components/TeachingOutlineView.vue'
+import CaseIdPair from '@/components/CaseIdPair.vue'
 import { useTrainingJoinStore } from '@/stores/training-join'
 
 type Detail = CaseBrowseApi.CaseBrowseDetail
@@ -120,8 +121,8 @@ const saveSubject = async () => {
       <template v-if="data">
         <!-- 头部信息 -->
         <div class="detail-header">
+          <CaseIdPair :source-no="data.caseNo" :platform-no="data.caseSn" />
           <div class="title-line">
-            <span class="case-no">{{ data.caseNo }}</span>
             <span class="title">{{ data.title || '—' }}</span>
             <el-tag
               :type="data.archiveStatus === 'ARCHIVED' ? 'info' : 'success'"
@@ -191,10 +192,6 @@ const saveSubject = async () => {
               >已脱敏</el-tag>
             </span>
             <span v-else class="muted">无权限查看</span>
-          </el-descriptions-item>
-          <el-descriptions-item label="病例编号" :span="2">
-            <span class="case-no">{{ data.caseNo }}</span>
-            <span v-if="data.caseSn" class="case-sn">/ {{ data.caseSn }}</span>
           </el-descriptions-item>
         </el-descriptions>
 

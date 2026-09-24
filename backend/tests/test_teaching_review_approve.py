@@ -23,7 +23,7 @@ from app.db.models import (
     TrainingCase,
     User,
 )
-from app.schemas.teaching import TeachingReviewParams
+from app.schemas.teaching import TeachingReviewParams, TeachingSubmitCreate
 from app.services.teaching_service import TeachingService
 
 
@@ -101,6 +101,42 @@ def test_approve_uses_distinct_sn_prefixes(db, seeded):
     assert case.case_no.startswith("T")
     assert case.case_sn.startswith("CASE")
     assert case.case_no != case.case_sn
+
+
+def test_admin_convert_is_approved_without_a_second_review(db, seeded):
+    source = TrainingCase(
+        case_no="T-SRC",
+        title="管理员转入",
+        creator_id=seeded["admin"].id,
+    )
+    db.add(source)
+    db.commit()
+    out = TeachingService.submit_for_review(
+        db,
+        user=seeded["admin"],
+        params=TeachingSubmitCreate(source_type="TRAINING", source_case_id=source.id, title="管理员转入"),
+    )
+    assert out.status == ShareStatusEnum.APPROVED.value
+    assert out.teaching_case_id
+    assert out.review_comment == "管理员转入，直接入库"
+
+
+def test_teacher_convert_stays_pending(db, seeded):
+    source = TrainingCase(
+        case_no="T-SRC-2",
+        title="教师转入",
+        creator_id=seeded["teacher"].id,
+    )
+    db.add(source)
+    db.commit()
+    out = TeachingService.submit_for_review(
+        db,
+        user=seeded["teacher"],
+        params=TeachingSubmitCreate(source_type="TRAINING", source_case_id=source.id, title="教师转入"),
+    )
+    assert out.status == ShareStatusEnum.PENDING.value
+    page = TeachingService.list_for_admin(db)
+    assert page.pending_count >= 1
 
 
 def test_reject_requires_comment(db, seeded):

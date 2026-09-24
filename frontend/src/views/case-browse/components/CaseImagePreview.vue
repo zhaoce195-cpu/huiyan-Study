@@ -19,40 +19,88 @@ const dialogVisible = computed({
 
 const currentIndex = ref(props.initialIndex || 0)
 const scale = ref(1)
+const offsetX = ref(0)
+const offsetY = ref(0)
+const dragging = ref(false)
+
+const MIN_SCALE = 0.25
+const MAX_SCALE = 4
+
+let dragOriginX = 0
+let dragOriginY = 0
+let pointerOriginX = 0
+let pointerOriginY = 0
+
+const resetView = () => {
+  scale.value = 1
+  offsetX.value = 0
+  offsetY.value = 0
+}
 
 watch(
   () => props.visible,
   (v) => {
     if (v) {
       currentIndex.value = props.initialIndex || 0
-      scale.value = 1
+      resetView()
     }
   }
 )
 
 const currentImage = computed(() => props.images[currentIndex.value] || '')
 
+const selectImage = (index: number) => {
+  currentIndex.value = index
+  resetView()
+}
+
 const prev = () => {
-  if (currentIndex.value > 0) {
-    currentIndex.value -= 1
-    scale.value = 1
-  }
+  if (currentIndex.value > 0) selectImage(currentIndex.value - 1)
 }
 const next = () => {
-  if (currentIndex.value < props.images.length - 1) {
-    currentIndex.value += 1
-    scale.value = 1
-  }
+  if (currentIndex.value < props.images.length - 1) selectImage(currentIndex.value + 1)
 }
 
 const zoomIn = () => {
-  scale.value = Math.min(4, scale.value + 0.25)
+  scale.value = Math.min(MAX_SCALE, +(scale.value + 0.25).toFixed(2))
 }
 const zoomOut = () => {
-  scale.value = Math.max(0.25, scale.value - 0.25)
+  scale.value = Math.max(MIN_SCALE, +(scale.value - 0.25).toFixed(2))
 }
-const resetZoom = () => {
-  scale.value = 1
+
+const isControlTarget = (target: EventTarget | null) =>
+  target instanceof Element && !!target.closest('button')
+
+const onPointerDown = (event: PointerEvent) => {
+  if (event.button !== 0 || isControlTarget(event.target)) return
+  dragging.value = true
+  pointerOriginX = event.clientX
+  pointerOriginY = event.clientY
+  dragOriginX = offsetX.value
+  dragOriginY = offsetY.value
+  ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+}
+
+const onPointerMove = (event: PointerEvent) => {
+  if (!dragging.value) return
+  offsetX.value = dragOriginX + (event.clientX - pointerOriginX)
+  offsetY.value = dragOriginY + (event.clientY - pointerOriginY)
+}
+
+const onPointerUp = () => {
+  dragging.value = false
+}
+
+const onWheel = (event: WheelEvent) => {
+  if (isControlTarget(event.target)) return
+  const factor = event.deltaY < 0 ? 1.1 : 0.9
+  const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale.value * factor))
+  scale.value = +next.toFixed(2)
+}
+
+const onDblClick = (event: MouseEvent) => {
+  if (isControlTarget(event.target)) return
+  resetView()
 }
 </script>
 
@@ -68,13 +116,22 @@ const resetZoom = () => {
   >
     <div class="viewer-wrap">
       <!-- 主视图 -->
-      <div class="stage">
+      <div
+        class="stage"
+        :class="{ dragging }"
+        @pointerdown="onPointerDown"
+        @pointermove="onPointerMove"
+        @pointerup="onPointerUp"
+        @pointercancel="onPointerUp"
+        @dblclick="onDblClick"
+        @wheel.prevent="onWheel"
+      >
         <img
           v-if="currentImage"
           :src="currentImage"
           class="viewer-img"
-          :style="{ transform: `scale(${scale})` }"
-          @dblclick="resetZoom"
+          draggable="false"
+          :style="{ transform: `translate(${offsetX}px, ${offsetY}px) scale(${scale})` }"
         />
         <div v-else class="empty">暂无影像</div>
 
@@ -103,9 +160,10 @@ const resetZoom = () => {
         </span>
         <div class="tools">
           <el-button :icon="ZoomOut" size="small" @click="zoomOut">缩小</el-button>
-          <el-button size="small" @click="resetZoom">{{ Math.round(scale * 100) }}%</el-button>
+          <el-button size="small" @click="resetView">{{ Math.round(scale * 100) }}%</el-button>
           <el-button :icon="ZoomIn" size="small" @click="zoomIn">放大</el-button>
-          <el-button :icon="RefreshLeft" size="small" @click="resetZoom">重置</el-button>
+          <el-button :icon="RefreshLeft" size="small" @click="resetView">重置</el-button>
+          <span class="pan-hint">按住拖动可平移，双击回到整图</span>
         </div>
       </div>
 
@@ -116,7 +174,7 @@ const resetZoom = () => {
           :key="i"
           class="strip-cell"
           :class="{ active: i === currentIndex }"
-          @click="currentIndex = i; scale = 1"
+          @click="selectImage(i)"
         >
           <img :src="img" />
         </div>
@@ -140,13 +198,23 @@ const resetZoom = () => {
   display: flex;
   align-items: center;
   justify-content: center;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.stage.dragging {
+  cursor: grabbing;
 }
 .viewer-img {
   max-width: 100%;
   max-height: 100%;
+  transform-origin: center center;
   transition: transform 0.2s;
   user-select: none;
   pointer-events: none;
+}
+.stage.dragging .viewer-img {
+  transition: none;
 }
 .empty {
   color: #c5cad3;
@@ -174,7 +242,13 @@ const resetZoom = () => {
 }
 .tools {
   display: flex;
+  align-items: center;
   gap: 6px;
+}
+.pan-hint {
+  margin-left: 4px;
+  font-size: 12px;
+  color: #86909c;
 }
 
 .thumb-strip {

@@ -84,6 +84,38 @@ def test_probe_missing_dir(tmp_path):
     assert "没有这个目录" in out.hint
 
 
+def test_quoted_parent_folder_is_accepted(tmp_path):
+    """路径带引号、或指到官方压缩包的上一层，都应当认到数据集根目录。"""
+    src = make_idrid_tree(tmp_path / "pack" / "A. Segmentation", n=2)
+    out = probe_idrid_source(f'  "{tmp_path / "pack"}"  ')
+    assert out.ready is True
+    assert Path(out.source_path) == src
+
+
+def test_official_tree_without_processed_folder(tmp_path):
+    """官方数据包没有第 3 个后处理目录，原图和分割目录齐了就可以预检。"""
+    root = tmp_path / "idrid"
+    img = root / "1. Original Images" / "a. Training Set"
+    gt = root / "2. All Segmentation Groundtruths" / "a. Training Set"
+    img.mkdir(parents=True)
+    gt.mkdir(parents=True)
+    _tiny_jpg(img / "IDRiD_01.jpg")
+    out = probe_idrid_source(str(root))
+    assert out.exists is True
+    assert out.ready is True
+    assert out.image_count == 1
+
+
+def test_existing_unrelated_dir_is_not_reported_as_missing(tmp_path):
+    plain = tmp_path / "photos"
+    plain.mkdir()
+    out = probe_idrid_source(str(plain))
+    assert out.exists is True
+    assert out.ready is False
+    assert "没有这个目录" not in out.hint
+    assert "Original Images" in out.hint
+
+
 def test_probe_ready_tree(tmp_path):
     src = make_idrid_tree(tmp_path / "idrid", n=6)
     out = probe_idrid_source(str(src))

@@ -26,6 +26,7 @@ from app.db.models import (
     TrainingCase,
     User,
 )
+from app.db.models.user import actor_role_text
 from app.common import workflow
 from app.common.dr_grade import grade_level, grade_text, is_applicable
 from app.core.content_policy import Scene, redact, resolve_mode
@@ -882,6 +883,7 @@ def _to_out(record: PracticeSession, db: Session, viewer: Optional[User] = None)
         teacher_comment=record.teacher_comment or "",
         teacher_id=record.teacher_id,
         teacher_name=(teacher.real_name or teacher.username) if teacher else "",
+        teacher_role=actor_role_text(teacher) if teacher else "",
         created_at=record.created_at,
         updated_at=record.updated_at,
         attempt_kind=record.attempt_kind or "PRACTICE",

@@ -22,6 +22,7 @@ from app.db.models import (
     TrainingCase,
     User,
 )
+from app.db.models.user import actor_role_text
 from app.common import workflow
 from app.common.diagnosis_form import fundus_only as case_is_fundus_only
 from app.common.image_safety import (
@@ -64,8 +65,10 @@ def _to_out(record: ReadingAnnotation) -> ReadingOut:
     if record.user is not None:
         user_name = record.user.real_name or record.user.username
     reviewer_name = ""
+    reviewer_role = ""
     if record.reviewer is not None:
         reviewer_name = record.reviewer.real_name or record.reviewer.username
+        reviewer_role = actor_role_text(record.reviewer)
 
     return ReadingOut(
         id=record.id,
@@ -86,6 +89,7 @@ def _to_out(record: ReadingAnnotation) -> ReadingOut:
         review_comment=record.review_comment or "",
         reviewer_id=record.reviewer_id,
         reviewer_name=reviewer_name,
+        reviewer_role=reviewer_role,
         created_at=record.created_at,
         updated_at=record.updated_at,
     )

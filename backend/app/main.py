@@ -93,6 +93,21 @@ def _patch_schema() -> None:
                 f"sys_user.{column}",
                 f"ALTER TABLE sys_user ADD COLUMN {column} VARCHAR(32) NOT NULL DEFAULT ''",
             ))
+    if user_cols and "group_editor_id" not in user_cols:
+        patches.append((
+            "sys_user.group_editor_id",
+            "ALTER TABLE sys_user ADD COLUMN group_editor_id INTEGER",
+        ))
+    if user_cols and "group_edited_at" not in user_cols:
+        patches.append((
+            "sys_user.group_edited_at",
+            "ALTER TABLE sys_user ADD COLUMN group_edited_at DATETIME",
+        ))
+    if user_cols and "department_id" not in user_cols:
+        patches.append((
+            "sys_user.department_id",
+            "ALTER TABLE sys_user ADD COLUMN department_id INTEGER",
+        ))
     if task_cols and "tier" not in task_cols:
         patches.append((
             "biz_rotation_task.tier",
@@ -232,6 +247,17 @@ def _patch_schema() -> None:
             "biz_teaching_share.answers_revealed",
             "ALTER TABLE biz_teaching_share ADD COLUMN answers_revealed "
             "BOOLEAN NOT NULL DEFAULT 1",
+        ))
+    if share_cols and "audience_ids" not in share_cols:
+        patches.append((
+            "biz_teaching_share.audience_ids",
+            "ALTER TABLE biz_teaching_share ADD COLUMN audience_ids JSON",
+        ))
+    if share_cols and "scope_value" not in share_cols:
+        patches.append((
+            "biz_teaching_share.scope_value",
+            "ALTER TABLE biz_teaching_share ADD COLUMN scope_value "
+            "VARCHAR(32) NOT NULL DEFAULT ''",
         ))
 
     if reading_cols and "record_kind" not in reading_cols:

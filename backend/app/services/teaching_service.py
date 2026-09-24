@@ -10,11 +10,12 @@ from datetime import datetime, timedelta
 from typing import Any, List, Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import desc, func, or_
+from sqlalchemy import and_, desc, func, or_
 from sqlalchemy.orm import Session
 
 from app.db.models import (
     MessageTypeEnum,
+    Role,
     RoleEnum,
     ScreeningCase,
     ShareSourceEnum,
@@ -28,6 +29,8 @@ from app.schemas.teaching import (
     StudentCaseOut,
     StudentCasePage,
     TeachingReviewParams,
+    ShareStudentOut,
+    ShareTargetsOut,
     TeachingShareCreate,
     TeachingShareOut,
     TeachingSharePage,
@@ -281,7 +284,10 @@ def _to_out(s: TeachingShare, db: Optional[Session] = None) -> TeachingShareOut:
         source_case_id=s.source_case_id,
         teaching_case_id=s.teaching_case_id,
         desensitized_data=data,
-        share_scope=s.share_scope,
+        share_scope=s.share_scope or "ALL",
+        scope_value=(getattr(s, "scope_value", None) or ""),
+        audience_ids=[int(item) for item in (getattr(s, "audience_ids", None) or [])],
+        audience_label=_audience_label(db, s),
         expire_hours=s.expire_hours,
         expired_at=s.expired_at,
         status=s.status,
@@ -294,6 +300,81 @@ def _to_out(s: TeachingShare, db: Optional[Session] = None) -> TeachingShareOut:
         created_at=s.created_at,
         updated_at=s.updated_at,
     )
+
+
+def _is_student(user: User) -> bool:
+    code = user.role.code if user.role else ""
+    return code == RoleEnum.STUDENT.value
+
+
+def _student_rows(db: Session):
+    return (
+        db.query(User)
+        .join(Role, User.role_id == Role.id)
+        .filter(Role.code == RoleEnum.STUDENT.value)
+    )
+
+
+def _normalize_share_scope(db: Session, params: TeachingShareCreate) -> tuple[str, str, list]:
+    scope = params.share_scope or "ALL"
+    value = (params.scope_value or "").strip()[:32]
+    if scope == "ALL":
+        return "ALL", "", []
+    if scope == "PEOPLE":
+        ids: list[int] = []
+        for raw in params.audience_ids or []:
+            number = int(raw)
+            if number not in ids:
+                ids.append(number)
+        if not ids:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "请选择要分享的学员")
+        found = {row.id for row in _student_rows(db).filter(User.id.in_(ids)).all()}
+        if found != set(ids):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "只能选择学员账号")
+        return "PEOPLE", "", ids
+    labels = {"YEAR": "年级", "BATCH": "轮转批次", "GROUP": "带教组"}
+    if not value:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"请选择要分享的{labels[scope]}")
+    field = {
+        "YEAR": User.study_year,
+        "BATCH": User.rotation_batch,
+        "GROUP": User.mentor_group,
+    }[scope]
+    exists = _student_rows(db).filter(field == value).first()
+    if not exists:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"这个{labels[scope]}里还没有学员，请先在「班级学生」里填写",
+        )
+    return scope, value, []
+
+
+def _share_reaches(share: TeachingShare, user: User) -> bool:
+    """临时分享按学员自己的年级、轮转批次、带教组过滤。入库教学仍给全体。"""
+    if share.share_type != ShareTypeEnum.TEMPORARY.value or not _is_student(user):
+        return True
+    scope = (share.share_scope or "ALL").strip()
+    value = (getattr(share, "scope_value", None) or "").strip()
+    if scope in ("", "ALL"):
+        return True
+    if scope == "PEOPLE":
+        ids = {int(item) for item in (getattr(share, "audience_ids", None) or [])}
+        return user.id in ids
+    own = {
+        "YEAR": (user.study_year or "").strip(),
+        "BATCH": (user.rotation_batch or "").strip(),
+        "GROUP": (user.mentor_group or "").strip(),
+    }.get(scope, "")
+    return bool(value) and own == value
+
+
+def _audience_label(db: Optional[Session], share: TeachingShare) -> str:
+    ids = [int(item) for item in (getattr(share, "audience_ids", None) or [])]
+    if not ids or db is None:
+        return ""
+    rows = db.query(User).filter(User.id.in_(ids)).all()
+    names = {row.id: (row.real_name or row.username or str(row.id)) for row in rows}
+    return "、".join(names.get(item, str(item)) for item in ids)
 
 
 class TeachingService:
@@ -320,13 +401,16 @@ class TeachingService:
     ) -> TeachingShareOut:
         case = TeachingService._get_source_case(db, params.source_type, params.source_case_id)
         data = TeachingService._desensitize(params.source_type, case)
+        scope, scope_value, audience_ids = _normalize_share_scope(db, params)
         now = datetime.now()
         share = TeachingShare(
             share_type=ShareTypeEnum.TEMPORARY.value,
             source_type=params.source_type,
             source_case_id=params.source_case_id,
             desensitized_data=data,
-            share_scope=params.share_scope,
+            share_scope=scope,
+            scope_value=scope_value,
+            audience_ids=audience_ids or None,
             expire_hours=params.expire_hours,
             expired_at=now + timedelta(hours=params.expire_hours),
             answers_revealed=not params.hide_answers,
@@ -337,7 +421,10 @@ class TeachingService:
         db.flush()
         OpLogService.record(
             db, user=user, module="teaching", action="share_create",
-            detail=f"临时分享病例 {params.source_type}#{params.source_case_id}，有效期{params.expire_hours}h",
+            detail=(
+                f"临时分享病例 {params.source_type}#{params.source_case_id}，"
+                f"对象{scope}{scope_value}，有效期{params.expire_hours}h"
+            ),
             ip=ip, commit=False,
         )
         db.commit()
@@ -411,6 +498,14 @@ class TeachingService:
         )
         db.commit()
         db.refresh(share)
+        if user.role and user.role.code == RoleEnum.ADMIN.value:
+            return TeachingService.review(
+                db,
+                reviewer=user,
+                share_id=share.id,
+                params=TeachingReviewParams(accept=True, comment="管理员转入，直接入库"),
+                ip=ip,
+            )
         return _to_out(share, db)
 
     @staticmethod
@@ -472,7 +567,7 @@ class TeachingService:
             db, user_id=share.teacher_id, msg_type=MessageTypeEnum.SYSTEM.value,
             title=msg_title, content=msg_content,
             ref_type="teaching_share", ref_id=share.id, commit=False,
-        )
+        ) if reviewer.id != share.teacher_id else None
         action = "review_approve" if params.accept else "review_reject"
         OpLogService.record(
             db, user=reviewer, module="teaching", action=action,
@@ -531,25 +626,72 @@ class TeachingService:
                 or_(User.real_name.contains(keyword), User.username.contains(keyword))
             )
         total = q.count()
+        pending_count = db.query(TeachingShare).filter(
+            TeachingShare.share_type == ShareTypeEnum.PERMANENT.value,
+            TeachingShare.status == ShareStatusEnum.PENDING.value,
+        ).count()
         rows = q.order_by(desc(TeachingShare.created_at)).offset((page - 1) * page_size).limit(page_size).all()
-        return TeachingSharePage(total=total, page=page, page_size=page_size, list=[_to_out(r, db) for r in rows])
+        return TeachingSharePage(
+            total=total,
+            page=page,
+            page_size=page_size,
+            pending_count=pending_count,
+            list=[_to_out(r, db) for r in rows],
+        )
+
+    @staticmethod
+    def share_targets(db: Session) -> ShareTargetsOut:
+        years: set[str] = set()
+        batches: set[str] = set()
+        groups: set[str] = set()
+        students: list[ShareStudentOut] = []
+        for row in _student_rows(db).order_by(User.study_year.asc(), User.real_name.asc(), User.id.asc()):
+            year = (row.study_year or "").strip()
+            batch = (row.rotation_batch or "").strip()
+            group = (row.mentor_group or "").strip()
+            if year:
+                years.add(year)
+            if batch:
+                batches.add(batch)
+            if group:
+                groups.add(group)
+            students.append(ShareStudentOut(
+                id=row.id,
+                name=(row.real_name or row.username or str(row.id)),
+                study_year=year,
+                rotation_batch=batch,
+                mentor_group=group,
+            ))
+        return ShareTargetsOut(
+            years=sorted(years),
+            batches=sorted(batches),
+            groups=sorted(groups),
+            students=students,
+        )
 
     @staticmethod
     def list_for_student(
-        db: Session, *, page: int = 1, page_size: int = 20,
+        db: Session, *, user: User, page: int = 1, page_size: int = 20,
     ) -> StudentCasePage:
         now = datetime.now()
+        temporary = and_(
+            TeachingShare.share_type == ShareTypeEnum.TEMPORARY.value,
+            TeachingShare.status == ShareStatusEnum.SHARING.value,
+            TeachingShare.expired_at > now,
+        )
         q = db.query(TeachingShare).filter(
             or_(
-                (TeachingShare.share_type == ShareTypeEnum.TEMPORARY.value) &
-                (TeachingShare.status == ShareStatusEnum.SHARING.value) &
-                (TeachingShare.expired_at > now),
+                temporary,
                 (TeachingShare.share_type == ShareTypeEnum.PERMANENT.value) &
                 (TeachingShare.status == ShareStatusEnum.APPROVED.value),
             )
         )
-        total = q.count()
-        rows = q.order_by(desc(TeachingShare.created_at)).offset((page - 1) * page_size).limit(page_size).all()
+        rows = q.order_by(desc(TeachingShare.created_at)).all()
+        if _is_student(user):
+            rows = [row for row in rows if _share_reaches(row, user)]
+        total = len(rows)
+        start = (page - 1) * page_size
+        rows = rows[start:start + page_size]
         items = [_student_out(db, s) for s in rows]
         return StudentCasePage(total=total, page=page, page_size=page_size, list=items)
 
@@ -563,7 +705,14 @@ class TeachingService:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "病例不存在")
         visible = False
         if share.share_type == ShareTypeEnum.TEMPORARY.value:
-            visible = share.status == ShareStatusEnum.SHARING.value and share.expired_at and share.expired_at > now
+            active = (
+                share.status == ShareStatusEnum.SHARING.value
+                and bool(share.expired_at)
+                and share.expired_at > now
+            )
+            if active and not _share_reaches(share, user):
+                raise HTTPException(status.HTTP_403_FORBIDDEN, "这份分享没有发给你所在的分组")
+            visible = active
         elif share.share_type == ShareTypeEnum.PERMANENT.value:
             visible = share.status == ShareStatusEnum.APPROVED.value
         if not visible:

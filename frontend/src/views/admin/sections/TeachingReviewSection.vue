@@ -4,7 +4,7 @@
  * - 列表：分页 + 状态筛选 + 关键词搜索
  * - 操作：审核通过 / 驳回（必填理由）/ 已通过的可下架
  */
-import { onMounted, reactive, ref } from 'vue'
+import { onActivated, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh, Search, Check, Close, View, Bottom } from '@element-plus/icons-vue'
 import { TeachingApi } from '@/api'
@@ -14,12 +14,14 @@ import { useReviewActions } from '@/composables/useReviewActions'
 type Share = TeachingApi.TeachingShare
 type ShareStatus = TeachingApi.ShareStatus
 
-defineProps<{
+const props = defineProps<{
   canManage: boolean
+  notice?: string
 }>()
 
 const list = ref<Share[]>([])
 const loading = ref(false)
+const pendingCount = ref(0)
 const pagination = reactive({ page: 1, pageSize: 20, total: 0 })
 
 const filter = reactive({
@@ -45,9 +47,11 @@ const fetchList = async () => {
     })
     list.value = r?.list || []
     pagination.total = r?.total || 0
+    pendingCount.value = r?.pendingCount || 0
   } catch {
     list.value = []
     pagination.total = 0
+    pendingCount.value = 0
   } finally {
     loading.value = false
   }
@@ -105,7 +109,14 @@ const showDetail = (row: Share) => {
   detailVisible.value = true
 }
 
+const showPending = () => {
+  filter.status = 'PENDING'
+  onFilter()
+}
+
 onMounted(fetchList)
+onActivated(fetchList)
+defineExpose({ reload: fetchList })
 </script>
 
 <template>
@@ -144,6 +155,26 @@ onMounted(fetchList)
           <el-button :icon="Refresh" size="small" @click="fetchList">刷新</el-button>
         </div>
       </div>
+
+      <el-alert
+        v-if="props.notice === 'approved'"
+        class="review-alert"
+        type="success"
+        show-icon
+        :closable="false"
+        title="这条病例已直接入库"
+        description="管理员转入的教学病例不用再点通过。下面列表里状态是「已通过」。"
+      />
+      <el-alert
+        v-if="pendingCount > 0"
+        class="review-alert"
+        type="warning"
+        show-icon
+        :closable="false"
+        :title="`有 ${pendingCount} 条待审核`"
+      >
+        <el-button link type="primary" @click="showPending">只看待审核</el-button>
+      </el-alert>
 
       <el-table v-loading="loading" :data="list" size="small" stripe>
         <el-table-column type="index" label="#" width="56" />
@@ -272,6 +303,9 @@ onMounted(fetchList)
   border: 1px solid #e5e6eb;
   border-radius: 12px;
   padding: 18px 20px;
+}
+.review-alert {
+  margin: 0 0 12px;
 }
 .card-header {
   display: flex;

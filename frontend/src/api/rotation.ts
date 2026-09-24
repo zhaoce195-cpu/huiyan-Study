@@ -49,6 +49,9 @@ export interface StudentProgress {
   studyYear: string
   rotationBatch: string
   mentorGroup: string
+  groupEditorName: string
+  groupEditorRole: string
+  groupEditedAt: string | null
   done: number
   total: number
   progress: number
@@ -84,6 +87,9 @@ export interface StudentHome {
   studyYear: string
   rotationBatch: string
   mentorGroup: string
+  groupEditorName: string
+  groupEditorRole: string
+  groupEditedAt: string | null
 }
 
 export interface TeacherHome {

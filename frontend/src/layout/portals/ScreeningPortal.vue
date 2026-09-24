@@ -46,7 +46,7 @@ const goTraining = () => router.push('/training')
 </script>
 
 <template>
-  <div class="portal portal-light" :class="{ collapsed }">
+  <div class="portal" :class="{ collapsed }">
     <!-- 侧边栏 -->
     <aside class="portal-aside">
       <div class="aside-brand">
@@ -78,6 +78,9 @@ const goTraining = () => router.push('/training')
 
       <el-menu
         class="aside-menu"
+        background-color="transparent"
+        text-color="var(--ap-text)"
+        active-text-color="var(--ap-accent)"
         :default-active="activeMenu"
         :collapse="collapsed"
         :collapse-transition="false"
@@ -134,13 +137,14 @@ const goTraining = () => router.push('/training')
   display: flex;
   height: 100vh;
   overflow: hidden;
-  background: #f5f9ff;
+  background: var(--ap-bg);
+  color: var(--ap-text);
 }
 .portal-aside {
   width: 240px;
   flex-shrink: 0;
-  background: #ffffff;
-  border-right: 1px solid #e6effe;
+  background: var(--ap-glass);
+  border-right: 1px solid var(--ap-hairline);
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -156,7 +160,7 @@ const goTraining = () => router.push('/training')
   align-items: center;
   gap: 10px;
   padding: 16px 18px;
-  border-bottom: 1px solid #eef4ff;
+  border-bottom: 1px solid var(--ap-hairline);
 }
 .brand-text {
   display: flex;
@@ -165,12 +169,12 @@ const goTraining = () => router.push('/training')
 .brand-name {
   font-size: 14px;
   font-weight: 700;
-  color: #1d2129;
+  color: var(--ap-text);
   letter-spacing: 1px;
 }
 .brand-sub {
   font-size: 11px;
-  color: #1677ff;
+  color: var(--ap-accent);
   letter-spacing: 1.5px;
   margin-top: 2px;
 }
@@ -180,7 +184,7 @@ const goTraining = () => router.push('/training')
   align-items: center;
   gap: 10px;
   padding: 14px 18px;
-  border-bottom: 1px solid #eef4ff;
+  border-bottom: 1px solid var(--ap-hairline);
 }
 .user-meta {
   display: flex;
@@ -190,7 +194,7 @@ const goTraining = () => router.push('/training')
 .u-name {
   font-size: 13px;
   font-weight: 600;
-  color: #1d2129;
+  color: var(--ap-text);
 }
 
 .aside-menu {
@@ -206,11 +210,22 @@ const goTraining = () => router.push('/training')
   border-radius: 6px;
   height: 44px;
   line-height: 44px;
+  color: var(--ap-text);
+}
+.aside-menu :deep(.el-menu-item .el-icon) {
+  color: var(--ap-text-2);
+}
+.aside-menu :deep(.el-menu-item:hover) {
+  background: var(--ap-fill);
+  color: var(--ap-text);
 }
 .aside-menu :deep(.el-menu-item.is-active) {
-  background: #eef4ff;
-  color: #1677ff;
+  background: var(--ap-accent-soft);
+  color: var(--ap-accent);
   font-weight: 600;
+}
+.aside-menu :deep(.el-menu-item.is-active .el-icon) {
+  color: var(--ap-accent);
 }
 
 .aside-footer {
@@ -218,7 +233,7 @@ const goTraining = () => router.push('/training')
   flex-direction: column;
   gap: 6px;
   padding: 12px;
-  border-top: 1px solid #eef4ff;
+  border-top: 1px solid var(--ap-hairline);
 }
 .action-btn {
   justify-content: flex-start;
@@ -234,5 +249,6 @@ const goTraining = () => router.push('/training')
   height: 100vh;
   overflow-y: auto;
   overflow-x: hidden;
+  background: var(--ap-l-bg);
 }
 </style>

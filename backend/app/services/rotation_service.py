@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """本轮转必做。学员首页只给病例编号，不把带分级的标题发下去。"""
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 from fastapi import HTTPException, status
@@ -24,6 +24,7 @@ from app.db.models import (
     TrainingCase,
     User,
 )
+from app.db.models.user import actor_role_text
 from app.schemas.rotation import (
     GroupSummary,
     OptionItem,
@@ -74,6 +75,36 @@ def _visible_to(task: RotationTask, student: User) -> bool:
     if scope == "GROUP":
         return bool(value) and (student.mentor_group or "").strip() == value
     return True
+
+
+def _person_name(person: Optional[User]) -> str:
+    if person is None:
+        return ""
+    return (person.real_name or person.username or "").strip()
+
+
+def _edited_text(value: Optional[datetime]) -> Optional[str]:
+    if value is None:
+        return None
+    return value.strftime("%Y-%m-%d %H:%M")
+
+
+def _editors(db: Session, students: List[User]) -> Dict[int, User]:
+    ids = {
+        student.group_editor_id
+        for student in students
+        if getattr(student, "group_editor_id", None)
+    }
+    if not ids:
+        return {}
+    rows = db.query(User).filter(User.id.in_(ids)).all()
+    return {row.id: row for row in rows}
+
+
+def _editor_of(db: Session, editor_id: Optional[int]) -> Optional[User]:
+    if not editor_id:
+        return None
+    return db.query(User).filter(User.id == editor_id).first()
 
 
 def _case_heading(task: RotationTask, case_no: str) -> str:
@@ -392,6 +423,7 @@ class RotationService:
         required = [row for row in rows if row.tier != "EXTENSION"]
         today = [row for row in required if row.status in _OPEN]
         today.sort(key=lambda row: (not row.overdue, not row.due_today, row.due_on, row.id))
+        editor = _editor_of(db, getattr(user, "group_editor_id", None))
         return StudentHomeOut(
             rotation=_brief(rotation, required),
             today=today,
@@ -399,6 +431,9 @@ class RotationService:
             study_year=_group_label(getattr(user, "study_year", "")),
             rotation_batch=_group_label(getattr(user, "rotation_batch", "")),
             mentor_group=_group_label(getattr(user, "mentor_group", "")),
+            group_editor_name=_person_name(editor),
+            group_editor_role=actor_role_text(editor),
+            group_edited_at=_edited_text(getattr(user, "group_edited_at", None)),
         )
 
     @staticmethod
@@ -464,6 +499,7 @@ class RotationService:
             ))
         progress_rows = []
         practice_map = learner_progress(db, [student.id for student in students])
+        editors = _editors(db, students)
         for student in students:
             visible = [task for task in tasks if _visible_to(task, student)]
             bundle = [
@@ -484,6 +520,9 @@ class RotationService:
                 study_year=_group_label(getattr(student, "study_year", "")),
                 rotation_batch=_group_label(getattr(student, "rotation_batch", "")),
                 mentor_group=_group_label(getattr(student, "mentor_group", "")),
+                group_editor_name=_person_name(editors.get(getattr(student, "group_editor_id", None) or 0)),
+                group_editor_role=actor_role_text(editors.get(getattr(student, "group_editor_id", None) or 0)),
+                group_edited_at=_edited_text(getattr(student, "group_edited_at", None)),
                 done=done,
                 total=total,
                 progress=int(round(100 * done / total)) if total else 0,
@@ -568,9 +607,20 @@ class RotationService:
         student = db.query(User).filter(User.id == student_id).first()
         if student is None or not student.role or student.role.code != RoleEnum.STUDENT.value:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "学员不存在")
-        student.study_year = (params.study_year or "").strip()[:32]
-        student.rotation_batch = (params.rotation_batch or "").strip()[:32]
-        student.mentor_group = (params.mentor_group or "").strip()[:32]
+        year = (params.study_year or "").strip()[:32]
+        batch = (params.rotation_batch or "").strip()[:32]
+        group = (params.mentor_group or "").strip()[:32]
+        changed = (
+            (student.study_year or "") != year
+            or (student.rotation_batch or "") != batch
+            or (student.mentor_group or "") != group
+        )
+        student.study_year = year
+        student.rotation_batch = batch
+        student.mentor_group = group
+        if changed:
+            student.group_editor_id = user.id
+            student.group_edited_at = datetime.now()
         db.commit()
         rotation = ensure_rotation(db, user)
         return RotationService._teacher(db, rotation, _tasks(db, rotation.id))

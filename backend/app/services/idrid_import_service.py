@@ -64,6 +64,10 @@ from app.services.patient_mock import generate_mock_patient
 REQUIRED_SUBDIRS = (
     "1. Original Images",
     "2. All Segmentation Groundtruths",
+)
+
+# 彩色掩膜、叠加图是后处理产物，官方数据包里没有这一层，缺了也能导入原图和分割掩膜。
+OPTIONAL_SUBDIRS = (
     "3. IDRID_4_lesion_processed",
 )
 
@@ -98,13 +102,102 @@ def _backend_root() -> Path:
     return Path(__file__).resolve().parent.parent.parent
 
 
+def _clean_source_text(raw: str) -> str:
+    """去掉从资源管理器或聊天记录粘贴时带上的引号和 file://。"""
+    text = (raw or "").strip()
+    if text.lower().startswith("file:///"):
+        text = text[8:]
+        if len(text) >= 3 and text[0] == "/" and text[2] == ":":
+            text = text[1:]
+    elif text.lower().startswith("file://"):
+        text = text[7:]
+    text = text.strip().strip('"').strip("'").strip("「」").strip()
+    if text.startswith("\\\\?\\"):
+        text = text[4:]
+    return text
+
+
+def _is_idrid_root(path: Path) -> bool:
+    return all((path / name).is_dir() for name in REQUIRED_SUBDIRS)
+
+
+def _locate_idrid_root(start: Path) -> Optional[Path]:
+    """
+    用户常把路径指到数据包的上一层、下一层，或官方压缩包里的 A. Segmentation。
+    只要附近能找到两个必备子目录，就用那个目录当根。
+    """
+    if not start.exists():
+        return None
+    if start.is_file():
+        start = start.parent
+
+    def nearby(path: Path) -> Optional[Path]:
+        if _is_idrid_root(path):
+            return path
+        wrapped = path / "A. Segmentation"
+        if wrapped.is_dir() and _is_idrid_root(wrapped):
+            return wrapped
+        try:
+            children = [child for child in path.iterdir() if child.is_dir()]
+        except OSError:
+            return None
+        for child in children:
+            if _is_idrid_root(child):
+                return child
+            nested = child / "A. Segmentation"
+            if nested.is_dir() and _is_idrid_root(nested):
+                return nested
+        return None
+
+    found = nearby(start)
+    if found is not None:
+        return found
+    current = start
+    for _ in range(4):
+        parent = current.parent
+        if parent == current:
+            break
+        found = nearby(parent)
+        if found is not None:
+            return found
+        current = parent
+    return None
+
+
+def _primary_source_path(source_path: Optional[str]) -> Path:
+    text = _clean_source_text(source_path or "")
+    if not text:
+        text = (settings.IDRID_DATASET_ROOT or "data/idrid").strip()
+    path = Path(text).expanduser()
+    if path.is_absolute():
+        return path
+    return _backend_root() / path
+
+
+def resolve_idrid_source(source_path: Optional[str] = None) -> Tuple[Optional[Path], Path]:
+    """返回 (识别出的数据集根目录, 用来报错的原始路径)。"""
+    primary = _primary_source_path(source_path)
+    if primary.exists():
+        return _locate_idrid_root(primary), primary
+    if source_path and not Path(_clean_source_text(source_path)).is_absolute():
+        other = Path.cwd() / _clean_source_text(source_path)
+        if other.exists():
+            return _locate_idrid_root(other), other
+    return None, primary
+
+
 def resolved_idrid_root(source_path: Optional[str] = None) -> Path:
     """服务端约定目录。相对路径相对 backend 根目录。"""
-    raw = (source_path or settings.IDRID_DATASET_ROOT or "data/idrid").strip()
-    p = Path(raw)
-    if not p.is_absolute():
-        p = _backend_root() / p
-    return p
+    located, primary = resolve_idrid_source(source_path)
+    return located or primary
+
+
+_LAYOUT_HINT = (
+    "请填写运行后端的这台电脑上的 IDRiD 根目录，不要带引号。"
+    "这个目录里应直接有「1. Original Images」和「2. All Segmentation Groundtruths」，"
+    "官方压缩包多一层「A. Segmentation」也可以。"
+    "「3. IDRID_4_lesion_processed」可以没有，没有时只导入原图和分割掩膜。"
+)
 
 
 def _list_split_images(img_dir: Path) -> List[Path]:
@@ -119,31 +212,39 @@ def _list_split_images(img_dir: Path) -> List[Path]:
 
 def probe_idrid_source(source_path: Optional[str] = None) -> IdridProbeResult:
     """只看目录结构与原图数量，不写库、不复制文件。"""
-    default_path = str(resolved_idrid_root())
-    src_root = resolved_idrid_root(source_path)
+    default_path = str(_primary_source_path(None))
+    located, primary = resolve_idrid_source(source_path)
+    src_root = located or primary
     missing = [
         name for name in REQUIRED_SUBDIRS if not (src_root / name).exists()
     ]
-    exists = src_root.exists()
+    exists = primary.exists()
     train_count = 0
     test_count = 0
-    if exists and not missing:
+    if located is not None and not missing:
         img_root = src_root / "1. Original Images"
         train_count = len(_list_split_images(img_root / "a. Training Set"))
         test_count = len(_list_split_images(img_root / "b. Testing Set"))
     image_count = train_count + test_count
-    ready = exists and not missing and image_count > 0
+    ready = located is not None and not missing and image_count > 0
     if not exists:
+        hint = f"没有这个目录：{primary}。{_LAYOUT_HINT}"
+    elif located is None:
         hint = (
-            f"服务端还没有这个目录。请运维把 IDRiD 数据集放到：{src_root}"
-            "（容器部署时还需挂载进容器）。"
+            f"目录存在：{primary}，但这里不是 IDRiD 根目录。"
+            "需要能找到「1. Original Images」和「2. All Segmentation Groundtruths」。"
+            "可以填数据集根目录，或它上面一层（例如里面有「A. Segmentation」的那一层）。"
         )
-    elif missing:
-        hint = f"目录在，但缺少子目录：{'、'.join(missing)}。请确认填的是数据集根目录。"
     elif image_count == 0:
-        hint = "三个子目录都在，但 Original Images 下没有 jpg/png。"
+        hint = (
+            "必备子目录都在，但「1. Original Images」的 "
+            "「a. Training Set」或「b. Testing Set」下没有 jpg/png。"
+        )
     else:
-        hint = f"约定目录就绪，共 {image_count} 张原图（训练 {train_count} / 测试 {test_count}）。"
+        hint = (
+            f"目录可用，共 {image_count} 张原图（训练 {train_count} / 测试 {test_count}）。"
+            f"实际使用：{src_root}"
+        )
     return IdridProbeResult(
         source_path=str(src_root),
         default_path=default_path,
@@ -455,32 +556,19 @@ def run_idrid_import(
     creator: Optional[User] = None,
     dest_root: Optional[Path] = None,
 ) -> IdridImportResult:
-    src_root = resolved_idrid_root(source_path)
-    if not src_root.exists():
-        # 管理员常把自己电脑上的路径填进来（测试报告：「填了正确的本地路径，
-        # 系统提示找不到」）。这个路径是在**服务端**解析的，说清楚，
-        # 免得对着一个确实存在的本地目录反复重试。
+    located, primary = resolve_idrid_source(source_path)
+    if located is None:
+        if not primary.exists():
+            raise FileNotFoundError(f"没有这个目录：{primary}。{_LAYOUT_HINT}")
         raise FileNotFoundError(
-            f"服务端找不到该目录：{src_root}\n"
-            "注意：这里填的是**运行后端的服务器上**的路径，不是你本机的路径；"
-            "数据集需要先放到服务器约定目录（容器部署时还要挂载进容器）。\n"
-            f"未填写时使用的约定路径为：{resolved_idrid_root()}\n"
-            "目录下应当包含：「1. Original Images」「2. All Segmentation Groundtruths」"
-            "「3. IDRID_4_lesion_processed」三个子目录。"
+            f"目录存在：{primary}，但这里不是 IDRiD 根目录。"
+            "需要能找到「1. Original Images」和「2. All Segmentation Groundtruths」。"
+            "可以填数据集根目录，或它上面一层。"
         )
-
+    src_root = located
     src_img_root = src_root / "1. Original Images"
     src_gt_root = src_root / "2. All Segmentation Groundtruths"
     src_proc_root = src_root / "3. IDRID_4_lesion_processed"
-    missing = [
-        p.name for p in (src_img_root, src_gt_root, src_proc_root) if not p.exists()
-    ]
-    if missing:
-        # 目录在、但结构不对时，早点说清缺哪个，比跑到一半报空结果强
-        raise FileNotFoundError(
-            f"源目录 {src_root} 下缺少子目录：{'、'.join(missing)}。"
-            "请确认填的是 IDRiD 数据集的根目录。"
-        )
 
     if dest_root is not None:
         dest_root, url_prefix = Path(dest_root), f"{settings.STATIC_URL}/training/idrid"

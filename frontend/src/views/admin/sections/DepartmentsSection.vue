@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { Plus, Refresh, Search, Edit, Delete, OfficeBuilding } from '@element-plus/icons-vue'
 import { CommonApi } from '@/api'
 
@@ -39,7 +39,12 @@ const deptLoading = ref(false)
 const fetchDepts = async () => {
   deptLoading.value = true
   try {
-    const res = await CommonApi.getDepartmentList(selectedHospitalId.value || undefined)
+    if (selectedHospitalId.value === '' || selectedHospitalId.value == null) {
+      const res = await CommonApi.getDepartmentList()
+      depts.value = (res || []).filter((row) => row.hospitalId == null)
+      return
+    }
+    const res = await CommonApi.getDepartmentList(selectedHospitalId.value)
     depts.value = res || []
   } catch {
     depts.value = []
@@ -62,6 +67,14 @@ const onHospitalChange = () => {
   fetchDepts()
 }
 
+const pickHospital = (row: Hospital) => {
+  selectedHospitalId.value = row.id
+  fetchDepts()
+}
+
+const hospitalRowClass = ({ row }: { row: Hospital }) =>
+  String(row.id) === String(selectedHospitalId.value) ? 'is-current-hospital' : ''
+
 /** 列表里直接显示医院名，光给一个 ID 没人认得出是哪家 */
 const hospitalName = (id: number | string): string =>
   hospitals.value.find((h) => String(h.id) === String(id))?.name || `医院 #${id}`
@@ -73,7 +86,6 @@ const editLoading = ref(false)
 const editFormRef = ref<FormInstance>()
 const editForm = reactive<CommonApi.DepartmentSaveParams & { id?: number | string }>({
   id: undefined,
-  // 留空 = 全院通用科室，所有医院都能看到
   hospitalId: undefined,
   code: '',
   name: '',
@@ -85,14 +97,18 @@ const editForm = reactive<CommonApi.DepartmentSaveParams & { id?: number | strin
   remark: ''
 })
 const editRules: FormRules = {
+  hospitalId: [{ required: true, message: '请选择所属医院', trigger: 'change' }],
   name: [{ required: true, message: '请输入科室名称', trigger: 'blur' }]
 }
 const isEditing = () => editForm.id != null
 
 const openCreate = () => {
+  if (selectedHospitalId.value === '' || selectedHospitalId.value == null) {
+    ElMessage.warning('请先选择医院，再建这家医院的科室')
+    return
+  }
   editForm.id = undefined
-  // 顺手带上左侧正在筛选的医院，避免建完发现归错了地方
-  editForm.hospitalId = (selectedHospitalId.value as number) || undefined
+  editForm.hospitalId = Number(selectedHospitalId.value)
   editForm.code = ''
   editForm.name = ''
   editForm.shortName = ''
@@ -124,7 +140,7 @@ const submitEdit = async () => {
     editLoading.value = true
     try {
       const payload: CommonApi.DepartmentSaveParams = {
-        hospitalId: editForm.hospitalId ?? undefined,
+        hospitalId: Number(editForm.hospitalId),
         code: editForm.code || undefined,
         name: editForm.name,
         shortName: editForm.shortName || undefined,
@@ -194,8 +210,16 @@ onMounted(() => {
           <el-button :icon="Refresh" size="small" @click="fetchHospitals">刷新</el-button>
         </div>
       </div>
-      <el-table v-loading="hospitalLoading" :data="hospitals" size="small" stripe>
-        <el-table-column type="index" label="#" width="56" />
+      <el-table
+        v-loading="hospitalLoading"
+        class="hospital-table"
+        :data="hospitals"
+        size="small"
+        stripe
+        highlight-current-row
+        :row-class-name="hospitalRowClass"
+        @row-click="pickHospital"
+      >
         <el-table-column prop="id" label="ID" width="80" />
         <el-table-column prop="name" label="医院名称" min-width="240" />
         <el-table-column prop="level" label="等级" width="120">
@@ -217,16 +241,22 @@ onMounted(() => {
       <div class="card-header">
         <div class="card-title">
           科室管理
-          <span class="muted ml8">共 {{ depts.length }} 个</span>
+          <span class="muted ml8">
+            {{
+              selectedHospitalId
+                ? `${hospitalName(selectedHospitalId)} · ${depts.length} 个，其他医院看不到`
+                : `尚未归属医院 · ${depts.length} 个`
+            }}
+          </span>
         </div>
         <div class="card-actions">
           <el-select
             v-model="selectedHospitalId"
-            placeholder="按医院筛选（留空 = 全部）"
+            placeholder="选择医院后查看该院科室"
             clearable
             filterable
             size="small"
-            style="width: 240px"
+            style="width: 260px"
             @change="onHospitalChange"
             @clear="onHospitalChange"
           >
@@ -251,13 +281,20 @@ onMounted(() => {
         </div>
       </div>
       <el-table v-loading="deptLoading" :data="depts" size="small" stripe>
-        <el-table-column type="index" label="#" width="56" />
         <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="name" label="科室名称" min-width="240" />
+        <el-table-column prop="name" label="科室名称" min-width="160" />
+        <el-table-column label="人员" min-width="240">
+          <template #default="{ row }">
+            <span v-if="row.members?.length">
+              {{ row.members.map((person) => person.realName).join('、') }}
+            </span>
+            <span v-else class="muted">还没有人员</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="hospitalId" label="所属医院" min-width="180">
           <template #default="{ row }">
             <span v-if="row.hospitalId != null">{{ hospitalName(row.hospitalId) }}</span>
-            <el-tag v-else size="small" effect="plain">全院通用</el-tag>
+            <span v-else class="muted">未归属医院</span>
           </template>
         </el-table-column>
         <el-table-column v-if="canManage" label="操作" width="180" fixed="right">
@@ -267,7 +304,15 @@ onMounted(() => {
           </template>
         </el-table-column>
         <template #empty>
-          <div class="empty">{{ deptLoading ? '加载中…' : '暂无科室数据' }}</div>
+          <div class="empty">
+            {{
+              deptLoading
+                ? '加载中…'
+                : selectedHospitalId
+                  ? '这家医院还没有科室'
+                  : '没有尚未归属医院的科室。选择医院后再新建，只会加到那一家。'
+            }}
+          </div>
         </template>
       </el-table>
     </div>
@@ -280,27 +325,25 @@ onMounted(() => {
       :close-on-click-modal="false"
     >
       <el-form ref="editFormRef" :model="editForm" :rules="editRules" label-width="100px">
-        <el-form-item label="所属医院">
+        <el-form-item label="所属医院" prop="hospitalId">
           <el-select
             v-model="editForm.hospitalId"
-            placeholder="留空 = 全院通用"
-            clearable
+            placeholder="请选择医院"
+            filterable
             style="width: 100%"
           >
             <el-option
               v-for="h in hospitals"
               :key="String(h.id)"
               :label="h.name"
-              :value="h.id"
+              :value="Number(h.id)"
             />
           </el-select>
-          <div class="form-hint">
-            选定医院后，该科室只在这家医院下可见；留空则所有医院通用。
-          </div>
+          <div class="form-hint">只在所选医院下可见，其他医院的科室列表里不会出现。</div>
         </el-form-item>
         <el-form-item label="科室编码">
           <el-input v-model="editForm.code" maxlength="32" placeholder="可留空" />
-          <div class="form-hint">同一医院内不可重复，不同医院可以重名。</div>
+          <div class="form-hint">同一医院内不可重复。另一家医院可以再建同名科室。</div>
         </el-form-item>
         <el-form-item label="科室名称" prop="name">
           <el-input v-model="editForm.name" maxlength="64" />
@@ -380,5 +423,11 @@ onMounted(() => {
   text-align: center;
   color: #c9cdd4;
   font-size: 14px;
+}
+:deep(.hospital-table .el-table__body tr) {
+  cursor: pointer;
+}
+:deep(.is-current-hospital > td) {
+  background: #e8f3ff !important;
 }
 </style>

@@ -7,6 +7,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { LoginApi } from '@/api'
+import { applyFontSize, applyTheme } from '@/utils/appearance'
 import { clearLoginNoticeFlags } from '@/utils/login-notice'
 
 const TOKEN_KEY = 'huiyan_token'
@@ -82,6 +83,13 @@ export const useUserStore = defineStore('user', () => {
       if (u && u.role) {
         userInfo.value = u
         localStorage.setItem(USER_KEY, JSON.stringify(u))
+      }
+      try {
+        const setting = await LoginApi.getUserSetting()
+        applyFontSize(setting.fontSize)
+        applyTheme(setting.theme)
+      } catch {
+        /* 设置接口失败时沿用本地已生效的字号和风格 */
       }
       return u
     } catch {

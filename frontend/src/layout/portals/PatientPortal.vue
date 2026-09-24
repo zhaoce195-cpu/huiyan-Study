@@ -44,7 +44,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <el-container class="portal portal-light" :class="{ collapsed }">
+  <el-container class="portal" :class="{ collapsed }">
     <el-aside class="portal-aside" :width="collapsed ? '64px' : '240px'">
       <div class="aside-brand">
         <svg viewBox="0 0 48 48" width="32" height="32">
@@ -74,6 +74,9 @@ onMounted(async () => {
 
       <el-menu
         class="aside-menu"
+        background-color="transparent"
+        text-color="var(--ap-text)"
+        active-text-color="var(--ap-accent)"
         :default-active="activeMenu"
         :collapse="collapsed"
         :collapse-transition="false"
@@ -116,14 +119,15 @@ onMounted(async () => {
 .portal {
   height: 100vh;
   overflow: hidden;
-  background: #f5f9ff;
+  background: var(--ap-bg);
+  color: var(--ap-text);
 }
 
 .portal-aside {
   height: 100vh;
   overflow: hidden;
-  background: #ffffff;
-  border-right: 1px solid #e6effe;
+  background: var(--ap-glass);
+  border-right: 1px solid var(--ap-hairline);
   display: flex;
   flex-direction: column;
   padding: 0;
@@ -135,23 +139,23 @@ onMounted(async () => {
   align-items: center;
   gap: 10px;
   padding: 16px 18px;
-  border-bottom: 1px solid #eef4ff;
+  border-bottom: 1px solid var(--ap-hairline);
   flex-shrink: 0;
 }
 .brand-text { display: flex; flex-direction: column; }
-.brand-name { font-size: 14px; font-weight: 700; color: #1d2129; letter-spacing: 1px; }
-.brand-sub { font-size: 11px; color: #1677ff; letter-spacing: 1.5px; margin-top: 2px; }
+.brand-name { font-size: 14px; font-weight: 700; color: var(--ap-text); letter-spacing: 1px; }
+.brand-sub { font-size: 11px; color: var(--ap-accent); letter-spacing: 1.5px; margin-top: 2px; }
 
 .aside-user {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 14px 18px;
-  border-bottom: 1px solid #eef4ff;
+  border-bottom: 1px solid var(--ap-hairline);
   flex-shrink: 0;
 }
 .user-meta { display: flex; flex-direction: column; gap: 4px; }
-.u-name { font-size: 13px; font-weight: 600; color: #1d2129; }
+.u-name { font-size: 13px; font-weight: 600; color: var(--ap-text); }
 
 .aside-menu {
   flex: 1;
@@ -167,10 +171,14 @@ onMounted(async () => {
   border-radius: 6px;
   height: 44px;
   line-height: 44px;
+  color: var(--ap-text);
+}
+.aside-menu :deep(.el-menu-item .el-icon) {
+  color: var(--ap-text-2);
 }
 .aside-menu :deep(.el-menu-item.is-active) {
-  background: #eef4ff;
-  color: #1677ff;
+  background: var(--ap-accent-soft);
+  color: var(--ap-accent);
   font-weight: 600;
 }
 
@@ -179,7 +187,7 @@ onMounted(async () => {
   flex-direction: column;
   gap: 6px;
   padding: 12px;
-  border-top: 1px solid #eef4ff;
+  border-top: 1px solid var(--ap-hairline);
   flex-shrink: 0;
 }
 .action-btn { justify-content: flex-start; }
@@ -198,7 +206,7 @@ onMounted(async () => {
   overflow-y: auto;
   overflow-x: hidden;
   padding: 0;
-  background: #f5f9ff;
+  background: var(--ap-l-bg);
 }
 .portal-main :deep(> *) { min-height: 100%; }
 

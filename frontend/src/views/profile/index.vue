@@ -11,7 +11,8 @@ import {
 import { Lock, User, Setting, Camera, Bell } from '@element-plus/icons-vue'
 import { LoginApi, RotationApi } from '@/api'
 import { useUserStore } from '@/stores/user'
-import { applyFontSize } from '@/utils/appearance'
+import { applyFontSize, applyTheme } from '@/utils/appearance'
+import { actorLabel } from '@/utils/actor'
 import NotificationInbox from '@/views/notices/NotificationInbox.vue'
 
 const router = useRouter()
@@ -33,6 +34,7 @@ const rotationText = ref('')
 const studyYearText = ref('')
 const rotationBatchText = ref('')
 const mentorGroupText = ref('')
+const groupEditorText = ref('')
 const displayName = computed(() => userStore.displayName)
 const avatarLetter = computed(() => displayName.value.charAt(0).toUpperCase())
 const roleName = computed(() => userStore.roleName)
@@ -244,7 +246,9 @@ const fetchSetting = async () => {
   try {
     const s = await LoginApi.getUserSetting()
     Object.assign(setting, s)
+    if (setting.theme === 'auto') setting.theme = 'light'
     applyFontSize(setting.fontSize)
+    applyTheme(setting.theme)
   } catch {
     /* 后端不可达时使用默认值 */
   } finally {
@@ -252,8 +256,9 @@ const fetchSetting = async () => {
   }
 }
 
-// 字号即时预览：选完就能看出区别，不用先保存再猜有没有生效
+// 字号和风格即时预览：选完就能看出区别，保存后下次登录仍沿用
 watch(() => setting.fontSize, (v) => applyFontSize(v))
+watch(() => setting.theme, (v) => applyTheme(v))
 
 const submitSetting = async () => {
   settingSaving.value = true
@@ -268,8 +273,9 @@ const submitSetting = async () => {
       notifySound: setting.notifySound
     })
     Object.assign(setting, s)
+    if (setting.theme === 'auto') setting.theme = 'light'
     applyFontSize(setting.fontSize)
-    // 原来保存完悄无声息，用户只能靠刷新去猜存没存上
+    applyTheme(setting.theme)
     ElMessage.success('配置已保存')
   } catch {
     /* 已弹错误提示 */
@@ -308,6 +314,12 @@ onMounted(() => {
           studyYearText.value = home.role === 'student' ? home.studyYear : ''
           rotationBatchText.value = home.role === 'student' ? home.rotationBatch : ''
           mentorGroupText.value = home.role === 'student' ? home.mentorGroup : ''
+          groupEditorText.value = home.role === 'student'
+            ? actorLabel(home.groupEditorName, home.groupEditorRole)
+            : ''
+          if (home.role === 'student' && home.groupEditedAt && groupEditorText.value) {
+            groupEditorText.value = `${groupEditorText.value} · ${home.groupEditedAt}`
+          }
           return
         }
         const due = home.rotation.dueOn ? `，截止 ${home.rotation.dueOn}` : ''
@@ -315,6 +327,10 @@ onMounted(() => {
         studyYearText.value = home.studyYear
         rotationBatchText.value = home.rotationBatch
         mentorGroupText.value = home.mentorGroup
+        groupEditorText.value = actorLabel(home.groupEditorName, home.groupEditorRole)
+        if (home.groupEditedAt && groupEditorText.value) {
+          groupEditorText.value = `${groupEditorText.value} · ${home.groupEditedAt}`
+        }
       })
       .catch(() => {
         rotationText.value = ''
@@ -420,6 +436,9 @@ onMounted(() => {
               <el-form-item v-if="isStudent" label="带教组">
                 <el-input :model-value="mentorGroupText || '未分组'" disabled />
               </el-form-item>
+              <el-form-item v-if="isStudent" label="分组修改人">
+                <el-input :model-value="groupEditorText || '尚未记录'" disabled />
+              </el-form-item>
               <el-form-item v-if="isStudent" label="当前轮转">
                 <el-input :model-value="rotationText || '老师尚未布置轮转'" disabled />
                 <el-button link type="primary" @click="router.push('/training/home')">
@@ -518,13 +537,15 @@ onMounted(() => {
           </template>
           <div class="card" v-loading="settingLoading">
             <el-form label-width="120px" style="max-width: 560px">
-              <!--
-                界面主题 / 界面语言 / 消息通知开关暂时下线。
-                这三块后端存得下，但前端从来没有消费过：全站没有暗色主题实现、
-                没引入任何 i18n、通知开关也没有任何代码读取，改了必然「没反应」
-                （三份用户测试报告都点名了这条）。等真正实现时再放出来，
-                后端接口和字段保持不变，恢复只需要把这几段取消注释。
-              -->
+              <el-form-item label="界面风格">
+                <el-radio-group v-model="setting.theme">
+                  <el-radio-button value="light">浅色</el-radio-button>
+                  <el-radio-button value="dark">深色</el-radio-button>
+                </el-radio-group>
+                <div class="setting-hint">
+                  学员培训端、管理员筛查端和用户中心共用这一套侧栏风格。选中即时生效，保存后下次登录仍沿用。
+                </div>
+              </el-form-item>
               <el-form-item label="字体大小">
                 <el-radio-group v-model="setting.fontSize">
                   <el-radio-button value="small">小</el-radio-button>

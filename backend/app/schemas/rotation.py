@@ -61,6 +61,9 @@ class StudentProgressOut(_Camel):
     study_year: str = ""
     rotation_batch: str = ""
     mentor_group: str = ""
+    group_editor_name: str = ""
+    group_editor_role: str = ""
+    group_edited_at: Optional[str] = None
     done: int
     total: int
     progress: int
@@ -102,6 +105,9 @@ class StudentHomeOut(_Camel):
     study_year: str = ""
     rotation_batch: str = ""
     mentor_group: str = ""
+    group_editor_name: str = ""
+    group_editor_role: str = ""
+    group_edited_at: Optional[str] = None
 
 
 class TeacherHomeOut(_Camel):

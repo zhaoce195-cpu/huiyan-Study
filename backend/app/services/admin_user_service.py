@@ -14,7 +14,8 @@ from sqlalchemy import desc, func, or_
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
-from app.db.models import Role, User
+from app.db.models import Department, Role, User
+from app.services.common_service import _hospital_name
 from app.db.models.user import RoleEnum, UserTypeEnum
 from app.schemas.user import (
     AdminResetPasswordOut,
@@ -39,6 +40,7 @@ _ROLE_TO_TYPE = {
 
 
 def _to_item(user: User) -> AdminUserItem:
+    home = getattr(user, "home_department", None)
     return AdminUserItem(
         id=user.id,
         username=user.username,
@@ -46,6 +48,7 @@ def _to_item(user: User) -> AdminUserItem:
         role=user.role.code if user.role else "",
         role_name=user.role.name if user.role else "",
         department=user.department or "",
+        hospital_name=_hospital_name(home.hospital_id) if home is not None else "",
         is_active=bool(user.is_active),
         must_change_password=bool(getattr(user, "must_change_password", False)),
         last_login_at=user.last_login_at,
@@ -169,11 +172,22 @@ class AdminUserService:
                 detail=f"账号已存在：{params.username}",
             )
         role = _get_role(db, role_code)
+        department_name = (params.department or "").strip()
+        department_id = params.department_id
+        if department_id:
+            dept = db.query(Department).filter(Department.id == department_id).first()
+            if dept is None or dept.hospital_id is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="请选择已归属医院的科室",
+                )
+            department_name = dept.name
         user = User(
             username=params.username,
             password_hash=hash_password(params.password),
             real_name=params.real_name.strip(),
-            department=(params.department or "").strip(),
+            department=department_name,
+            department_id=department_id,
             role_id=role.id,
             user_type=_ROLE_TO_TYPE[role_code],
             is_active=True,

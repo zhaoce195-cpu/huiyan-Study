@@ -21,6 +21,7 @@ import GoldStandardDialog from './components/GoldStandardDialog.vue'
 import CaseBatchImportDialog from './components/CaseBatchImportDialog.vue'
 import ShareDialog from '@/views/training/components/ShareDialog.vue'
 import DynamicFilter from '@/components/DynamicFilter.vue'
+import CaseIdPair from '@/components/CaseIdPair.vue'
 import { CASE_BROWSE_FILTER } from '@/utils/filter-presets'
 
 type Item = CaseBrowseApi.CaseBrowseItem
@@ -40,7 +41,7 @@ const browseFilter = computed(() => {
     ...CASE_BROWSE_FILTER,
     fields: CASE_BROWSE_FILTER.fields.map((field) =>
       field.key === 'keyword'
-        ? { ...field, label: '编号 / case_sn / 标题' }
+        ? { ...field, label: '来源编号 / 平台病例号 / 标题' }
         : field
     )
   }
@@ -579,10 +580,9 @@ const onShareSubmit = (row: Item) => {
         >
           <el-table-column type="selection" width="46" :selectable="(row: Item) => row.archiveStatus !== 'ARCHIVED'" />
           <el-table-column type="index" label="#" width="56" />
-          <el-table-column label="病例编号" width="180">
+          <el-table-column label="编号" min-width="280">
             <template #default="{ row }">
-              <div class="case-no">{{ row.caseNo }}</div>
-              <div v-if="row.caseSn" class="case-sn">{{ row.caseSn }}</div>
+              <CaseIdPair :source-no="row.caseNo" :platform-no="row.caseSn" />
             </template>
           </el-table-column>
           <el-table-column label="标题" min-width="220">
