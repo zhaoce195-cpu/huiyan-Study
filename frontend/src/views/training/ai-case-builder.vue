@@ -11,6 +11,7 @@ import { MagicStick, Plus, View } from '@element-plus/icons-vue'
 import { TrainingApi } from '@/api'
 
 const router = useRouter()
+defineProps<{ embedded?: boolean }>()
 
 /* ========== 上传 ========== */
 interface EyeSlot {
@@ -75,6 +76,14 @@ const handleCreate = async () => {
   }
 }
 
+const goFinishGold = () => {
+  if (!draft.value) return
+  const query: Record<string, string> = { tab: 'browse' }
+  if (draft.value.id) query.goldCaseId = String(draft.value.id)
+  if (draft.value.caseId) query.keyword = draft.value.caseId
+  router.push({ path: '/training/cases', query })
+}
+
 const resetAll = () => {
   if (leftEye.value.preview) URL.revokeObjectURL(leftEye.value.preview)
   if (rightEye.value.preview) URL.revokeObjectURL(rightEye.value.preview)
@@ -90,7 +99,7 @@ const GRADE_TAG: Record<number, 'success' | 'warning' | 'danger'> = {
 </script>
 
 <template>
-  <div class="ai-builder-page">
+  <div class="ai-builder-page" :class="{ 'is-embedded': embedded }">
     <header class="page-head">
       <div>
         <h2 class="title">
@@ -128,15 +137,8 @@ const GRADE_TAG: Record<number, 'success' | 'warning' | 'danger'> = {
             />
           </div>
           <div class="result-actions">
-            <el-button
-              type="primary"
-              :icon="View"
-              @click="router.push({
-                path: '/training/cases',
-                query: draft.id ? { goldCaseId: String(draft.id) } : undefined
-              })"
-            >
-              去病例库完善金标准
+            <el-button type="primary" :icon="View" @click="goFinishGold">
+              去完善金标准
             </el-button>
             <el-button :icon="Plus" @click="resetAll">继续建案</el-button>
           </div>
@@ -212,6 +214,10 @@ const GRADE_TAG: Record<number, 'success' | 'warning' | 'danger'> = {
   padding: 24px;
   max-width: 860px;
   margin: 0 auto;
+}
+.ai-builder-page.is-embedded {
+  max-width: 920px;
+  padding: 8px 8px 28px;
 }
 .page-head .title {
   display: flex;

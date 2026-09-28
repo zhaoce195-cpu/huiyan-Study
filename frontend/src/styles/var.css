@@ -13,6 +13,12 @@
   --hy-risk-green: #00b42a;
   --hy-risk-green-bg: #e8ffea;
 
+  /* 培训端暗室：侧栏暗岩、工作区护眼冷灰。侧栏色在门户里再写死一次。 */
+  --hy-aside-bg: #14171f;
+  --hy-aside-text: #c4cad4;
+  --hy-aside-text-active: #ffffff;
+  --hy-work-bg: #edf1f6;
+
   /* 内容页 浅色（蓝白 / 白卡 / 深蓝墨字） */
   --hy-light-bg: #f4f7fc;
   --hy-light-card: #ffffff;

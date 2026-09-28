@@ -483,7 +483,7 @@ const fetchExistingDraft = async () => {
         DRAFT: '已恢复上次未提交的阅片草稿',
         SUBMITTED: '已载入你提交的阅片记录（待审核）',
         REVIEWED: '已载入你提交的阅片记录（已通过）',
-        REJECTED: '已载入被驳回的阅片记录，请按审核意见修改后重新提交'
+        REJECTED: '已载入被驳回的记录，请按审核意见修改后重交'
       }
       ElMessage.info(label[d.status] || '已载入上次的阅片记录')
     }
@@ -608,6 +608,57 @@ const onSave = async (
 
 const reviewLoading = ref(false)
 const headerReviewComment = ref('')
+const reviewQueue = ref<Array<{ id: number; caseId: number }>>([])
+
+const loadReviewQueue = async () => {
+  if (!canReview.value) return
+  try {
+    const page = await ReadingApi.getReadingList({
+      status: 'SUBMITTED',
+      page: 1,
+      pageSize: 100
+    })
+    reviewQueue.value = (page?.list || [])
+      .filter((row) => row.id > 0 && row.caseId > 0)
+      .map((row) => ({ id: row.id, caseId: row.caseId }))
+  } catch {
+    reviewQueue.value = []
+  }
+}
+
+const diagnosisLines = computed(() =>
+  buildAnswerSummary(diagnosisForm.value, existingRecord.value?.diagnosis || {})
+)
+
+/** 从诊断表单及汇总文本中提取某侧眼别的结论摘要（纯前端提取，不改后端） */
+const getEyeDiagSummary = (code: 'OD' | 'OS'): string => {
+  const diag = existingRecord.value?.diagnosis || {}
+
+  const keyMatch = code === 'OD'
+    ? ['od_drLevel', 'right_drLevel', 'odLevel', 'odGrade']
+    : ['os_drLevel', 'left_drLevel', 'osLevel', 'osGrade']
+  for (const k of keyMatch) {
+    if (diag[k] !== undefined && diag[k] !== null && diag[k] !== '') {
+      return `${diag[k]} 级`
+    }
+  }
+  const lines = diagnosisLines.value || []
+  const sideName = code === 'OD' ? '右眼' : '左眼'
+  const matched = lines.find((item) => item.label.includes(sideName) || item.text.includes(sideName))
+  if (matched) {
+    return matched.text || matched.label
+  }
+  if (diag.drLevel !== undefined && diag.drLevel !== null && diag.drLevel !== '') {
+    return `综合 DR ${diag.drLevel} 级`
+  }
+  const gradeLine = lines.find((item) => item.label.includes('分级') || item.label.includes('DR'))
+  if (gradeLine) return gradeLine.text || gradeLine.label
+  if (diag.dr_grade !== undefined && diag.dr_grade !== null && diag.dr_grade !== '') {
+    return `综合 DR ${diag.dr_grade} 级`
+  }
+  return '未见明确分级'
+}
+
 const onReview = async (accept: boolean, comment: string) => {
   const id = existingRecord.value?.id || recordId.value
   if (!id) {
@@ -635,6 +686,69 @@ const onReview = async (accept: boolean, comment: string) => {
   } finally {
     reviewLoading.value = false
   }
+}
+
+/* ========== 流水批阅：全部完成结算弹窗 ========== */
+const reviewFinishedDialog = ref(false)
+const lastReviewedCount = ref(0)
+
+const handleReviewAndNext = async (accept: boolean, comment?: string) => {
+  const text = String(comment ?? headerReviewComment.value ?? '')
+  const id = existingRecord.value?.id || recordId.value
+  if (!id) {
+    ElMessage.warning('没有可评定的作业记录')
+    return
+  }
+  if (!accept && !text.trim()) {
+    ElMessage.warning('驳回需填写审核意见')
+    return
+  }
+  reviewLoading.value = true
+  try {
+    const out = await ReadingApi.reviewReading(id, {
+      reviewComment: text,
+      accept
+    })
+    existingRecord.value = out
+    if (!reviewQueue.value.length) await loadReviewQueue()
+    reviewQueue.value = reviewQueue.value.filter((row) => row.id !== id)
+    lastReviewedCount.value += 1
+    const next = reviewQueue.value[0]
+    const done = accept ? '已通过' : '已驳回'
+    if (!next) {
+      reviewFinishedDialog.value = true
+      return
+    }
+    const sameCase = Number(next.caseId) === Number(caseId.value)
+    headerReviewComment.value = ''
+    await router.replace({
+      path: route.path,
+      query: {
+        ...route.query,
+        caseId: String(next.caseId),
+        recordId: String(next.id),
+        from: 'quality'
+      }
+    })
+    ElMessage.success(`${done}，正在打开下一份`)
+    if (sameCase) await fetchExistingRecord()
+  } catch {
+    /* 已弹错误 */
+  } finally {
+    reviewLoading.value = false
+  }
+}
+
+const onReviewHotkey = (event: KeyboardEvent) => {
+  if (event.key !== 'Enter' || event.repeat) return
+  if (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return
+  if (!reviewMode.value || existingRecord.value?.status !== 'SUBMITTED' || reviewLoading.value) return
+  const target = event.target as HTMLElement | null
+  const tag = target?.tagName
+  if (tag === 'TEXTAREA' || target?.isContentEditable) return
+  if (tag === 'INPUT' && !target?.closest('.review-bar')) return
+  event.preventDefault()
+  handleReviewAndNext(true)
 }
 
 /* ========== 跳转 ========== */
@@ -665,6 +779,7 @@ const genderText = (g?: string) => {
 /* ========== 生命周期 ========== */
 
 onMounted(async () => {
+  window.addEventListener('keydown', onReviewHotkey)
   // 阅片内核由 CoreRetinaStation 自行初始化（并发调用共用同一个 Promise），
   // 页面不再需要预热
   await loadCaseList()
@@ -691,6 +806,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onReviewHotkey)
   releaseReadingViewports()
 })
 
@@ -699,6 +815,14 @@ onActivated(() => {
   const id = preferredReadingCaseId()
   if (id) onSelectCase(id)
 })
+
+watch(
+  recordId,
+  (id) => {
+    if (id > 0 && canReview.value && !reviewQueue.value.length) loadReviewQueue()
+  },
+  { immediate: true }
+)
 
 watch(
   () => [route.query.tab, route.query.recordId, route.query.caseId],
@@ -1394,7 +1518,9 @@ const openNote = () => {
         {{
           existingRecord.status === 'SUBMITTED'
             ? '尚未评定'
-            : `${actorLabel(existingRecord.reviewerName, existingRecord.reviewerRole) || '尚未记录评定人'}${existingRecord.reviewComment ? `：${existingRecord.reviewComment}` : '（无评语）'}`
+            : existingRecord.status === 'REJECTED'
+              ? `已载入被驳回的记录，请按审核意见修改后重交${existingRecord.reviewComment ? `（${existingRecord.reviewComment}）` : ''}`
+              : `${actorLabel(existingRecord.reviewerName, existingRecord.reviewerRole) || '尚未记录评定人'}${existingRecord.reviewComment ? `：${existingRecord.reviewComment}` : '（无评语）'}`
         }}
       </span>
       <el-button text size="small" @click="router.push('/training/my-reviews')">
@@ -1416,20 +1542,21 @@ const openNote = () => {
         class="review-bar-input"
       />
       <el-button
-        type="danger"
+        type="success"
         size="small"
         :loading="reviewLoading"
-        @click="onReview(false, headerReviewComment)"
+        @click="handleReviewAndNext(true)"
       >
-        驳回
+        通过并审下一份 (Enter)
       </el-button>
       <el-button
-        type="primary"
+        type="danger"
+        plain
         size="small"
         :loading="reviewLoading"
-        @click="onReview(true, headerReviewComment)"
+        @click="handleReviewAndNext(false)"
       >
-        通过并提交
+        驳回并审下一份
       </el-button>
     </div>
 
@@ -1691,6 +1818,17 @@ const openNote = () => {
                 @ready="onCanvasReady"
                 @error="onCanvasError"
               />
+              <!-- 新增：视口底脚侧别诊断胶囊栏 -->
+              <div class="dual-footer">
+                <div class="df-left">
+                  <span class="df-dot" :class="code === 'OD' ? 'is-od' : 'is-os'"></span>
+                  <span class="df-text">标注 <strong>{{ ((activeEye === code ? canvasState.annotations : eyeBoards[code]?.annotations) || []).length }}</strong> 处</span>
+                </div>
+                <div class="df-right" :title="getEyeDiagSummary(code)">
+                  <span class="df-label">学员诊断：</span>
+                  <span class="df-val">{{ getEyeDiagSummary(code) }}</span>
+                </div>
+              </div>
             </div>
           </div>
           <CoreRetinaStation
@@ -1751,6 +1889,8 @@ const openNote = () => {
         :existing-record="existingRecord"
         :can-review="canReview && reviewMode && existingRecord?.status === 'SUBMITTED'"
         :review-loading="reviewLoading"
+        :review-comment="headerReviewComment"
+        :diagnosis-lines="diagnosisLines"
         :layer-notes="layerNotes"
         @highlight="(id) => (highlightId = id)"
         @update:viewport="(v) => (canvasState.viewport = v)"
@@ -1770,6 +1910,8 @@ const openNote = () => {
           }
         "
         @review="onReview"
+        @review-next="handleReviewAndNext"
+        @update:review-comment="(value) => (headerReviewComment = value)"
       />
     </div>
 
@@ -1797,6 +1939,38 @@ const openNote = () => {
       v-model:visible="aiVisible"
       :case-id="aiCaseKey"
     />
+
+    <!-- 待审作业全部批完结算弹窗 -->
+    <el-dialog
+      v-model="reviewFinishedDialog"
+      width="460px"
+      :show-close="false"
+      :close-on-click-modal="false"
+      align-center
+      class="review-finish-dialog"
+    >
+      <div class="finish-dialog-body">
+        <el-result
+          icon="success"
+          title="本轮待审作业已全部批阅完毕！"
+          sub-title="待审队列已清空。感谢老师的细致带教与及时评定！"
+        >
+          <template #extra>
+            <div class="finish-actions">
+              <el-button type="primary" size="default" @click="router.push('/training/home')">
+                返回教学看板
+              </el-button>
+              <el-button size="default" @click="router.push('/training/cases')">
+                去病例中心备课
+              </el-button>
+              <el-button text size="default" @click="reviewFinishedDialog = false">
+                留在当前病例复查
+              </el-button>
+            </div>
+          </template>
+        </el-result>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -1822,8 +1996,13 @@ const openNote = () => {
   height: 100vh;
   display: flex;
   flex-direction: column;
+  animation: reading-fade-in 0.18s ease-in-out;
   background: #0f1014;
   color: #e5e6eb;
+}
+@keyframes reading-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 .reading-page.is-teacher-tone .page-header,
 .reading-page.is-teacher-tone .patient-bar {
@@ -1948,8 +2127,8 @@ const openNote = () => {
   color: #b7eb8f;
 }
 .student-review-bar.is-reject {
-  background: #2a1215;
-  color: #ffccc7;
+  background: #3d2e0a;
+  color: #ffe58f;
 }
 
 .page-body {
@@ -2071,6 +2250,62 @@ const openNote = () => {
   pointer-events: none;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
 }
+/* 双眼视口底脚胶囊 */
+.dual-footer {
+  position: absolute;
+  bottom: 8px;
+  left: 10px;
+  right: 10px;
+  height: 32px;
+  background: rgba(18, 20, 26, 0.88);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  font-size: 12px;
+  color: #e5e8ef;
+  z-index: 10;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+.df-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.df-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.df-dot.is-od { background: #3b82f6; box-shadow: 0 0 6px #3b82f6; }
+.df-dot.is-os { background: #10b981; box-shadow: 0 0 6px #10b981; }
+.df-text strong {
+  color: #ffffff;
+  font-weight: 600;
+}
+.df-right {
+  display: flex;
+  align-items: center;
+  max-width: 65%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.df-label {
+  color: #9aa1af;
+  flex-shrink: 0;
+}
+.df-val {
+  color: #ffd58a;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .dual-tag.is-od {
   background: #1677ff;
 }
@@ -2187,5 +2422,63 @@ const openNote = () => {
   font-size: 11px;
   color: #fff;
   text-shadow: 0 1px 2px #000;
+}
+
+/* 批阅结算弹窗样式适配暗色医疗主题 */
+:deep(.review-finish-dialog) {
+  border-radius: 12px;
+  overflow: hidden;
+  background: #181a20 !important;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+}
+:deep(.review-finish-dialog .el-result__title p) {
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 17px;
+}
+:deep(.review-finish-dialog .el-result__subtitle p) {
+  color: #9aa1af;
+  font-size: 13px;
+  margin-top: 6px;
+}
+.finish-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  margin-top: 10px;
+}
+.finish-actions .el-button {
+  width: 100%;
+  margin: 0 !important;
+}
+</style>
+
+<style>
+/* 弹窗挂到 body，scoped 选择器够不到面板本身 */
+.el-dialog.review-finish-dialog {
+  border-radius: 12px;
+  overflow: hidden;
+  background: #181a20 !important;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+}
+.el-dialog.review-finish-dialog .el-dialog__header {
+  display: none;
+}
+.el-dialog.review-finish-dialog .el-dialog__body {
+  background: #181a20;
+  padding-top: 20px;
+}
+.el-dialog.review-finish-dialog .el-result__title p {
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 17px;
+}
+.el-dialog.review-finish-dialog .el-result__subtitle p {
+  color: #9aa1af;
+  font-size: 13px;
+  margin-top: 6px;
 }
 </style>

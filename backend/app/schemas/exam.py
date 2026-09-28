@@ -31,6 +31,13 @@ class ExamCaseOption(_CamelModel):
     difficulty_text: str = ""
 
 
+class ExamParticipant(_CamelModel):
+    """已进入这场考试的学员。只返回给老师和管理员。"""
+    name: str
+    username: str = ""
+    state: str = ""
+
+
 class ExamPaperOut(_CamelModel):
     id: int
     title: str
@@ -48,6 +55,8 @@ class ExamPaperOut(_CamelModel):
     handed_count: int = 0
     opened_at: Optional[datetime] = None
     closed_at: Optional[datetime] = None
+    publisher_name: str = ""
+    participants: List[ExamParticipant] = Field(default_factory=list)
     # 学员侧：未进入 / 作答中 / 已交卷 / 缺考
     mine_status: str = ""
 

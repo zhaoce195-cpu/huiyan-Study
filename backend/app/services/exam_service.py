@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.db.models import (
     CaseArchiveStatusEnum,
     ExamPaper,
+    Notice,
     PracticeSession,
     PracticeStatusEnum,
     Role,
@@ -22,7 +23,7 @@ from app.db.models import (
     TrainingCase,
     User,
 )
-from app.schemas.exam import ExamCreate, ExamPaperOut, hand_in_as_submit
+from app.schemas.exam import ExamCreate, ExamPaperOut, ExamParticipant, hand_in_as_submit
 from app.schemas.practice import ExamNavItem, PracticeAnnotation, PracticeSubmitParams
 from app.services.practice_service import (
     CATEGORY_TEXT,
@@ -37,6 +38,96 @@ from app.services.practice_service import (
 def _require_teacher(user: User) -> None:
     if not _is_teacher_or_admin(user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="只有老师可以安排考试")
+
+
+def _person_name(user: Optional[User]) -> str:
+    if user is None:
+        return ""
+    return (user.real_name or "").strip() or (user.username or "").strip()
+
+
+def _announce(
+    db: Session,
+    publisher: User,
+    *,
+    title: str,
+    summary: str,
+    content: str,
+    roles: str,
+    pinned: bool,
+) -> None:
+    """写入学员或教师能在「通知」里看到的已发布公告。"""
+    from app.schemas.common import NoticeSaveParams
+    from app.services.notice_service import NoticeService
+
+    NoticeService.create(
+        db,
+        publisher,
+        NoticeSaveParams(
+            title=title[:128],
+            summary=summary[:255],
+            content=content,
+            notice_type="EXAM",
+            status="PUBLISHED",
+            visible_roles=roles,
+            is_top=pinned,
+        ),
+    )
+
+
+def announce_exam_published(db: Session, teacher: User, paper: ExamPaper) -> None:
+    """发布正式考试或阶段测验时通知全体学员。同一场只发一次。"""
+    marker = f"考试编号：{paper.id}"
+    exists = (
+        db.query(Notice.id)
+        .filter(Notice.notice_type == "EXAM", Notice.content.like(f"%{marker}%"))
+        .first()
+    )
+    if exists:
+        return
+    name = _person_name(teacher) or "老师"
+    count = len(paper.case_ids or [])
+    title = f"正式考试：{paper.title}"
+    summary = f"{name} 发起了「{paper.title}」，共 {count} 题，限时 {paper.duration_minutes} 分钟。"
+    content = (
+        f"{name} 发起了正式考试「{paper.title}」。\n"
+        f"共 {count} 题，限时 {paper.duration_minutes} 分钟，合格线 {paper.pass_score} 分。\n"
+        "请从「今日学习」或「病例学习」进入作答。\n"
+        f"{marker}"
+    )
+    _announce(
+        db,
+        teacher,
+        title=title,
+        summary=summary,
+        content=content,
+        roles="STUDENT",
+        pinned=True,
+    )
+
+
+def notify_exam_handed(db: Session, student: User, paper: ExamPaper) -> None:
+    """学员交完卷后，通知老师和管理员是谁交的。"""
+    rows = _sessions(db, paper.id, student.id)
+    if not rows or any(row.status == PracticeStatusEnum.DRAFT.value for row in rows):
+        return
+    marker = f"交卷记录：{paper.id}-{student.id}"
+    exists = db.query(Notice.id).filter(Notice.content.like(f"%{marker}%")).first()
+    if exists:
+        return
+    name = _person_name(student) or "学员"
+    title = f"{name} 已交卷：{paper.title}"
+    summary = f"{name}（{student.username}）已完成正式考试「{paper.title}」。"
+    content = f"{summary}\n{marker}"
+    _announce(
+        db,
+        student,
+        title=title,
+        summary=summary,
+        content=content,
+        roles="TEACHER,ADMIN",
+        pinned=False,
+    )
 
 
 def _paper_or_404(db: Session, paper_id: int) -> ExamPaper:
@@ -219,7 +310,12 @@ def expire_if_needed(db: Session, record: PracticeSession) -> None:
         return
     if not clock_expired(db, record):
         return
-    finalize_user(db, record.user_id, int(record.exam_paper_id or 0))
+    paper_id = int(record.exam_paper_id or 0)
+    finalize_user(db, record.user_id, paper_id)
+    paper = db.query(ExamPaper).filter(ExamPaper.id == paper_id).first()
+    student = db.query(User).filter(User.id == record.user_id).first()
+    if paper is not None and student is not None:
+        notify_exam_handed(db, student, paper)
 
 
 class ExamService:
@@ -303,6 +399,7 @@ class ExamService:
         db.add(paper)
         db.commit()
         db.refresh(paper)
+        announce_exam_published(db, user, paper)
         return ExamService._out(db, paper, user)
 
     @staticmethod
@@ -337,6 +434,25 @@ class ExamService:
             mine = "DOING"
         else:
             mine = "HANDED"
+        teacher = (
+            db.query(User).filter(User.id == paper.teacher_id).first()
+            if paper.teacher_id else None
+        )
+        participants: list = []
+        if _is_teacher_or_admin(user) and by_user:
+            people = db.query(User).filter(User.id.in_(list(by_user.keys()))).all()
+            named = {person.id: person for person in people}
+            for user_id, rows in by_user.items():
+                person = named.get(user_id)
+                done = bool(rows) and all(
+                    row.status != PracticeStatusEnum.DRAFT.value for row in rows
+                )
+                participants.append(ExamParticipant(
+                    name=_person_name(person) or f"学员{user_id}",
+                    username=person.username if person else "",
+                    state="已交卷" if done else "作答中",
+                ))
+            participants.sort(key=lambda item: (item.state != "已交卷", item.name))
         return ExamPaperOut(
             id=paper.id,
             title=paper.title,
@@ -354,6 +470,8 @@ class ExamService:
             handed_count=handed,
             opened_at=paper.opened_at,
             closed_at=paper.closed_at,
+            publisher_name=_person_name(teacher),
+            participants=participants,
             mine_status=mine,
         )
 
@@ -439,6 +557,7 @@ class ExamService:
             apply_draft(db, record, params)
             db.commit()
         finalize_user(db, user.id, paper.id)
+        notify_exam_handed(db, user, paper)
         db.refresh(record)
         return _to_out(record, db)
 

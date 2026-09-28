@@ -2,7 +2,9 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { PracticeApi, ReadingApi, RotationApi } from '@/api'
+import { QuestionFilled } from '@element-plus/icons-vue'
+import { ExamApi, PracticeApi, ReadingApi, RotationApi } from '@/api'
+import type { ExamPaper } from '@/api/exam'
 import type { GroupSummary, RotationTask, StudentHome, StudentProgress, TeacherHome } from '@/api/rotation'
 import type { PracticeRecord, PracticeStats } from '@/api/practice'
 import { useUserStore } from '@/stores/user'
@@ -33,6 +35,7 @@ const batchFilter = ref('')
 const mentorFilter = ref('')
 const activeTeacherTab = ref('monitor')
 const pendingReviewCount = ref(0)
+const openExams = ref<ExamPaper[]>([])
 const groupDraft = ref({ studyYear: '', rotationBatch: '', mentorGroup: '' })
 const savingGroup = ref(false)
 
@@ -76,9 +79,22 @@ const loadPendingReviews = async () => {
   }
 }
 
+const loadOpenExams = async () => {
+  if (isTeacher.value) {
+    openExams.value = []
+    return
+  }
+  try {
+    const rows = (await ExamApi.listExams()) || []
+    openExams.value = rows.filter((paper) => paper.status === 'OPEN' && paper.mineStatus !== 'HANDED')
+  } catch {
+    openExams.value = []
+  }
+}
+
 onMounted(async () => {
   await load()
-  await Promise.all([loadOptions(), loadPendingReviews()])
+  await Promise.all([loadOptions(), loadPendingReviews(), loadOpenExams()])
 })
 
 const startCase = async (task: RotationTask) => {
@@ -356,6 +372,20 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
         </div>
       </header>
 
+      <section v-if="openExams.length" class="block exam-callout">
+        <h3>正式考试</h3>
+        <div v-for="paper in openExams" :key="paper.id" class="exam-call">
+          <div>
+            <strong>{{ paper.title }}</strong>
+            <p>
+              {{ paper.publisherName || '老师' }} 发起 · {{ paper.questionCount }} 题 ·
+              {{ paper.durationMinutes }} 分钟 · 合格线 {{ paper.passScore }} 分
+            </p>
+          </div>
+          <el-button type="primary" @click="router.push('/training/practice')">去作答</el-button>
+        </div>
+      </section>
+
       <section v-if="student.rotation" class="stats">
         <article>
           <span>截止日期</span>
@@ -465,21 +495,38 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
 
       <section class="teacher-metrics" aria-label="全班核心指标">
         <article>
-          <span>学员数</span>
+          <div class="tm-label">
+            <span>学员数</span>
+          </div>
           <strong>{{ classSummary.students }}</strong>
           <span>已交卷 {{ classSummary.practiced }} 人</span>
         </article>
         <article>
-          <span>练习次数</span>
+          <div class="tm-label">
+            <span>练习次数</span>
+          </div>
           <strong>{{ classSummary.practice }}</strong>
+          <span>全班交卷总人次</span>
         </article>
         <article>
-          <span>平均分</span>
+          <div class="tm-label">
+            <span>平均分</span>
+          </div>
           <strong>{{ classSummary.avg.toFixed(1) }}</strong>
+          <span>练习综合达标水平</span>
         </article>
         <article>
-          <span>学时</span>
+          <div class="tm-label">
+            <span>总学时</span>
+            <el-tooltip
+              content="学时记录学员在机练习实际操作时长，交卷即固化；教师通过/驳回判定临床质量，不修改物理学时。"
+              placement="top"
+            >
+              <el-icon class="tm-help"><question-filled /></el-icon>
+            </el-tooltip>
+          </div>
           <strong>{{ formatMinutes(classSummary.seconds) }}</strong>
+          <span>在机有效练习时长</span>
         </article>
       </section>
 
@@ -657,7 +704,7 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
 
         <el-tab-pane label="待审概况" name="review" lazy>
           <p class="review-guide">
-            当前有 {{ pendingReviewCount }} 份作业待评定。点击可就地审阅，或点击侧栏「作业审核与质控」进行全屏深度判读。
+            当前有 {{ pendingReviewCount }} 份作业待评定。点击可就地审阅，或点击侧栏「作业批阅」进行全屏深度判读。
           </p>
           <ReadingQualityPanel />
         </el-tab-pane>
@@ -821,6 +868,24 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
   margin: 0 0 12px;
   font-size: 16px;
 }
+.exam-callout {
+  background: #fff;
+  border: 1px solid #dfe3ea;
+  border-radius: 12px;
+  padding: 16px 18px 8px;
+}
+.exam-call {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 0 14px;
+}
+.exam-call p {
+  margin: 4px 0 0;
+  color: #4e5969;
+  font-size: 13px;
+}
 .students-entry {
   margin-top: 20px;
   background: #f7f8fa;
@@ -935,6 +1000,20 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
 .teacher-metrics strong {
   font-size: 22px;
   color: #1d2129;
+}
+.tm-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.tm-help {
+  color: #9aa1af;
+  cursor: pointer;
+  font-size: 13px;
+  transition: color 0.15s ease;
+}
+.tm-help:hover {
+  color: #409eff;
 }
 .review-guide {
   margin: 0 0 12px;

@@ -11,6 +11,8 @@ import { CommonApi, LearningApi, TeachingApi } from '@/api'
 import UniversalUploader from '@/components/UniversalUploader.vue'
 import TeachingDemoBody from './components/TeachingDemoBody.vue'
 
+defineProps<{ embedded?: boolean }>()
+
 type Share = TeachingApi.TeachingShare
 
 const list = ref<Share[]>([])
@@ -252,7 +254,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="teaching-share-page">
+  <div class="teaching-share-page" :class="{ 'is-embedded': embedded }">
     <header class="page-head">
       <div class="head-left">
         <h2>我的教学分享</h2>
@@ -515,6 +517,13 @@ onMounted(() => {
   padding: 24px 28px 36px;
   min-height: 100vh;
   background: #ffffff;
+}
+.teaching-share-page.is-embedded {
+  max-width: none;
+  min-height: 0;
+  margin: 0;
+  padding: 8px 8px 28px;
+  background: transparent;
 }
 .page-head {
   display: flex;

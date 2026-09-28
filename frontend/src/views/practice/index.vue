@@ -255,6 +255,7 @@ onMounted(async () => {
                   <div>
                     <strong>{{ paper.title }}</strong>
                     <div class="exam-meta">
+                      发起人 {{ paper.publisherName || '老师' }} ·
                       {{ paper.questionCount }} 题 · {{ paper.durationMinutes }} 分钟 · 合格线
                       {{ paper.passScore }} 分 ·
                       {{ paper.allowBack ? '可以返回上一题' : '不能返回上一题' }}
@@ -274,7 +275,7 @@ onMounted(async () => {
               <el-empty v-else description="老师还没有发布考试" :image-size="64" />
             </el-card>
             <el-card v-else class="filter-card" shadow="never">
-              <span class="card-title">正式考试在侧栏「正式考试」里发布。这里仍是平时练习。</span>
+              <span class="card-title">正式考试在侧栏「教学事务管理 · 正式考核与试卷」里发布。这里仍是平时练习。</span>
             </el-card>
             <el-card class="filter-card" shadow="never">
               <template #header>

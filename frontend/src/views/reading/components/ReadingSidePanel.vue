@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElInput, ElInputNumber, ElMessage } from 'element-plus'
 import { Delete, View, Hide } from '@element-plus/icons-vue'
 import type {
@@ -22,6 +22,8 @@ const props = defineProps<{
   existingRecord: ReadingRecord | null
   canReview: boolean
   reviewLoading: boolean
+  reviewComment?: string
+  diagnosisLines?: Array<{ label: string; text: string }>
   /** 开关打开但画面上没有对应内容时的说明，空字符串表示不提示 */
   layerNotes?: { primary?: string; heatmap?: string; gold?: string }
 }>()
@@ -29,10 +31,12 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update:viewport', v: ViewportState): void
   (e: 'update:layers', v: LayerState): void
+  (e: 'update:reviewComment', v: string): void
   (e: 'remove-annotation', idx: number): void
   (e: 'remove-measurement', idx: number): void
   (e: 'highlight', id: string): void
   (e: 'review', accept: boolean, comment: string): void
+  (e: 'review-next', accept: boolean, comment: string): void
 }>()
 
 const hoverId = ref('')
@@ -60,13 +64,11 @@ const updateInvert = (val: boolean) => {
   emit('update:viewport', { ...props.viewport, invert: val })
 }
 
-const reviewComment = ref(props.existingRecord?.reviewComment || '')
-watch(
-  () => props.existingRecord?.reviewComment,
-  (val) => {
-    if (val && !reviewComment.value) reviewComment.value = val
-  }
-)
+const advancedOpen = ref<string[]>([])
+const reviewComment = computed({
+  get: () => props.reviewComment ?? '',
+  set: (value: string) => emit('update:reviewComment', value)
+})
 
 const onReview = (accept: boolean) => {
   if (!accept && !reviewComment.value.trim()) {
@@ -76,9 +78,47 @@ const onReview = (accept: boolean) => {
   emit('review', accept, reviewComment.value)
 }
 
+const onReviewNext = (accept: boolean) => {
+  if (!accept && !reviewComment.value.trim()) {
+    ElMessage.warning('驳回需填写审核意见')
+    return
+  }
+  emit('review-next', accept, reviewComment.value)
+}
+
 const addPreset = (phrase: string) => {
   if (props.reviewLoading) return
   reviewComment.value = appendReviewComment(reviewComment.value, phrase)
+}
+
+const CUSTOM_KEY = 'huiyan_doctor_custom_presets'
+const customPresets = ref<string[]>([])
+onMounted(() => {
+  try {
+    const raw = JSON.parse(localStorage.getItem(CUSTOM_KEY) || '[]')
+    customPresets.value = Array.isArray(raw) ? raw.filter((item) => typeof item === 'string') : []
+  } catch {
+    customPresets.value = []
+  }
+})
+const saveCustomPreset = () => {
+  const text = (reviewComment.value || '').trim()
+  if (!text) {
+    ElMessage.warning('请先在审核意见框中输入评语')
+    return
+  }
+  if (customPresets.value.includes(text)) {
+    ElMessage.info('该短语已在常用列表中')
+    return
+  }
+  customPresets.value.unshift(text)
+  if (customPresets.value.length > 12) customPresets.value.pop()
+  localStorage.setItem(CUSTOM_KEY, JSON.stringify(customPresets.value))
+  ElMessage.success('已存入常用评语')
+}
+const onRemoveCustom = (index: number) => {
+  customPresets.value.splice(index, 1)
+  localStorage.setItem(CUSTOM_KEY, JSON.stringify(customPresets.value))
 }
 
 const passAsExcellent = () => {
@@ -103,77 +143,6 @@ const passAsExcellent = () => {
           {{ Math.round(viewport.ww) }} / {{ Math.round(viewport.wl) }}
         </span>
       </div>
-      <div class="row">
-        <span class="muted">反相</span>
-        <el-switch
-          :model-value="viewport.invert"
-          size="small"
-          @update:model-value="(v: any) => updateInvert(!!v)"
-        />
-      </div>
-      <div class="row">
-        <span class="muted">窗宽窗位调节</span>
-      </div>
-      <div class="ww-row">
-        <span class="ww-label">窗宽</span>
-        <el-slider
-          v-model="wwwc[0]"
-          :min="1"
-          :max="600"
-          :step="1"
-          size="small"
-          :show-tooltip="false"
-          class="ww-slider"
-          @update:model-value="
-            (v: any) => emit('update:viewport', { ...viewport, ww: Number(v) })
-          "
-        />
-        <el-input-number
-          :model-value="Math.round(viewport.ww)"
-          :min="1"
-          :max="600"
-          :step="1"
-          size="small"
-          :controls="false"
-          class="ww-input"
-          @update:model-value="
-            (v: any) => emit('update:viewport', {
-              ...viewport,
-              ww: Math.min(600, Math.max(1, Number(v) || 1))
-            })
-          "
-        />
-      </div>
-      <div class="ww-row">
-        <span class="ww-label">窗位</span>
-        <el-slider
-          v-model="wwwc[1]"
-          :min="-200"
-          :max="600"
-          :step="1"
-          size="small"
-          :show-tooltip="false"
-          class="ww-slider"
-          @update:model-value="
-            (v: any) => emit('update:viewport', { ...viewport, wl: Number(v) })
-          "
-        />
-        <el-input-number
-          :model-value="Math.round(viewport.wl)"
-          :min="-200"
-          :max="600"
-          :step="1"
-          size="small"
-          :controls="false"
-          class="ww-input"
-          @update:model-value="
-            (v: any) => emit('update:viewport', {
-              ...viewport,
-              wl: Math.min(600, Math.max(-200, Number(v) || 0))
-            })
-          "
-        />
-      </div>
     </section>
 
     <!-- 图层 -->
@@ -189,7 +158,7 @@ const passAsExcellent = () => {
       </div>
       <p v-if="layerNotes?.primary" class="layer-note">{{ layerNotes.primary }}</p>
       <div class="row">
-        <span class="muted"><el-icon><View /></el-icon> 我的标注</span>
+        <span class="muted"><el-icon><View /></el-icon> {{ canReview ? '学员标注' : '我的标注' }}</span>
         <el-switch
           :model-value="layers.my"
           size="small"
@@ -197,7 +166,7 @@ const passAsExcellent = () => {
         />
       </div>
       <div class="row">
-        <span class="muted"><el-icon><Hide /></el-icon> 病灶提示图层</span>
+        <span class="muted"><el-icon><Hide /></el-icon> AI 热力图</span>
         <el-switch
           :model-value="layers.heatmap"
           size="small"
@@ -219,7 +188,7 @@ const passAsExcellent = () => {
     <!-- 标注列表 -->
     <section class="block">
       <div class="block-title">
-        我的标注
+        {{ canReview ? '学员标注' : '我的标注' }}
         <span class="muted ml6">{{ annotations.length }}</span>
       </div>
       <p class="ann-hint">编号和图上左上角的字是同一条。鼠标停在某一行上，图里对应的框会亮起来。在图上右键那一条，可以直接删除。</p>
@@ -249,37 +218,11 @@ const passAsExcellent = () => {
       </div>
     </section>
 
-    <!-- 测量列表 -->
-    <section class="block">
-      <div class="block-title">
-        测量
-        <span class="muted ml6">{{ measurements.length }}</span>
-      </div>
-      <div v-if="measurements.length === 0" class="empty">尚无测量数据</div>
-      <div v-else class="ann-list">
-        <div
-          v-for="(m, i) in measurements"
-          :key="m.id"
-          class="ann-row"
-          :class="{ active: hoverId === m.id }"
-          @mouseenter="enterMark(m.id)"
-          @mouseleave="leaveMark"
-        >
-          <span class="dot" :style="{ background: m.color || '#52c41a' }" />
-          <span class="ann-label">
-            {{ markCaption(measurements, i) }}
-            <template v-if="m.value !== undefined">
-              · {{ m.value.toFixed(1) }} {{ m.unit || '' }}
-            </template>
-          </span>
-          <el-button
-            text
-            type="danger"
-            size="small"
-            :icon="Delete"
-            @click="emit('remove-measurement', i)"
-          />
-        </div>
+    <section v-if="diagnosisLines?.length" class="block">
+      <div class="block-title">诊断结论</div>
+      <div v-for="line in diagnosisLines" :key="line.label" class="row">
+        <span class="muted">{{ line.label }}</span>
+        <span class="value">{{ line.text }}</span>
       </div>
     </section>
 
@@ -309,25 +252,37 @@ const passAsExcellent = () => {
         type="warning"
         :closable="false"
         show-icon
-        title="本次阅片被驳回"
-        description="请按审核意见修改后重新提交，仍是同一份记录。"
+        title="已载入被驳回的记录，请按审核意见修改后重交"
       />
     </section>
 
     <!-- 教师审核 -->
     <section v-if="canReview" class="block">
-      <div class="block-title">审核</div>
+      <div class="review-title-row">
+        <span class="block-title">审核</span>
+        <el-button
+          v-if="reviewComment.trim()"
+          text
+          type="primary"
+          size="small"
+          @click="saveCustomPreset"
+        >
+          + 存为常用
+        </el-button>
+      </div>
       <ElInput
         v-model="reviewComment"
         type="textarea"
         :rows="3"
-        placeholder="审核意见（驳回必填，也可点下方短语）"
+        placeholder="审核意见（驳回必填，可点下方短语）"
         size="small"
       />
       <ReviewPresetChips
         tone="dark"
         :disabled="reviewLoading"
+        :custom-list="customPresets"
         @pick="addPreset"
+        @remove-custom="onRemoveCustom"
       />
       <el-button
         class="excellent-btn"
@@ -339,25 +294,149 @@ const passAsExcellent = () => {
       >
         标为优秀并通过
       </el-button>
-      <div class="review-btns">
+      <div class="review-next">
         <el-button
           type="success"
           size="small"
           :loading="reviewLoading"
+          @click="onReviewNext(true)"
+        >
+          通过并审下一份 (Enter)
+        </el-button>
+        <el-button
+          type="danger"
+          plain
+          size="small"
+          :loading="reviewLoading"
+          @click="onReviewNext(false)"
+        >
+          驳回并审下一份
+        </el-button>
+      </div>
+      <div class="review-btns">
+        <el-button
+          type="success"
+          size="small"
+          plain
+          :loading="reviewLoading"
           @click="onReview(true)"
         >
-          通过
+          仅通过
         </el-button>
         <el-button
           type="danger"
           size="small"
+          plain
           :loading="reviewLoading"
           @click="onReview(false)"
         >
-          驳回
+          仅驳回
         </el-button>
       </div>
     </section>
+
+    <el-collapse v-model="advancedOpen" class="advanced-fold">
+      <el-collapse-item title="高级图像参数调节" name="advanced">
+        <div class="row">
+          <span class="muted">反相</span>
+          <el-switch
+            :model-value="viewport.invert"
+            size="small"
+            @update:model-value="(v: any) => updateInvert(!!v)"
+          />
+        </div>
+        <div class="ww-row">
+          <span class="ww-label">窗宽</span>
+          <el-slider
+            v-model="wwwc[0]"
+            :min="1"
+            :max="600"
+            :step="1"
+            size="small"
+            :show-tooltip="false"
+            class="ww-slider"
+            @update:model-value="
+              (v: any) => emit('update:viewport', { ...viewport, ww: Number(v) })
+            "
+          />
+          <el-input-number
+            :model-value="Math.round(viewport.ww)"
+            :min="1"
+            :max="600"
+            :step="1"
+            size="small"
+            :controls="false"
+            class="ww-input"
+            @update:model-value="
+              (v: any) => emit('update:viewport', {
+                ...viewport,
+                ww: Math.min(600, Math.max(1, Number(v) || 1))
+              })
+            "
+          />
+        </div>
+        <div class="ww-row">
+          <span class="ww-label">窗位</span>
+          <el-slider
+            v-model="wwwc[1]"
+            :min="-200"
+            :max="600"
+            :step="1"
+            size="small"
+            :show-tooltip="false"
+            class="ww-slider"
+            @update:model-value="
+              (v: any) => emit('update:viewport', { ...viewport, wl: Number(v) })
+            "
+          />
+          <el-input-number
+            :model-value="Math.round(viewport.wl)"
+            :min="-200"
+            :max="600"
+            :step="1"
+            size="small"
+            :controls="false"
+            class="ww-input"
+            @update:model-value="
+              (v: any) => emit('update:viewport', {
+                ...viewport,
+                wl: Math.min(600, Math.max(-200, Number(v) || 0))
+              })
+            "
+          />
+        </div>
+        <div class="block-title measure-title">
+          测距 / 测角
+          <span class="muted ml6">{{ measurements.length }}</span>
+        </div>
+        <div v-if="measurements.length === 0" class="empty">尚无测量数据</div>
+        <div v-else class="ann-list">
+          <div
+            v-for="(m, i) in measurements"
+            :key="m.id"
+            class="ann-row"
+            :class="{ active: hoverId === m.id }"
+            @mouseenter="enterMark(m.id)"
+            @mouseleave="leaveMark"
+          >
+            <span class="dot" :style="{ background: m.color || '#52c41a' }" />
+            <span class="ann-label">
+              {{ markCaption(measurements, i) }}
+              <template v-if="m.value !== undefined">
+                · {{ m.value.toFixed(1) }} {{ m.unit || '' }}
+              </template>
+            </span>
+            <el-button
+              text
+              type="danger"
+              size="small"
+              :icon="Delete"
+              @click="emit('remove-measurement', i)"
+            />
+          </div>
+        </div>
+      </el-collapse-item>
+    </el-collapse>
   </aside>
 </template>
 
@@ -385,6 +464,16 @@ const passAsExcellent = () => {
   letter-spacing: 0.2px;
   display: flex;
   align-items: center;
+}
+.review-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.review-title-row .block-title {
+  margin-bottom: 0;
 }
 
 .row {
@@ -477,11 +566,48 @@ const passAsExcellent = () => {
   color: #c9cdd4;
 }
 
+.review-next,
 .review-btns {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 10px;
+}
+.review-next {
+  flex-direction: column;
+}
+.review-next :deep(.el-button) {
+  margin-left: 0;
+}
+.advanced-fold {
+  border: none;
+  margin-bottom: 12px;
+}
+.advanced-fold :deep(.el-collapse-item__header) {
+  background: #1f2129;
+  color: #d5dae3;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 0 12px;
+  height: 40px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.advanced-fold :deep(.el-collapse-item__wrap) {
+  background: #1f2129;
+  border: 1px solid #2a2a2a;
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+}
+.advanced-fold :deep(.el-collapse-item__content) {
+  color: #d5dae3;
+  padding: 4px 12px 12px;
+}
+.advanced-fold :deep(.el-collapse-item__arrow) {
+  color: #9aa1af;
+}
+.measure-title {
+  margin-top: 12px;
 }
 .excellent-btn {
   width: 100%;

@@ -172,13 +172,13 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'teaching-share',
         name: 'TeachingShare',
-        component: () => import('@/views/training/teaching-share.vue'),
+        redirect: { path: '/training/cases', query: { tab: 'my-shares' } },
         meta: { title: '我的教学分享', allowedRoles: ['admin', 'doctor'] }
       },
       {
         path: 'ai-builder',
         name: 'AiCaseBuilder',
-        component: () => import('@/views/training/ai-case-builder.vue'),
+        redirect: { path: '/training/cases', query: { tab: 'ai-builder' } },
         meta: { title: 'AI 智能建案', allowedRoles: ['admin', 'doctor'] }
       },
       {

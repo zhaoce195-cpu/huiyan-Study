@@ -3,7 +3,9 @@ import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ExamApi, PracticeApi } from '@/api'
 import type { ExamCaseOption, ExamPaper } from '@/api/exam'
+import { useUserStore } from '@/stores/user'
 
+const userStore = useUserStore()
 const loading = ref(false)
 const papers = ref<ExamPaper[]>([])
 const cases = ref<ExamCaseOption[]>([])
@@ -30,6 +32,9 @@ const load = async () => {
     loading.value = false
   }
 }
+
+const participantText = (row: ExamPaper) =>
+  (row.participants || []).map((item) => `${item.name}（${item.state}）`).join('、')
 
 const openCreate = async () => {
   form.title = ''
@@ -119,6 +124,9 @@ onMounted(load)
 
     <el-table v-loading="loading" :data="papers" border stripe>
       <el-table-column prop="title" label="考试" min-width="140" />
+      <el-table-column label="发起人" width="110">
+        <template #default="{ row }">{{ row.publisherName || '—' }}</template>
+      </el-table-column>
       <el-table-column label="题目" min-width="180">
         <template #default="{ row }">
           {{ row.questionCount }} 题
@@ -136,6 +144,11 @@ onMounted(load)
       </el-table-column>
       <el-table-column label="交卷" width="110">
         <template #default="{ row }">{{ row.handedCount }} / {{ row.enteredCount }} 人</template>
+      </el-table-column>
+      <el-table-column label="作答学员" min-width="180">
+        <template #default="{ row }">
+          {{ participantText(row) || '还没有学员进入' }}
+        </template>
       </el-table-column>
       <el-table-column label="状态" width="90">
         <template #default="{ row }">
@@ -167,6 +180,9 @@ onMounted(load)
       <el-form label-width="120px">
         <el-form-item label="考试名称">
           <el-input v-model="form.title" maxlength="64" placeholder="例如：眼底病月考" />
+        </el-form-item>
+        <el-form-item label="发起人">
+          <el-input :model-value="userStore.displayName" disabled />
         </el-form-item>
         <el-form-item label="考试时间">
           <el-input-number v-model="form.durationMinutes" :min="1" :max="240" />

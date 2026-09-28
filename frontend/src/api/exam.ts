@@ -21,8 +21,16 @@ export interface ExamPaper {
   handedCount: number
   openedAt?: string | null
   closedAt?: string | null
+  publisherName?: string
+  participants?: ExamParticipant[]
   /** READY 未进入 / DOING 作答中 / HANDED 已交卷 / ABSENT 缺考 */
   mineStatus?: string
+}
+
+export interface ExamParticipant {
+  name: string
+  username?: string
+  state: string
 }
 
 export interface ExamCaseOption {

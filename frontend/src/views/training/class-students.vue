@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { RotationApi } from '@/api'
@@ -23,6 +23,14 @@ const loading = ref(false)
 const keyword = ref('')
 const savingId = ref(0)
 const rows = ref<Draft[]>([])
+const selectedRows = ref<Draft[]>([])
+const batchSaving = ref(false)
+const tableRef = ref()
+const batchForm = reactive({
+  studyYear: '',
+  rotationBatch: '',
+  mentorGroup: ''
+})
 
 const blank = (value: string) => (value === '未分组' ? '' : value)
 
@@ -90,6 +98,39 @@ const save = async (row: Draft) => {
   }
 }
 
+const submitBatchGroup = async () => {
+  const picked = selectedRows.value
+  if (!picked.length) return
+  const studyYear = batchForm.studyYear.trim()
+  const rotationBatch = batchForm.rotationBatch.trim()
+  const mentorGroup = batchForm.mentorGroup.trim()
+  if (!studyYear && !rotationBatch && !mentorGroup) {
+    ElMessage.warning('请至少填写年级、轮转批次或带教组中的一项')
+    return
+  }
+  batchSaving.value = true
+  try {
+    await Promise.all(
+      picked.map((row) =>
+        RotationApi.setStudentGroup(row.userId, {
+          studyYear: studyYear || row.studyYear.trim(),
+          rotationBatch: rotationBatch || row.rotationBatch.trim(),
+          mentorGroup: mentorGroup || row.mentorGroup.trim()
+        })
+      )
+    )
+    ElMessage.success(`已为 ${picked.length} 名学员更新分组。学员首页会按新的年级、批次和带教组计算任务`)
+    batchForm.studyYear = ''
+    batchForm.rotationBatch = ''
+    batchForm.mentorGroup = ''
+    selectedRows.value = []
+    tableRef.value?.clearSelection()
+    await load()
+  } finally {
+    batchSaving.value = false
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -111,7 +152,24 @@ onMounted(load)
       <span>{{ rows.length }} 名学员<span v-if="ungrouped">，{{ ungrouped }} 名还没分组</span></span>
     </section>
 
-    <el-table :data="visible" empty-text="还没有学员账号">
+    <div v-if="selectedRows.length" class="batch-bar">
+      <span class="batch-count">已勾选 {{ selectedRows.length }} 名学员</span>
+      <el-input v-model="batchForm.studyYear" placeholder="统一设年级，如2024级" style="width: 140px" />
+      <el-input v-model="batchForm.rotationBatch" placeholder="统一轮转批次" style="width: 160px" />
+      <el-input v-model="batchForm.mentorGroup" placeholder="统一带教组" style="width: 140px" />
+      <el-button type="primary" :loading="batchSaving" @click="submitBatchGroup">
+        批量应用分组
+      </el-button>
+    </div>
+
+    <el-table
+      ref="tableRef"
+      :data="visible"
+      row-key="userId"
+      empty-text="还没有学员账号"
+      @selection-change="(list: Draft[]) => (selectedRows = list)"
+    >
+      <el-table-column type="selection" width="48" />
       <el-table-column prop="name" label="学员" min-width="120" />
       <el-table-column prop="username" label="账号" min-width="120" />
       <el-table-column label="年级" min-width="160">
@@ -176,6 +234,22 @@ onMounted(load)
   margin: 20px 0 12px;
   color: #4e5969;
   font-size: 14px;
+}
+.batch-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  background: #ffffff;
+  border: 1px solid #dfe3ea;
+  border-radius: 10px;
+}
+.batch-count {
+  color: #1d2129;
+  font-weight: 600;
+  margin-right: 4px;
 }
 .muted {
   color: #4e5969;
