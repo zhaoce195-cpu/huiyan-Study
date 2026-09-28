@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onActivated, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ExamApi, PracticeApi } from '@/api'
@@ -114,11 +114,43 @@ const enterExam = async (paper: ExamPaper) => {
     examStartingId.value = 0
   }
 }
+const handedExams = computed(() => exams.value.filter((paper) => paper.mineStatus === 'HANDED'))
+const doingExams = computed(() => exams.value.filter((paper) => paper.mineStatus === 'DOING'))
+const pendingExams = computed(() =>
+  exams.value.filter((paper) => paper.mineStatus !== 'HANDED' && paper.mineStatus !== 'DOING')
+)
+const examStatusText = (paper: ExamPaper) => {
+  if (paper.mineStatus === 'HANDED') return '已交卷'
+  if (paper.mineStatus === 'DOING') return '作答中'
+  if (paper.mineStatus === 'ABSENT') return '缺考'
+  return '未参加'
+}
+const examStatusType = (paper: ExamPaper): 'success' | 'warning' | 'danger' | 'info' => {
+  if (paper.mineStatus === 'HANDED') return 'success'
+  if (paper.mineStatus === 'DOING') return 'warning'
+  if (paper.mineStatus === 'ABSENT') return 'danger'
+  return 'info'
+}
+const examScoreText = (paper: ExamPaper) => {
+  if (paper.mineStatus === 'DOING') return '还在作答，交卷后才有总分。'
+  if (paper.mineStatus !== 'HANDED' || paper.mineScore == null) return ''
+  const mark = paper.minePassed ? '合格' : '不合格'
+  const score = Number(paper.mineScore).toFixed(1)
+  if (paper.status === 'CLOSED') return `得分 ${score} · ${mark}`
+  return `得分 ${score} · ${mark}。标准答案等老师收卷后再看。`
+}
 const examActionText = (paper: ExamPaper) => {
-  if (paper.status === 'CLOSED') return '查看成绩'
+  if (paper.mineStatus === 'ABSENT') return '未参加'
   if (paper.mineStatus === 'DOING') return '继续考试'
-  if (paper.mineStatus === 'HANDED') return '等待收卷'
+  if (paper.mineStatus === 'HANDED' && paper.status === 'CLOSED') return '查看成绩'
+  if (paper.mineStatus === 'HANDED') return '已交卷'
+  if (paper.status === 'CLOSED') return '已收卷'
   return '进入考试'
+}
+const examActionDisabled = (paper: ExamPaper) => {
+  if (paper.mineStatus === 'ABSENT') return true
+  if (paper.status === 'CLOSED' && paper.mineStatus !== 'HANDED') return true
+  return paper.mineStatus === 'HANDED' && paper.status !== 'CLOSED'
 }
 
 /* ========== 自选病例 — 通过病例浏览页跳转 ========== */
@@ -237,6 +269,10 @@ onMounted(async () => {
   fetchStats(isTeacher.value ? 'all' : 'me')
 })
 
+onActivated(() => {
+  fetchExams()
+})
+
 </script>
 
 <template>
@@ -251,26 +287,82 @@ onMounted(async () => {
                 <span class="card-title">正式考试</span>
               </template>
               <div v-if="exams.length" class="exam-list">
-                <div v-for="paper in exams" :key="paper.id" class="exam-row">
-                  <div>
-                    <strong>{{ paper.title }}</strong>
-                    <div class="exam-meta">
-                      发起人 {{ paper.publisherName || '老师' }} ·
-                      {{ paper.questionCount }} 题 · {{ paper.durationMinutes }} 分钟 · 合格线
-                      {{ paper.passScore }} 分 ·
-                      {{ paper.allowBack ? '可以返回上一题' : '不能返回上一题' }}
-                      <span v-if="paper.status === 'CLOSED'"> · 已收卷</span>
+                <section v-if="handedExams.length" class="exam-group">
+                  <h4 class="exam-group-title">已交卷</h4>
+                  <div v-for="paper in handedExams" :key="paper.id" class="exam-row">
+                    <div>
+                      <strong>{{ paper.title }}</strong>
+                      <el-tag size="small" :type="examStatusType(paper)" effect="plain">
+                        {{ examStatusText(paper) }}
+                      </el-tag>
+                      <div class="exam-meta">
+                        发起人 {{ paper.publisherName || '老师' }} ·
+                        {{ paper.questionCount }} 题 · {{ paper.durationMinutes }} 分钟 · 合格线
+                        {{ paper.passScore }} 分
+                        <span v-if="paper.status === 'CLOSED'"> · 已收卷</span>
+                      </div>
+                      <div v-if="examScoreText(paper)" class="exam-score">{{ examScoreText(paper) }}</div>
                     </div>
+                    <el-button
+                      type="warning"
+                      :loading="examStartingId === paper.id"
+                      :disabled="examActionDisabled(paper)"
+                      @click="enterExam(paper)"
+                    >
+                      {{ examActionText(paper) }}
+                    </el-button>
                   </div>
-                  <el-button
-                    type="warning"
-                    :loading="examStartingId === paper.id"
-                    :disabled="paper.status === 'OPEN' && paper.mineStatus === 'HANDED'"
-                    @click="enterExam(paper)"
-                  >
-                    {{ examActionText(paper) }}
-                  </el-button>
-                </div>
+                </section>
+                <section v-if="doingExams.length" class="exam-group">
+                  <h4 class="exam-group-title">还没交完</h4>
+                  <div v-for="paper in doingExams" :key="paper.id" class="exam-row">
+                    <div>
+                      <strong>{{ paper.title }}</strong>
+                      <el-tag size="small" :type="examStatusType(paper)" effect="plain">
+                        {{ examStatusText(paper) }}
+                      </el-tag>
+                      <div class="exam-meta">
+                        发起人 {{ paper.publisherName || '老师' }} ·
+                        {{ paper.questionCount }} 题 · {{ paper.durationMinutes }} 分钟 · 合格线
+                        {{ paper.passScore }} 分
+                      </div>
+                      <div class="exam-score">{{ examScoreText(paper) }}</div>
+                    </div>
+                    <el-button
+                      type="warning"
+                      :loading="examStartingId === paper.id"
+                      :disabled="examActionDisabled(paper)"
+                      @click="enterExam(paper)"
+                    >
+                      {{ examActionText(paper) }}
+                    </el-button>
+                  </div>
+                </section>
+                <section v-if="pendingExams.length" class="exam-group">
+                  <h4 class="exam-group-title">还没参加</h4>
+                  <div v-for="paper in pendingExams" :key="paper.id" class="exam-row">
+                    <div>
+                      <strong>{{ paper.title }}</strong>
+                      <el-tag size="small" :type="examStatusType(paper)" effect="plain">
+                        {{ examStatusText(paper) }}
+                      </el-tag>
+                      <div class="exam-meta">
+                        发起人 {{ paper.publisherName || '老师' }} ·
+                        {{ paper.questionCount }} 题 · {{ paper.durationMinutes }} 分钟 · 合格线
+                        {{ paper.passScore }} 分
+                        <span v-if="paper.status === 'CLOSED'"> · 已收卷</span>
+                      </div>
+                    </div>
+                    <el-button
+                      type="warning"
+                      :loading="examStartingId === paper.id"
+                      :disabled="examActionDisabled(paper)"
+                      @click="enterExam(paper)"
+                    >
+                      {{ examActionText(paper) }}
+                    </el-button>
+                  </div>
+                </section>
               </div>
               <el-empty v-else description="老师还没有发布考试" :image-size="64" />
             </el-card>
@@ -367,9 +459,21 @@ onMounted(async () => {
                     <el-tag size="small">{{ randomCase.caseNo }}</el-tag>
                     <el-tag size="small" type="info">{{ randomCase.categoryText }}</el-tag>
                     <el-tag size="small" type="warning">{{ randomCase.difficultyText }}</el-tag>
-                    <!-- 盲训态：作答前不显示正确分级（报告 P0） -->
-                    <el-tag v-if="randomCase.drGradeText" size="small" type="success">
+                    <!-- 盲训态：作答前不显示正确分级。非糖网病种本身不考 DR 分级。 -->
+                    <el-tag
+                      v-if="randomCase.drGradeText && !isDrGradeNotApplicable(randomCase.category)"
+                      size="small"
+                      type="success"
+                    >
                       {{ randomCase.drGradeText }}
+                    </el-tag>
+                    <el-tag
+                      v-else-if="isDrGradeNotApplicable(randomCase.category)"
+                      size="small"
+                      type="info"
+                      effect="plain"
+                    >
+                      不考 DR 分级
                     </el-tag>
                     <el-tag v-else size="small" type="info" effect="plain">分级待判读</el-tag>
                     <el-tag size="small" effect="plain">
@@ -727,12 +831,32 @@ onMounted(async () => {
 .exam-entry {
   margin-bottom: 12px;
 }
+.exam-group + .exam-group {
+  margin-top: 14px;
+  padding-top: 8px;
+  border-top: 1px solid #e5e6eb;
+}
+.exam-group-title {
+  margin: 0 0 2px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #1d2129;
+}
 .exam-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 16px;
   padding: 8px 0;
+}
+.exam-row strong {
+  margin-right: 8px;
+}
+.exam-score {
+  margin-top: 4px;
+  color: #1d2129;
+  font-size: 13px;
+  font-weight: 600;
 }
 .exam-row + .exam-row {
   border-top: 1px solid #f2f3f5;

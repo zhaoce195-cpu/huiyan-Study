@@ -624,7 +624,10 @@ def _score(
         if not tips:
             tips.append("整体表现良好，继续保持规范化阅片习惯。")
     elif not tips:
-        tips.append("这例的分级和诊断都对上了。交卷后可以打开标准结论，再看病灶在哪里。")
+        if grade_applicable:
+            tips.append("这例的分级和诊断都对上了。交卷后可以打开标准结论，再看病灶在哪里。")
+        else:
+            tips.append("这例不考 DR 分级。交卷后可以打开标准结论，再看诊断是否对上。")
 
     suggestion = " ".join(tips)
 
@@ -1198,12 +1201,12 @@ class PracticeService:
                     detail="请先提交本次作答，才能查看金标准",
                 )
 
-        dr = case.gold_dr_grade or "0"
+        dr = (case.gold_dr_grade or "").strip()
         return GoldStandardData(
             case_id=case.id,
             case_no=case.case_no,
             dr_grade=dr,
-            dr_grade_text=DR_GRADE_TEXT.get(dr, ""),
+            dr_grade_text=grade_text(dr),
             diagnosis=case.gold_diagnosis or "",
             teaching_points=case.teaching_points or "",
             annotations=_gold_to_annotations(case),

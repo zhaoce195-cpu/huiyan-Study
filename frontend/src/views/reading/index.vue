@@ -524,6 +524,11 @@ const saving = ref(false)
 const submitRequestId = ref('')
 
 const diagnosisForm = ref<any>(null)
+const showLesionLabels = computed(() => {
+  const fields = diagnosisForm.value?.fields
+  if (!fields?.length) return false
+  return fields.some((field: { key: string }) => field.key === 'findings')
+})
 const submitProblems = ref<string[]>([])
 
 /** 按病种取表单定义；失败不阻断阅片，退化为仅备注 */
@@ -1811,6 +1816,7 @@ const openNote = () => {
                 :lesion-seg-url="lesionSegFor(eyeBoards[code].imageUrl)"
                 :readonly="eyeReadonly(code)"
                 :highlight-id="activeEye === code ? highlightId : ''"
+                :show-lesion-labels="showLesionLabels"
                 @update:annotations="(v, meta) => onEyeAnnotations(code, v, meta)"
                 @pick-label="onPickLabel"
                 @update:measurements="(v) => onEyeMeasurements(code, v)"
@@ -1850,6 +1856,7 @@ const openNote = () => {
             :lesion-seg-url="lesionSegFor(currentImage)"
             :readonly="!canAnnotate || reviewMode || recordLocked"
             :highlight-id="highlightId"
+            :show-lesion-labels="showLesionLabels"
             @update:annotations="onAnnotationsChange"
             @pick-label="onPickLabel"
             @update:measurements="onMeasurementsChange"

@@ -434,6 +434,18 @@ class ExamService:
             mine = "DOING"
         else:
             mine = "HANDED"
+        mine_score = None
+        mine_passed = None
+        if mine == "HANDED":
+            nums = [
+                round(float(row.score_total or 0), 2)
+                for row in mine_rows
+                if row.status != PracticeStatusEnum.DRAFT.value
+            ]
+            if nums:
+                average = round(sum(nums) / len(nums), 2)
+                mine_score = average
+                mine_passed = average >= int(paper.pass_score or 0)
         teacher = (
             db.query(User).filter(User.id == paper.teacher_id).first()
             if paper.teacher_id else None
@@ -473,6 +485,8 @@ class ExamService:
             publisher_name=_person_name(teacher),
             participants=participants,
             mine_status=mine,
+            mine_score=mine_score,
+            mine_passed=mine_passed,
         )
 
     @staticmethod

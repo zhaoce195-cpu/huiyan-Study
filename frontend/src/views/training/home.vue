@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { QuestionFilled } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowUp, QuestionFilled } from '@element-plus/icons-vue'
 import { ExamApi, PracticeApi, ReadingApi, RotationApi } from '@/api'
 import type { ExamPaper } from '@/api/exam'
 import type { GroupSummary, RotationTask, StudentHome, StudentProgress, TeacherHome } from '@/api/rotation'
@@ -310,6 +310,11 @@ const addCase = async () => {
   ElMessage.success(caseTier.value === 'EXTENSION' ? '已标为拓展病例' : '已标为必做病例')
 }
 
+const movedTaskId = ref(0)
+let movedFlash = 0
+const taskRowClass = ({ row }: { row: RotationTask }) =>
+  row.id === movedTaskId.value ? 'is-just-moved' : ''
+
 const moveTask = async (index: number, delta: number) => {
   const rows = [...(teacher.value?.tasks || [])]
   const next = index + delta
@@ -317,6 +322,13 @@ const moveTask = async (index: number, delta: number) => {
   const [item] = rows.splice(index, 1)
   rows.splice(next, 0, item)
   teacher.value = await RotationApi.reorderTasks(rows.map((row) => row.id))
+  movedTaskId.value = item.id
+  window.clearTimeout(movedFlash)
+  movedFlash = window.setTimeout(() => {
+    if (movedTaskId.value === item.id) movedTaskId.value = 0
+  }, 3200)
+  await nextTick()
+  document.querySelector('.task-order-table .is-just-moved')?.scrollIntoView({ block: 'nearest' })
 }
 
 const arrangeBySpectrum = async () => {
@@ -662,17 +674,37 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
           进度 {{ teacher.rotation.progress }}%。顺序就是学员看到的顺序。
         </p>
         <el-button @click="arrangeBySpectrum">按病谱排列</el-button>
-        <el-table :data="teacher.tasks" empty-text="还没有布置">
-          <el-table-column label="顺序" width="110">
+        <el-table
+          class="task-order-table"
+          :data="teacher.tasks"
+          row-key="id"
+          :row-class-name="taskRowClass"
+          empty-text="还没有布置"
+        >
+          <el-table-column label="顺序" width="72" align="center">
             <template #default="{ $index }">
-              <el-button link :disabled="$index === 0" @click="moveTask($index, -1)">上移</el-button>
-              <el-button
-                link
-                :disabled="$index === teacher.tasks.length - 1"
-                @click="moveTask($index, 1)"
-              >
-                下移
-              </el-button>
+              <div class="order-arrows">
+                <button
+                  type="button"
+                  class="order-arrow"
+                  title="上移"
+                  aria-label="上移"
+                  :disabled="$index === 0"
+                  @click="moveTask($index, -1)"
+                >
+                  <el-icon><ArrowUp /></el-icon>
+                </button>
+                <button
+                  type="button"
+                  class="order-arrow"
+                  title="下移"
+                  aria-label="下移"
+                  :disabled="$index === teacher.tasks.length - 1"
+                  @click="moveTask($index, 1)"
+                >
+                  <el-icon><ArrowDown /></el-icon>
+                </button>
+              </div>
             </template>
           </el-table-column>
           <el-table-column prop="kindText" label="类型" width="120" />
@@ -1042,6 +1074,44 @@ const statusType = (task: { status: string; overdue?: boolean; dueToday?: boolea
 .teacher-board :deep(.el-table th.el-table__cell),
 .teacher-board :deep(.el-table td.el-table__cell) {
   background: #f7f9fb;
+}
+.order-arrows {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.order-arrow {
+  width: 26px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid #c9cdd4;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #1d2129;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.order-arrow:hover:not(:disabled) {
+  color: #1677ff;
+  border-color: #1677ff;
+  background: #f0f6ff;
+}
+.order-arrow:disabled {
+  color: #c9cdd4;
+  background: #f2f3f5;
+  cursor: not-allowed;
+}
+.teacher-board :deep(.task-order-table tr.is-just-moved td.el-table__cell) {
+  background: #d6e8ff !important;
+  box-shadow: inset 4px 0 0 #1677ff;
+  animation: task-row-flash 0.45s ease;
+}
+@keyframes task-row-flash {
+  0% { background: #7eb6ff; }
+  100% { background: #d6e8ff; }
 }
 @media (max-width: 800px) {
   .teacher-metrics {

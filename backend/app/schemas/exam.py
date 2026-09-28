@@ -59,6 +59,9 @@ class ExamPaperOut(_CamelModel):
     participants: List[ExamParticipant] = Field(default_factory=list)
     # 学员侧：未进入 / 作答中 / 已交卷 / 缺考
     mine_status: str = ""
+    # 本人已交卷后的平均分。未交卷、未参加时为空，不把别人的分数带出来。
+    mine_score: Optional[float] = None
+    mine_passed: Optional[bool] = None
 
 
 class ExamHandIn(_CamelModel):

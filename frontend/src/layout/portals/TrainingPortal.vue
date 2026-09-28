@@ -578,15 +578,17 @@ const roleBadge = computed(() => {
   position: static;
   transform: none;
   top: auto;
-  border: none;
-  box-shadow: none;
-  height: 16px;
-  min-width: 16px;
-  line-height: 16px;
-  padding: 0 4px;
-  border-radius: 8px;
-  font-size: 11px;
-  font-weight: 700;
+  box-sizing: border-box;
+  height: 22px;
+  min-width: 22px;
+  line-height: 18px;
+  padding: 0 6px;
+  border-radius: 11px;
+  border: 2px solid #ffffff !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  font-size: 14px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
   background: #f53f3f !important;
   color: #ffffff !important;
 }

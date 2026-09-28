@@ -25,6 +25,9 @@ export interface ExamPaper {
   participants?: ExamParticipant[]
   /** READY 未进入 / DOING 作答中 / HANDED 已交卷 / ABSENT 缺考 */
   mineStatus?: string
+  /** 本人已交卷后的平均分。未交卷时为空。 */
+  mineScore?: number | null
+  minePassed?: boolean | null
 }
 
 export interface ExamParticipant {

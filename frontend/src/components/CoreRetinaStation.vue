@@ -83,6 +83,11 @@ const props = withDefaults(
     } | null
     /** 右侧列表悬停的那一条。图上用同一编号，并给它加一圈亮边。 */
     highlightId?: string
+    /**
+     * 图上的病灶名称条。糖网才有微动脉瘤、出血这些名称。
+     * 青光眼、AMD 等题目没有这项，外层传 false，避免看起来像在考 DR 病灶。
+     */
+    showLesionLabels?: boolean
   }>(),
   {
     mode: 'reading',
@@ -94,7 +99,8 @@ const props = withDefaults(
     heatmapOverlayUrl: '',
     lesionSegUrl: '',
     segmentation: null,
-    highlightId: ''
+    highlightId: '',
+    showLesionLabels: true
   }
 )
 
@@ -1853,7 +1859,7 @@ watch(
     />
 
     <!-- 病灶名称一直放在图上。不必先点「手绘」，点名称就能开始标这一处。 -->
-    <div v-if="!effectiveReadonly" class="label-picker">
+    <div v-if="!effectiveReadonly && showLesionLabels" class="label-picker">
       <span class="picker-title">病灶：</span>
       <button
         v-for="l in LESION_LABELS"

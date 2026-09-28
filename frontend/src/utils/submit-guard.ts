@@ -20,6 +20,7 @@ export interface SummaryField {
   key: string
   label: string
   type: string
+  required?: boolean
   options?: FieldOption[]
 }
 export interface SummaryFormDef {
@@ -75,6 +76,31 @@ export const buildAnswerSummary = (
     }
   }
   return rows
+}
+
+const isBlank = (raw: unknown): boolean =>
+  raw === undefined || raw === null || raw === '' || (Array.isArray(raw) && raw.length === 0)
+
+/**
+ * 只检查这张表单上实际出现、且当前仍然要求填写的字段。
+ *
+ * 青光眼、AMD 等病种没有 DR 分级这一项。不能另写一条「请选择 DR 分级」，
+ * 否则题目上没有的字段会把交卷拦住。不可判读时，分级和征象已经隐藏，同样不再要求。
+ */
+export const missingRequiredFields = (
+  form: SummaryFormDef | null,
+  answers: Record<string, any>
+): string[] => {
+  if (!form?.fields?.length) return []
+  const ungradable =
+    !!form.ungradableValue && answers.readability === form.ungradableValue
+  const skip = new Set(ungradable ? form.skipWhenUngradable || [] : [])
+  const problems: string[] = []
+  for (const field of form.fields) {
+    if (!field.required || skip.has(field.key)) continue
+    if (isBlank(answers[field.key])) problems.push(`请填写「${field.label}」`)
+  }
+  return problems
 }
 
 const escapeHtml = (s: string): string =>

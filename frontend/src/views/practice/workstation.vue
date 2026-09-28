@@ -8,6 +8,7 @@ import { ReadingApi, PracticeApi, ExamApi } from '@/api'
 import { wadorsImageId } from '@/utils/cornerstone3d'
 import {
   buildAnswerSummary,
+  missingRequiredFields,
   newRequestId,
   submitWithRetry,
   summaryHtml
@@ -79,7 +80,7 @@ const currentPayload = () => {
   const duration = Math.floor((Date.now() - startTime.value) / 1000)
   return {
     sessionId: record.value?.id,
-    studentDrGrade: structuredAnswer.value.dr_grade || diagForm.value.drGrade,
+    studentDrGrade: resolvedStudentGrade(),
     studentDiagnosis: diagForm.value.diagnosis,
     diagnosis: structuredAnswer.value,
     annotations: canvasState.annotations,
@@ -201,15 +202,38 @@ const goldLayerHint = computed(() => {
 
 /* ========== 诊断表单 ========== */
 const diagnosisForm = ref<any>(null)
+const diagnosisFormLoading = ref(false)
+const formProblems = ref<string[]>([])
 const structuredAnswer = ref<Record<string, any>>({})
 
-/** 与阅片端共用同一套病种表单；取不到则退回旧的自由文本表单 */
+/** 与阅片端共用同一套病种表单。载入失败不退回 DR 分级，避免非糖网题目被逼着选分级。 */
 const loadDiagnosisForm = async (caseId: number) => {
+  diagnosisFormLoading.value = true
+  diagnosisForm.value = null
+  formProblems.value = []
   try {
     diagnosisForm.value = await ReadingApi.getDiagnosisForm(caseId)
   } catch {
     diagnosisForm.value = null
+  } finally {
+    diagnosisFormLoading.value = false
   }
+}
+
+const formAsksDrGrade = computed(() =>
+  (diagnosisForm.value?.fields || []).some((field: { key: string }) => field.key === 'dr_grade')
+)
+/** 表单还没到时先不显示病灶条，避免非糖网题目闪出微动脉瘤等名称。 */
+const showLesionLabels = computed(() => {
+  const fields = diagnosisForm.value?.fields
+  if (!fields?.length) return false
+  return fields.some((field: { key: string }) => field.key === 'findings')
+})
+
+/** 只有本题表单里真有 DR 分级时才上送。没有这一项就送空，评分按「未考」处理。 */
+const resolvedStudentGrade = () => {
+  if (!formAsksDrGrade.value) return ''
+  return String(structuredAnswer.value.dr_grade || diagForm.value.drGrade || '')
 }
 
 const diagForm = ref({
@@ -482,13 +506,25 @@ const onGoldToggle = async (val: any) => {
 }
 
 /* ========== 提交作答 ========== */
+const scoringLead = () => {
+  const text = textQuestions.value.length ? '和文字题' : ''
+  if (formAsksDrGrade.value) return `按这例的分级、诊断${text}评分。`
+  return `这例不考 DR 分级，按表单上的结论${text}评分。`
+}
+
 const handleSubmit = async () => {
   if (!record.value) return
-  const grade = structuredAnswer.value.dr_grade || diagForm.value.drGrade
-  const ungradable =
-    structuredAnswer.value.readability === diagnosisForm.value?.ungradableValue
-  if (!grade && !ungradable) {
-    ElMessage.warning('请选择 DR 分级')
+  if (!diagnosisForm.value) {
+    ElMessage.warning(
+      diagnosisFormLoading.value
+        ? '本题结论表还在载入，请稍后再交卷'
+        : '本题结论表没有载入，请刷新后再交卷'
+    )
+    return
+  }
+  formProblems.value = missingRequiredFields(diagnosisForm.value, structuredAnswer.value)
+  if (formProblems.value.length) {
+    ElMessage.warning(formProblems.value[0])
     return
   }
   const missingText = textQuestions.value.some((q) => !(textAnswers.value[q.id] || '').trim())
@@ -497,11 +533,12 @@ const handleSubmit = async () => {
     return
   }
   const rows = buildAnswerSummary(diagnosisForm.value, structuredAnswer.value)
+  const lead = scoringLead()
   const submitNote = isExam.value
     ? examContinues.value
-      ? `按这例的分级、诊断和文字题评分。本题交卷后进入下一题。${record.value?.allowBack ? '' : '不能返回上一题。'}老师收卷前不显示答案。`
-      : `按这例的分级、诊断和文字题评分。这是最后一题。${record.value?.examPaperId ? '老师收卷后才显示答案。' : '交卷后才显示整场答案。'}`
-    : `按这例的分级、诊断和文字题评分。图上标位置不计入成绩。提交后自动评分，不能再改。`
+      ? `${lead}本题交卷后进入下一题。${record.value?.allowBack ? '' : '不能返回上一题。'}老师收卷前不显示答案。`
+      : `${lead}这是最后一题。${record.value?.examPaperId ? '老师收卷后才显示答案。' : '交卷后才显示整场答案。'}`
+    : `${lead}图上标位置不计入成绩。提交后自动评分，不能再改。`
   try {
     await ElMessageBox.confirm(
       summaryHtml(rows, submitNote),
@@ -524,10 +561,8 @@ const handleSubmit = async () => {
     const duration = Math.floor((Date.now() - startTime.value) / 1000)
     const payload = {
       sessionId: record.value.id,
-      // 分级仍单独上送：它是评分的独立一项（占 30%），
-      // 结构化表单里的 dr_grade 与之保持同一取值
-      studentDrGrade:
-        structuredAnswer.value.dr_grade || diagForm.value.drGrade,
+      // 只有本题表单含 DR 分级时才上送。没有这一项送空，后端按「未考」把权重摊开。
+      studentDrGrade: resolvedStudentGrade(),
       studentDiagnosis: diagForm.value.diagnosis,
       diagnosis: structuredAnswer.value,
       annotations: canvasState.annotations,
@@ -775,6 +810,7 @@ watch(currentImageIndex, () => {
           :gold-overlay-url="goldOverlayUrl"
           :locate="locateRequest"
           :laterality="locateEye"
+          :show-lesion-labels="showLesionLabels"
           :segmentation="record?.answersOpen ? (source?.segmentation || null) : null"
           @update:annotations="onAnnotationsChange"
           @pick-label="onPickLabel"
@@ -849,30 +885,11 @@ watch(currentImageIndex, () => {
             v-if="diagnosisForm"
             v-model="structuredAnswer"
             :form="diagnosisForm"
+            :problems="formProblems"
             tone="dark"
           />
-          <el-form v-else label-position="top" size="default">
-            <el-form-item label="DR 分级">
-              <el-radio-group v-model="diagForm.drGrade">
-                <el-radio
-                  v-for="o in PracticeApi.DR_GRADE_OPTIONS"
-                  :key="o.value"
-                  :value="o.value"
-                  style="display: block; margin-bottom: 6px"
-                >
-                  {{ o.label }}
-                </el-radio>
-              </el-radio-group>
-            </el-form-item>
-            <el-form-item label="诊断描述">
-              <el-input
-                v-model="diagForm.diagnosis"
-                type="textarea"
-                :rows="4"
-                placeholder="请描述您的诊断意见…"
-              />
-            </el-form-item>
-          </el-form>
+          <p v-else-if="diagnosisFormLoading" class="score-legend">正在载入本题结论。</p>
+          <p v-else class="score-legend">本题结论表没有载入，请刷新后再交卷。</p>
         </div>
 
         <div v-if="locateTasks.length" class="panel-section">
@@ -988,8 +1005,11 @@ watch(currentImageIndex, () => {
               </div>
             </template>
           </div>
-          <p v-if="caseLearning" class="score-legend">
+          <p v-if="caseLearning && gradeExamined" class="score-legend">
             这次成绩看这例的结论：分级 40%、诊断 40%、文字题 20%。分级和标准结论差 1 级扣 25。诊断没写是 0。文字题没写算错。图上画框不计入总分。更早的成绩仍按当时的规则，不能和这次直接比。
+          </p>
+          <p v-else-if="caseLearning" class="score-legend">
+            这例不考 DR 分级，分级显示「未考」，这项分数摊到诊断和文字题上。诊断没写是 0。文字题没写算错。图上画框不计入总分。更早的成绩仍按当时的规则，不能和这次直接比。
           </p>
           <p v-else class="score-legend">
             分级：你判的 DR 等级和标准答案差几级。一致是 100，每差 1 级扣 25。这例不考分级时显示「未考」。
