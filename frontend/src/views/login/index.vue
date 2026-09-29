@@ -5,6 +5,7 @@ import { ElMessage, ElLoading, type FormInstance, type FormRules } from 'element
 import { User, Lock } from '@element-plus/icons-vue'
 import { LoginApi } from '@/api'
 import { startLogin } from '@/utils/oidc'
+import { requestLoginNoticePopup, withLoginNoticeQuery } from '@/utils/login-notice'
 import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
@@ -121,7 +122,6 @@ const handleLogin = async () => {
         token: res.token,
         refreshToken: res.refreshToken
       })
-      const { requestLoginNoticePopup, withLoginNoticeQuery } = await import('@/utils/login-notice')
       requestLoginNoticePopup()
 
       ElMessage.success(`欢迎回来，${userInfo.name || userInfo.username || form.username}`)

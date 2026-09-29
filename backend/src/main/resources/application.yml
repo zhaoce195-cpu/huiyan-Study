@@ -1,0 +1,57 @@
+server:
+  port: ${PORT:8000}
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: huiyan-backend
+  profiles:
+    active: dev
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+  mvc:
+    pathmatch:
+      matching-strategy: ant_path_matcher
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: GMT+8
+    default-property-inclusion: always
+
+# Sa-Token 配置
+sa-token:
+  token-name: Authorization
+  timeout: 43200
+  active-timeout: -1
+  is-concurrent: true
+  is-share: true
+  token-prefix: Bearer
+  is-read-header: true
+  is-read-cookie: false
+
+# MyBatis-Plus 配置
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    db-config:
+      id-type: auto
+
+# 业务自定义配置
+huiyan:
+  api-prefix: /api/v1
+  upload-dir: ${UPLOAD_DIR:app/static}
+  static-url: /static
+  jwt-secret: ${SECRET_KEY:change-me-in-production-1234567890abcdef1234567890abcdef}
+  csu-eyes-base-url: ${CSU_EYES_BASE_URL:http://192.168.2.103:5000}
+  drgcnn-base-url: ${DRGCNN_BASE_URL:http://192.168.2.103:5000}
+  drgcnn-enabled: ${DRGCNN_ENABLED:true}
+  orthanc-base-url: ${ORTHANC_BASE_URL:http://localhost:8042}
+  orthanc-enabled: ${ORTHANC_ENABLED:true}
+  orthanc-user: ${ORTHANC_USER:huiyan}
+  orthanc-password: ${ORTHANC_PASSWORD:huiyan-local-dev}
+  keycloak-base-url: ${KEYCLOAK_BASE_URL:http://localhost:8085}
+  keycloak-login-enabled: ${KEYCLOAK_LOGIN_ENABLED:false}

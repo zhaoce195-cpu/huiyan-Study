@@ -52,3 +52,13 @@ backend/app/static/dicom/
 *.tar.gz
 _tmp_feedback/
 
+# ---- Java 构建产物与运行环境 ----
+target/
+**/target/
+*.class
+*.jar
+*.war
+jdk*/
+maven/
+backend-python-legacy/
+

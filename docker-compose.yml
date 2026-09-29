@@ -21,16 +21,9 @@ services:
     container_name: huiyan-backend
     restart: unless-stopped
     environment:
-      # ---- 数据库：SQLite，文件落在 /app/edu_eye.db（已挂载到宿主）----
-      DB_TYPE: sqlite
-      SQLITE_PATH: edu_eye.db
-      # ---- 首启自动建表 + 写入演示账号（幂等）----
-      DEBUG: "True"
-      # ---- JWT：生产请改成随机串（openssl rand -hex 32）----
-      SECRET_KEY: ${SECRET_KEY:-change-me-in-production-1234567890abcdef1234567890abcdef}
-      ACCESS_TOKEN_EXPIRE_MINUTES: "720"
-      # ---- 同源经 nginx 反代，CORS 留空即放行（代码内回退为 *）----
-      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      # ---- 运行环境配置（默认开发环境 SQLite） ----
+      SPRING_PROFILES_ACTIVE: dev
+      TZ: Asia/Shanghai
     volumes:
       # SQLite 数据库文件持久化（沿用现有数据）
       - ./backend/edu_eye.db:/app/edu_eye.db

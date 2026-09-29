@@ -11,6 +11,7 @@ import { ElMessage } from 'element-plus'
 import { LoginApi } from '@/api'
 import { useUserStore } from '@/stores/user'
 import { handleCallback, parseClaims, frontRoleOf, type OidcConfig } from '@/utils/oidc'
+import { requestLoginNoticePopup, withLoginNoticeQuery } from '@/utils/login-notice'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -57,7 +58,6 @@ onMounted(async () => {
       sessionStorage.setItem('huiyan_id_token', result.tokens.id_token)
     }
 
-    const { requestLoginNoticePopup, withLoginNoticeQuery } = await import('@/utils/login-notice')
     requestLoginNoticePopup()
 
     if (userStore.userInfo.mustChangePassword) {

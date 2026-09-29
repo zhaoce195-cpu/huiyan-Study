@@ -11,6 +11,7 @@
 
 | 版本 | 发布日期 | 核心更新内容 | 标签链接 |
 | :--- | :--- | :--- | :--- |
+| **v4.4(java)** | 2026-09-29 | Java语言转换版本：后端全面重构为 Java 17 + Spring Boot 3 + MyBatis-Plus + Sa-Token 架构，实现与原 Python 版 100% 接口与业务平替 | [查看 v4.4(java) 标签](../../tree/v4.4(java)) |
 | **v4.4** | 2026-09-28 | 综合修复：深度精简教师端功能与界面、重构病例浏览中枢、升级阅片批注与快捷评语胶囊 | [查看 v4.4 标签](../../tree/v4.4) |
 | **v4.3** | 2026-09-24 | 管理端整改：科室院区隔离、用户权限中枢、带教审核与病例定向分享（班级/年级/组） | [查看 v4.3 标签](../../tree/v4.3) |
 | **v4.2** | 2026-09-23 | 教师端功能全量版（未精简）：正式考试、班级学生分组、大纲指引、批量导入与学情大盘 | [查看 v4.2 标签](../../tree/v4.2) |
@@ -25,8 +26,8 @@
 ## 🛠️ 技术栈架构
 
 - **前端 (Frontend)**：Vue 3 + TypeScript + Vite + Element Plus + Pinia + Cornerstone3D
-- **后端 (Backend)**：Python 3.11 + FastAPI + SQLAlchemy 2.0 + Alembic + Pydantic v2
-- **安全与认证**：JWT / Sa-Token 机制 / OAuth2 Keycloak
+- **后端 (Backend - Java)**：Java 17 + Spring Boot 3.2.5 + MyBatis-Plus 3.5.5 + Sa-Token 1.38 + BCrypt
+- **安全与认证**：Sa-Token JWT / OAuth2 Keycloak
 - **数据库与存储**：SQLite / MySQL 8.0 + DICOM Orthanc PACS
 - **文档与流程**：[端到端业务流程图 (Draw.io)](./docs/慧眼平台-端到端业务流程图.drawio)
 
@@ -34,13 +35,18 @@
 
 ## 🚀 本地快速启动
 
-### 1. 启动后端服务
+### 1. 启动后端服务 (Java)
 ```bash
+# 方式一：直接运行根目录下启动脚本
+.\start-backend.bat
+
+# 方式二：命令行启动
 cd backend
-.venv\Scripts\python -m uvicorn app.main:app --port 8000
+mvn clean package -DskipTests
+java -jar target/huiyan-backend-1.0.0.jar
 ```
 - 后端接口服务：`http://127.0.0.1:8000`
-- API 交互式文档：`http://127.0.0.1:8000/docs`
+- 健康检查：`http://127.0.0.1:8000/health`
 
 ### 2. 启动前端服务
 ```bash
